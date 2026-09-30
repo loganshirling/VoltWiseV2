@@ -1,0 +1,6 @@
+{
+  "name": "VoltWise - Home Battery Storage ROI & TOU Simulation",
+  "description": "Comprehensive technical and financial cost-benefit simulation for residential energy storage batteries, featuring 8,760-hour dispatch modeling, customizable TOU rate grids, multi-profile comparison, and 15-year cash flow projections.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
