@@ -646,6 +646,38 @@ export interface SolarFleetGenerationInterval {
 }
 
 // ============================================================================
+// Wind Generation & Fleet Aggregation Contracts (Milestone G5B)
+// ============================================================================
+
+export type ModeledWindResourceMode =
+  | 'annual_average'
+  | 'monthly_average';
+
+export interface WindGenerationInterval {
+  assetId: string;
+  timestampUtc: string;
+  resourceMode: ModeledWindResourceMode;
+
+  resourceMeanWindSpeedMps: number;
+  hubHeightMeanWindSpeedMps: number;
+
+  expectedNetPowerKw: number;
+  energyKwh: number;
+}
+
+export interface WindFleetGenerationInterval {
+  timestampUtc: string;
+  totalExpectedPowerKw: number;
+  totalEnergyKwh: number;
+}
+
+export interface WindFleetSummary {
+  intervalCount: number;
+  totalGenerationKwh: number;
+  averagePowerKw: number;
+}
+
+// ============================================================================
 // Solar-to-Load Energy Flow Contracts (Milestone G3A)
 // ============================================================================
 
