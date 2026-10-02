@@ -744,7 +744,7 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
     };
 
     // Configuration object is preserved intact without mutation
-    expect(configWithInterval.assets[0].resourceMode).toBe('interval_file');
+    expect((configWithInterval.assets[0] as WindGenerationAsset).resourceMode).toBe('interval_file');
 
     // Engine rejects interval_file if simulation is attempted
     expect(() => {
