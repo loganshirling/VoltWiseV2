@@ -25,7 +25,9 @@ import {
   GenerationConfig,
   GenerationOperationalProjection,
   GenerationOperationalYear,
+  GeneratorGenerationAsset,
   SolarGenerationAsset,
+  WindGenerationAsset,
 } from '../types/energy';
 import { GenerationAwareSimulationResult } from '../utils/generationAwareSimulation';
 
@@ -1471,6 +1473,1077 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
       expect(exportData.financial_assumptions.resilience.critical_home_load_kw).not.toBe(
         exportData.battery_configuration.max_continuous_discharge_kw
       );
+    });
+  });
+
+  describe('G5F — Wind JSON Export & Final Feature Integration', () => {
+    const sampleWindTurbineAnnual: WindGenerationAsset = {
+      id: 'wind-turbine-1',
+      name: 'North Ridge Turbine',
+      enabled: true,
+      type: 'wind',
+      installedCostUsd: 15000,
+      annualMaintenanceCostUsd: 300,
+      ratedPowerKw: 6.0,
+      hubHeightM: 18,
+      rotorDiameterM: 5.5,
+      cutInWindSpeedMps: 2.5,
+      ratedWindSpeedMps: 11.0,
+      cutOutWindSpeedMps: 22.0,
+      availabilityPercent: 97.5,
+      systemLossPercent: 12.0,
+      resourceMode: 'annual_average',
+      measurementHeightM: 10,
+      windShearExponent: 0.16,
+      annualAverageWindSpeedMps: 6.2,
+      monthlyAverageWindSpeedMps: [6.0, 6.1, 6.3, 6.4, 6.2, 5.8, 5.5, 5.7, 6.0, 6.3, 6.5, 6.6],
+      powerCurve: [
+        { windSpeedMps: 0, outputKw: 0 },
+        { windSpeedMps: 2.5, outputKw: 0.1 },
+        { windSpeedMps: 5.0, outputKw: 1.2 },
+        { windSpeedMps: 8.0, outputKw: 3.5 },
+        { windSpeedMps: 11.0, outputKw: 6.0 },
+        { windSpeedMps: 15.0, outputKw: 6.0 },
+        { windSpeedMps: 22.0, outputKw: 0 },
+      ],
+    };
+
+    const sampleWindTurbineMonthly: WindGenerationAsset = {
+      ...sampleWindTurbineAnnual,
+      id: 'wind-turbine-monthly',
+      name: 'Coastal Monthly Turbine',
+      resourceMode: 'monthly_average',
+      annualAverageWindSpeedMps: null,
+      monthlyAverageWindSpeedMps: [5.2, 5.4, 5.9, 6.1, 5.8, 4.9, 4.5, 4.7, 5.1, 5.6, 6.0, 6.2],
+    };
+
+    const sampleWindConfigAnnual: GenerationConfig = {
+      site: {
+        latitude: 42.123,
+        longitude: -71.456,
+        timeZone: 'America/New_York',
+        elevationM: 120,
+      },
+      assets: [sampleWindTurbineAnnual],
+    };
+
+    const sampleWindConfigMonthly: GenerationConfig = {
+      site: {
+        latitude: 42.123,
+        longitude: -71.456,
+        timeZone: 'America/New_York',
+        elevationM: 120,
+      },
+      assets: [sampleWindTurbineMonthly],
+    };
+
+    const sampleMixedConfig: GenerationConfig = {
+      site: {
+        latitude: 37.7749,
+        longitude: -122.4194,
+        timeZone: 'America/Los_Angeles',
+        elevationM: 16,
+      },
+      assets: [solarArray1, solarArray2, sampleWindTurbineAnnual, disabledSolarArray],
+    };
+
+    const mockMixedGenerationAwareResult: GenerationAwareSimulationResult = {
+      totalIntervals: 8760,
+      totalHomeLoadKwh: 12000,
+
+      totalSolarGenerationKwh: 14000,
+      totalSolarDirectToLoadKwh: 5000,
+      totalSolarExportKwh: 4500,
+      totalSolarCurtailedKwh: 500,
+      totalSolarToBatteryKwh: 4000,
+
+      totalWindGenerationKwh: 8000,
+      totalWindDirectToLoadKwh: 3500,
+      totalWindExportKwh: 2000,
+      totalWindCurtailedKwh: 300,
+      totalWindToBatteryKwh: 2200,
+
+      totalRenewableGenerationKwh: 22000,
+      totalRenewableDirectToLoadKwh: 8500,
+      totalRenewableExportKwh: 6500,
+      totalRenewableCurtailedKwh: 800,
+      totalRenewableToBatteryKwh: 6200,
+
+      totalBatteryExportKwh: 400,
+      totalGridImportKwh: 3500,
+      totalGridExportKwh: 6900,
+
+      baselineCost: 3600,
+      simulatedCost: 1200,
+      netSavings: 2400,
+      gridFlows: {
+        totalCurtailedSolarKwh: 500,
+        totalCurtailedWindKwh: 300,
+        totalCurtailedRenewableKwh: 800,
+      } as any,
+      exportAwareBatteryFlow: {
+        intervals: [
+          { preExportFlow: { solarToBatteryAcKwh: 4000, windToBatteryAcKwh: 2200, renewableToBatteryAcKwh: 6200 } } as any,
+        ],
+      } as any,
+    } as any;
+
+    const mockWindOnlyGenerationAwareResult: GenerationAwareSimulationResult = {
+      totalIntervals: 8760,
+      totalHomeLoadKwh: 10000,
+
+      totalSolarGenerationKwh: 0,
+      totalSolarDirectToLoadKwh: 0,
+      totalSolarExportKwh: 0,
+      totalSolarCurtailedKwh: 0,
+      totalSolarToBatteryKwh: 0,
+
+      totalWindGenerationKwh: 9500,
+      totalWindDirectToLoadKwh: 4200,
+      totalWindExportKwh: 2500,
+      totalWindCurtailedKwh: 400,
+      totalWindToBatteryKwh: 2400,
+
+      totalRenewableGenerationKwh: 9500,
+      totalRenewableDirectToLoadKwh: 4200,
+      totalRenewableExportKwh: 2500,
+      totalRenewableCurtailedKwh: 400,
+      totalRenewableToBatteryKwh: 2400,
+
+      totalBatteryExportKwh: 300,
+      totalGridImportKwh: 3400,
+      totalGridExportKwh: 2800,
+
+      baselineCost: 3000,
+      simulatedCost: 1100,
+      netSavings: 1900,
+      gridFlows: {
+        totalCurtailedSolarKwh: 0,
+        totalCurtailedWindKwh: 400,
+        totalCurtailedRenewableKwh: 400,
+      } as any,
+      exportAwareBatteryFlow: {
+        intervals: [
+          { preExportFlow: { solarToBatteryAcKwh: 0, windToBatteryAcKwh: 2400, renewableToBatteryAcKwh: 2400 } } as any,
+        ],
+      } as any,
+    } as any;
+
+    function createMockMixedOperationalProjection(horizon = 25): GenerationOperationalProjection {
+      const years: GenerationOperationalYear[] = [];
+      for (let y = 1; y <= horizon; y++) {
+        const degFactorSolar = 1 - 0.005 * (y - 1);
+        const battRetention = Math.max(0.7, 1 - 0.02 * (y - 1));
+
+        const solarGen = Math.round(14000 * degFactorSolar * 10) / 10;
+        const solarDirect = Math.round(5000 * degFactorSolar * 10) / 10;
+        const solarBatt = Math.round(4000 * degFactorSolar * 10) / 10;
+        const solarExport = Math.round(4500 * degFactorSolar * 10) / 10;
+        const solarCurt = 500;
+
+        const windGen = 8000;
+        const windDirect = 3500;
+        const windBatt = 2200;
+        const windExport = 2000;
+        const windCurt = 300;
+
+        const renewGen = Math.round((solarGen + windGen) * 10) / 10;
+        const renewDirect = Math.round((solarDirect + windDirect) * 10) / 10;
+        const renewBatt = Math.round((solarBatt + windBatt) * 10) / 10;
+        const renewExport = Math.round((solarExport + windExport) * 10) / 10;
+        const renewCurt = solarCurt + windCurt;
+
+        years.push({
+          year: y,
+          baselineElectricityCostUsd: Math.round(3600 * Math.pow(1.03, y - 1) * 100) / 100,
+          simulatedElectricityCostUsd: Math.round(1200 * Math.pow(1.03, y - 1) * 100) / 100,
+          electricitySavingsUsd: Math.round(2400 * Math.pow(1.03, y - 1) * 100) / 100,
+          solarGeneratedKwh: solarGen,
+          solarDirectToLoadKwh: solarDirect,
+          solarToBatteryKwh: solarBatt,
+          solarExportKwh: solarExport,
+          solarCurtailedKwh: solarCurt,
+          windGeneratedKwh: windGen,
+          windDirectToLoadKwh: windDirect,
+          windToBatteryKwh: windBatt,
+          windExportKwh: windExport,
+          windCurtailedKwh: windCurt,
+          renewableGeneratedKwh: renewGen,
+          renewableDirectToLoadKwh: renewDirect,
+          renewableToBatteryKwh: renewBatt,
+          renewableExportKwh: renewExport,
+          renewableCurtailedKwh: renewCurt,
+          gridImportKwh: 3500,
+          gridExportKwh: Math.round((renewExport + 400) * 10) / 10,
+          batteryExportKwh: 400,
+          batteryDischargedKwh: 3600,
+          equivalentFullCycles: 260,
+          batteryCapacityRetentionFactor: battRetention,
+          batteryUsableCapacityKwh: Math.round(13.5 * battRetention * 10) / 10,
+          solarAssets: [
+            { assetId: solarArray1.id, capacityRetentionFactor: degFactorSolar, effectiveDcCapacityKw: Math.round(8.0 * degFactorSolar * 100) / 100 },
+          ],
+        });
+      }
+      return { horizonYears: horizon, years };
+    }
+
+    function createMockWindOnlyOperationalProjection(horizon = 25): GenerationOperationalProjection {
+      const years: GenerationOperationalYear[] = [];
+      for (let y = 1; y <= horizon; y++) {
+        const battRetention = Math.max(0.7, 1 - 0.02 * (y - 1));
+        years.push({
+          year: y,
+          baselineElectricityCostUsd: Math.round(3000 * Math.pow(1.03, y - 1) * 100) / 100,
+          simulatedElectricityCostUsd: Math.round(1100 * Math.pow(1.03, y - 1) * 100) / 100,
+          electricitySavingsUsd: Math.round(1900 * Math.pow(1.03, y - 1) * 100) / 100,
+          solarGeneratedKwh: 0,
+          solarDirectToLoadKwh: 0,
+          solarToBatteryKwh: 0,
+          solarExportKwh: 0,
+          solarCurtailedKwh: 0,
+          windGeneratedKwh: 9500,
+          windDirectToLoadKwh: 4200,
+          windToBatteryKwh: 2400,
+          windExportKwh: 2500,
+          windCurtailedKwh: 400,
+          renewableGeneratedKwh: 9500,
+          renewableDirectToLoadKwh: 4200,
+          renewableToBatteryKwh: 2400,
+          renewableExportKwh: 2500,
+          renewableCurtailedKwh: 400,
+          gridImportKwh: 3400,
+          gridExportKwh: 2800,
+          batteryExportKwh: 300,
+          batteryDischargedKwh: 3000,
+          equivalentFullCycles: 220,
+          batteryCapacityRetentionFactor: battRetention,
+          batteryUsableCapacityKwh: Math.round(13.5 * battRetention * 10) / 10,
+          solarAssets: [],
+        });
+      }
+      return { horizonYears: horizon, years };
+    }
+
+    const mockMixedOperationalProjection25 = createMockMixedOperationalProjection(25);
+    const mockWindOnlyOperationalProjection25 = createMockWindOnlyOperationalProjection(25);
+
+    const mixedProjectCosts = aggregateGenerationProjectCosts(sampleMixedConfig);
+    const mixedFinancialAnalysis = calculateGenerationAwareFinancials({
+      batteryProfile: profile,
+      operationalProjection: mockMixedOperationalProjection25,
+      projectCosts: mixedProjectCosts,
+      financials: sampleFinancials,
+    });
+
+    const windOnlyProjectCosts = aggregateGenerationProjectCosts(sampleWindConfigAnnual);
+    const windOnlyFinancialAnalysis = calculateGenerationAwareFinancials({
+      batteryProfile: profile,
+      operationalProjection: mockWindOnlyOperationalProjection25,
+      projectCosts: windOnlyProjectCosts,
+      financials: sampleFinancials,
+    });
+
+    it('1. Legacy no-generation export unchanged', () => {
+      const legacyAnalysis = calculate15YearFinancials(profile, dummySummary, DEFAULT_MACRO_FINANCIALS);
+      const legacyExport = buildExportLlmJson({
+        activeAnalysis: legacyAnalysis,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: DEFAULT_MACRO_FINANCIALS,
+        csvResult: mockCsvResult,
+      });
+
+      expect((legacyExport as any).wind_turbines).toBeUndefined();
+      expect((legacyExport.year_1_results as any).wind_generated_kwh).toBeUndefined();
+      expect((legacyExport.year_1_results as any).renewable_generated_kwh).toBeUndefined();
+      expect(legacyExport.battery_configuration.profile_name).toBe(profile.name);
+      expect(legacyExport.annual_time_series).toHaveLength(15);
+    });
+
+    it('2. Solar-only generation export compatibility', () => {
+      const solarExport = buildGenerationExportLlmJson({
+        generationConfig: sampleGenerationConfig,
+        allowSolarExport: true,
+        generationAwareResult: mockGenerationAwareResult,
+        operationalProjection: mockOperationalProjection25,
+        generationAnalysis: generationFinancialAnalysis,
+        generationProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(solarExport.generation_configuration.solar_arrays).toHaveLength(2);
+      expect(solarExport.generation_configuration.allow_solar_export).toBe(true);
+      expect(solarExport.generation_year_1_results.solar_generated_kwh).toBe(14500);
+      expect(solarExport.generation_year_1_results.solar_direct_to_load_kwh).toBe(5200);
+      expect(solarExport.generation_annual_projection).toHaveLength(15);
+      expect(solarExport.generation_annual_projection[0].solar_generation_kwh).toBe(14500);
+    });
+
+    it('3. Solar-only export does not emit unnecessary wind sections', () => {
+      const solarExport = buildGenerationExportLlmJson({
+        generationConfig: sampleGenerationConfig,
+        allowSolarExport: true,
+        generationAwareResult: mockGenerationAwareResult,
+        operationalProjection: mockOperationalProjection25,
+        generationAnalysis: generationFinancialAnalysis,
+        generationProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(solarExport.generation_configuration.wind_turbines).toBeUndefined();
+      expect(solarExport.generation_configuration.allow_renewable_export).toBeUndefined();
+      expect(solarExport.generation_year_1_results.wind_generated_kwh).toBeUndefined();
+      expect(solarExport.generation_year_1_results.wind_direct_to_load_kwh).toBeUndefined();
+      expect(solarExport.generation_year_1_results.wind_export_kwh).toBeUndefined();
+      expect(solarExport.generation_year_1_results.wind_curtailed_kwh).toBeUndefined();
+      expect(solarExport.generation_year_1_results.renewable_generated_kwh).toBeUndefined();
+
+      solarExport.generation_annual_projection.forEach((row) => {
+        expect(row.wind_generation_kwh).toBeUndefined();
+        expect(row.wind_direct_to_load_kwh).toBeUndefined();
+        expect(row.renewable_generation_kwh).toBeUndefined();
+      });
+    });
+
+    it('4. Wind-only configuration export', () => {
+      const windExport = buildGenerationExportLlmJson({
+        generationConfig: sampleWindConfigAnnual,
+        allowRenewableExport: true,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(windExport.generation_configuration.solar_arrays).toEqual([]);
+      expect(windExport.generation_configuration.enabled_solar_arrays).toEqual([]);
+      expect(windExport.generation_configuration.wind_turbines).toHaveLength(1);
+      expect(windExport.generation_configuration.allow_renewable_export).toBe(true);
+
+      const turbine = windExport.generation_configuration.wind_turbines![0];
+      expect(turbine.id).toBe('wind-turbine-1');
+      expect(turbine.name).toBe('North Ridge Turbine');
+      expect(turbine.rated_power_kw).toBe(6.0);
+      expect(turbine.hub_height_m).toBe(18);
+      expect(turbine.rotor_diameter_m).toBe(5.5);
+      expect(turbine.cut_in_wind_speed_mps).toBe(2.5);
+      expect(turbine.rated_wind_speed_mps).toBe(11.0);
+      expect(turbine.cut_out_wind_speed_mps).toBe(22.0);
+      expect(turbine.availability_pct).toBe(97.5);
+      expect(turbine.system_loss_pct).toBe(12.0);
+      expect(turbine.measurement_height_m).toBe(10);
+      expect(turbine.wind_shear_exponent).toBe(0.16);
+    });
+
+    it('5. Mixed solar/wind configuration export', () => {
+      const mixedExport = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(mixedExport.generation_configuration.solar_arrays).toHaveLength(2);
+      expect(mixedExport.generation_configuration.wind_turbines).toHaveLength(1);
+      expect(mixedExport.generation_configuration.wind_turbines![0].id).toBe('wind-turbine-1');
+    });
+
+    it('6. Annual-average resource faithfully exported', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleWindConfigAnnual,
+        allowRenewableExport: true,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const turbine = exportData.generation_configuration.wind_turbines![0];
+      expect(turbine.resource_mode).toBe('annual_average');
+      expect(turbine.annual_average_wind_speed_mps).toBe(6.2);
+      expect(turbine.monthly_average_wind_speed_mps).toBeUndefined();
+    });
+
+    it('7. Monthly-average 12-value resource faithfully exported', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleWindConfigMonthly,
+        allowRenewableExport: true,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const turbine = exportData.generation_configuration.wind_turbines![0];
+      expect(turbine.resource_mode).toBe('monthly_average');
+      expect(turbine.monthly_average_wind_speed_mps).toEqual([
+        5.2, 5.4, 5.9, 6.1, 5.8, 4.9, 4.5, 4.7, 5.1, 5.6, 6.0, 6.2,
+      ]);
+      expect(turbine.annual_average_wind_speed_mps).toBeUndefined();
+    });
+
+    it('8. Manufacturer power curve faithfully exported', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleWindConfigAnnual,
+        allowRenewableExport: true,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const turbine = exportData.generation_configuration.wind_turbines![0];
+      expect(turbine.power_curve).toEqual([
+        { wind_speed_mps: 0, output_kw: 0 },
+        { wind_speed_mps: 2.5, output_kw: 0.1 },
+        { wind_speed_mps: 5.0, output_kw: 1.2 },
+        { wind_speed_mps: 8.0, output_kw: 3.5 },
+        { wind_speed_mps: 11.0, output_kw: 6.0 },
+        { wind_speed_mps: 15.0, output_kw: 6.0 },
+        { wind_speed_mps: 22.0, output_kw: 0 },
+      ]);
+    });
+
+    it('9. Wind installed cost exported from configuration', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleWindConfigAnnual,
+        allowRenewableExport: true,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const turbine = exportData.generation_configuration.wind_turbines![0];
+      expect(turbine.installed_cost_usd).toBe(15000);
+    });
+
+    it('10. Wind annual maintenance exported from configuration', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleWindConfigAnnual,
+        allowRenewableExport: true,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const turbine = exportData.generation_configuration.wind_turbines![0];
+      expect(turbine.annual_maintenance_cost_usd).toBe(300);
+    });
+
+    it('11. Renewable export permission represented correctly for wind-enabled project', () => {
+      // Precedence: allowRenewableExport takes precedence over allowSolarExport
+      const exportFalse = buildGenerationExportLlmJson({
+        generationConfig: sampleWindConfigAnnual,
+        allowSolarExport: true,
+        allowRenewableExport: false,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+      expect(exportFalse.generation_configuration.allow_renewable_export).toBe(false);
+      expect(exportFalse.generation_configuration.allow_solar_export).toBe(false);
+
+      // Backwards-compatible fallback to allowSolarExport when allowRenewableExport not passed
+      const exportFallback = buildGenerationExportLlmJson({
+        generationConfig: sampleWindConfigAnnual,
+        allowSolarExport: true,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+      expect(exportFallback.generation_configuration.allow_renewable_export).toBe(true);
+    });
+
+    it('12. Year-1 wind generation matches authoritative output', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_year_1_results.wind_generated_kwh).toBe(8000);
+    });
+
+    it('13. Year-1 wind direct-to-load matches authoritative output', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_year_1_results.wind_direct_to_load_kwh).toBe(3500);
+    });
+
+    it('14. Year-1 wind-to-battery matches authoritative output', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_year_1_results.wind_to_battery_ac_kwh).toBe(2200);
+    });
+
+    it('15. Year-1 wind export matches authoritative output', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_year_1_results.wind_export_kwh).toBe(2000);
+    });
+
+    it('16. Year-1 wind curtailment matches authoritative output', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_year_1_results.wind_curtailed_kwh).toBe(300);
+    });
+
+    it('17. Year-1 renewable totals match authoritative output', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_year_1_results.renewable_generated_kwh).toBe(22000);
+      expect(exportData.generation_year_1_results.renewable_direct_to_load_kwh).toBe(8500);
+      expect(exportData.generation_year_1_results.renewable_to_battery_ac_kwh).toBe(6200);
+      expect(exportData.generation_year_1_results.renewable_export_kwh).toBe(6500);
+      expect(exportData.generation_year_1_results.renewable_curtailed_kwh).toBe(800);
+    });
+
+    it('18. Wind export remains distinct from battery export', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_year_1_results.wind_export_kwh).toBe(2000);
+      expect(exportData.generation_year_1_results.battery_export_kwh).toBe(400);
+      expect(exportData.generation_year_1_results.grid_export_kwh).toBe(6900);
+    });
+
+    it('19. Mixed Year-1 source reconciliation', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const y1 = exportData.generation_year_1_results;
+      expect(y1.renewable_generated_kwh).toBe(y1.solar_generated_kwh + y1.wind_generated_kwh!);
+      expect(y1.renewable_direct_to_load_kwh).toBe(y1.solar_direct_to_load_kwh + y1.wind_direct_to_load_kwh!);
+      expect(y1.renewable_to_battery_ac_kwh).toBe(y1.solar_to_battery_ac_kwh + y1.wind_to_battery_ac_kwh!);
+      expect(y1.renewable_export_kwh).toBe(y1.solar_export_kwh + y1.wind_export_kwh!);
+      expect(y1.renewable_curtailed_kwh).toBe(y1.solar_curtailed_kwh + y1.wind_curtailed_kwh!);
+      expect(y1.grid_export_kwh).toBe(y1.renewable_export_kwh! + y1.battery_export_kwh);
+    });
+
+    it('20. Annual wind projection matches GenerationOperationalYear', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      exportData.generation_annual_projection.forEach((row, idx) => {
+        const expectedOpYear = mockMixedOperationalProjection25.years[idx];
+        expect(row.wind_generation_kwh).toBe(expectedOpYear.windGeneratedKwh);
+        expect(row.wind_direct_to_load_kwh).toBe(expectedOpYear.windDirectToLoadKwh);
+        expect(row.wind_to_battery_kwh).toBe(expectedOpYear.windToBatteryKwh);
+        expect(row.wind_export_kwh).toBe(expectedOpYear.windExportKwh);
+        expect(row.wind_curtailed_kwh).toBe(expectedOpYear.windCurtailedKwh);
+      });
+    });
+
+    it('21. Annual renewable projection matches GenerationOperationalYear', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      exportData.generation_annual_projection.forEach((row, idx) => {
+        const expectedOpYear = mockMixedOperationalProjection25.years[idx];
+        expect(row.renewable_generation_kwh).toBe(expectedOpYear.renewableGeneratedKwh);
+        expect(row.renewable_direct_to_load_kwh).toBe(expectedOpYear.renewableDirectToLoadKwh);
+        expect(row.renewable_to_battery_kwh).toBe(expectedOpYear.renewableToBatteryKwh);
+        expect(row.renewable_export_kwh).toBe(expectedOpYear.renewableExportKwh);
+        expect(row.renewable_curtailed_kwh).toBe(expectedOpYear.renewableCurtailedKwh);
+      });
+    });
+
+    it('22. Selected horizon still truncates projection rows correctly', () => {
+      const export10 = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 10,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(export10.metadata.selected_horizon_years).toBe(10);
+      expect(export10.generation_annual_projection).toHaveLength(10);
+      expect(export10.generation_annual_projection[9].year).toBe(10);
+      expect(export10.generation_annual_projection[9].wind_generation_kwh).toBe(8000);
+    });
+
+    it('23. Wind generation asset appears exactly once in cost breakdown', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const windAssetsInCosts = exportData.generation_project_costs.generation_assets.filter(
+        (a) => a.type === 'wind'
+      );
+      expect(windAssetsInCosts).toHaveLength(1);
+      expect(windAssetsInCosts[0].id).toBe('wind-turbine-1');
+      expect(windAssetsInCosts[0].installed_cost_usd).toBe(15000);
+      expect(windAssetsInCosts[0].annual_maintenance_cost_usd).toBe(300);
+    });
+
+    it('24. Mixed solar/wind CAPEX is not duplicated', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_project_costs.generation_capex_usd).toBe(
+        mixedFinancialAnalysis.generationCapexUsd
+      );
+      expect(exportData.generation_project_costs.gross_project_capex_usd).toBe(
+        mixedFinancialAnalysis.grossProjectCapexUsd
+      );
+    });
+
+    it('25. Mixed solar/wind O&M is not duplicated', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_project_costs.annual_generation_om_usd).toBe(
+        mixedFinancialAnalysis.annualGenerationMaintenanceUsd
+      );
+    });
+
+    it('26. Lifecycle financial values exactly match GenerationFinancialAnalysis', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleMixedConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const summary15 = deriveGenerationHorizonFinancialSummary(mixedFinancialAnalysis, 15);
+      const kpis = exportData.generation_horizon_summary_kpis;
+
+      expect(kpis.horizon_years).toBe(15);
+      expect(kpis.horizon_net_present_value_usd).toBe(summary15.netPresentValue);
+      expect(kpis.horizon_cumulative_project_cash_flow_usd).toBe(summary15.cumulativeCashFlow);
+      expect(kpis.horizon_cumulative_electricity_savings_usd).toBe(summary15.cumulativeElectricitySavings);
+      expect(kpis.horizon_generation_maintenance_usd).toBe(summary15.totalGenerationMaintenance);
+      expect(kpis.simple_payback_years).toBe(summary15.simplePaybackYears);
+      expect(kpis.discounted_payback_years).toBe(summary15.discountedPaybackYears);
+      expect(kpis.horizon_roi_pct).toBe(summary15.horizonRoiPercent);
+    });
+
+    it('27. Partial-period generation lifecycle export remains blocked', () => {
+      const partialCsvResult: CsvValidationResult = {
+        ...mockCsvResult,
+        completeness: {
+          ...mockCsvResult.completeness!,
+          isSuitableForAnnualProjection: false,
+          reason: 'Partial dataset',
+        },
+      };
+
+      expect(
+        canExportGenerationProjectionsJson({
+          generationAnalysis: mixedFinancialAnalysis,
+          operationalProjection: mockMixedOperationalProjection25,
+          generationAwareResult: mockMixedGenerationAwareResult,
+          generationProjectCosts: mixedProjectCosts,
+          generationConfig: sampleMixedConfig,
+          csvResult: partialCsvResult,
+          analysisState: 'partial-period',
+        })
+      ).toBe(false);
+
+      expect(() =>
+        buildGenerationExportLlmJson({
+          generationConfig: sampleMixedConfig,
+          allowRenewableExport: true,
+          generationAwareResult: mockMixedGenerationAwareResult,
+          operationalProjection: mockMixedOperationalProjection25,
+          generationAnalysis: mixedFinancialAnalysis,
+          generationProjectCosts: mixedProjectCosts,
+          projectionHorizon: 15,
+          tiers,
+          activeTouProfile: touProfile,
+          financials: sampleFinancials,
+          csvResult: partialCsvResult,
+        })
+      ).toThrow('Cannot export multi-year generation projections for an incomplete or partial-period dataset.');
+    });
+
+    it('28. Enabled generator cannot masquerade as supported export', () => {
+      const configWithActiveGenerator: GenerationConfig = {
+        site: sampleMixedConfig.site,
+        assets: [
+          sampleWindTurbineAnnual,
+          {
+            id: 'gen-1',
+            name: 'Gas Generator',
+            enabled: true,
+            type: 'generator',
+            installedCostUsd: 8000,
+            annualMaintenanceCostUsd: 200,
+            ratedPowerKw: 10,
+            fuelType: 'natural_gas',
+            fuelUnit: 'therm',
+            customFuelUnitLabel: '',
+            fuelPricePerUnit: 1.5,
+            variableMaintenanceCostPerHourUsd: 0.5,
+            fuelCurve: [],
+            dispatchMode: 'standby',
+            allowBatteryCharging: false,
+            allowGridExport: false,
+            scheduledHours: [],
+          } as GeneratorGenerationAsset,
+        ],
+      };
+
+      expect(
+        canExportGenerationProjectionsJson({
+          generationAnalysis: windOnlyFinancialAnalysis,
+          operationalProjection: mockWindOnlyOperationalProjection25,
+          generationAwareResult: mockWindOnlyGenerationAwareResult,
+          generationProjectCosts: windOnlyProjectCosts,
+          generationConfig: configWithActiveGenerator,
+          csvResult: mockCsvResult,
+        })
+      ).toBe(false);
+
+      expect(() =>
+        buildGenerationExportLlmJson({
+          generationConfig: configWithActiveGenerator,
+          allowRenewableExport: true,
+          generationAwareResult: mockWindOnlyGenerationAwareResult,
+          operationalProjection: mockWindOnlyOperationalProjection25,
+          generationAnalysis: windOnlyFinancialAnalysis,
+          generationProjectCosts: windOnlyProjectCosts,
+          projectionHorizon: 15,
+          tiers,
+          activeTouProfile: touProfile,
+          financials: sampleFinancials,
+          csvResult: mockCsvResult,
+        })
+      ).toThrow('Enabled generator assets are not supported for generation export.');
+    });
+
+    it('29. Enabled wind interval_file cannot masquerade as supported export', () => {
+      const configWithIntervalFileWind: GenerationConfig = {
+        site: sampleMixedConfig.site,
+        assets: [
+          {
+            ...sampleWindTurbineAnnual,
+            resourceMode: 'interval_file',
+          },
+        ],
+      };
+
+      expect(
+        canExportGenerationProjectionsJson({
+          generationAnalysis: windOnlyFinancialAnalysis,
+          operationalProjection: mockWindOnlyOperationalProjection25,
+          generationAwareResult: mockWindOnlyGenerationAwareResult,
+          generationProjectCosts: windOnlyProjectCosts,
+          generationConfig: configWithIntervalFileWind,
+          csvResult: mockCsvResult,
+        })
+      ).toBe(false);
+
+      expect(() =>
+        buildGenerationExportLlmJson({
+          generationConfig: configWithIntervalFileWind,
+          allowRenewableExport: true,
+          generationAwareResult: mockWindOnlyGenerationAwareResult,
+          operationalProjection: mockWindOnlyOperationalProjection25,
+          generationAnalysis: windOnlyFinancialAnalysis,
+          generationProjectCosts: windOnlyProjectCosts,
+          projectionHorizon: 15,
+          tiers,
+          activeTouProfile: touProfile,
+          financials: sampleFinancials,
+          csvResult: mockCsvResult,
+        })
+      ).toThrow('Enabled wind assets with interval_file resource mode are not supported for generation export.');
+    });
+
+    it('30. Disabled unsupported assets do not block supported export', () => {
+      const configWithDisabledUnsupportedAssets: GenerationConfig = {
+        site: sampleMixedConfig.site,
+        assets: [
+          sampleWindTurbineAnnual,
+          {
+            id: 'gen-disabled',
+            name: 'Disabled Generator',
+            enabled: false,
+            type: 'generator',
+            installedCostUsd: 8000,
+            annualMaintenanceCostUsd: 200,
+          } as any,
+          {
+            ...sampleWindTurbineAnnual,
+            id: 'wind-disabled-interval',
+            enabled: false,
+            resourceMode: 'interval_file',
+          },
+        ],
+      };
+
+      expect(
+        canExportGenerationProjectionsJson({
+          generationAnalysis: windOnlyFinancialAnalysis,
+          operationalProjection: mockWindOnlyOperationalProjection25,
+          generationAwareResult: mockWindOnlyGenerationAwareResult,
+          generationProjectCosts: windOnlyProjectCosts,
+          generationConfig: configWithDisabledUnsupportedAssets,
+          csvResult: mockCsvResult,
+        })
+      ).toBe(true);
+
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: configWithDisabledUnsupportedAssets,
+        allowRenewableExport: true,
+        generationAwareResult: mockWindOnlyGenerationAwareResult,
+        operationalProjection: mockWindOnlyOperationalProjection25,
+        generationAnalysis: windOnlyFinancialAnalysis,
+        generationProjectCosts: windOnlyProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_configuration.wind_turbines).toHaveLength(1);
+      expect(exportData.generation_configuration.wind_turbines![0].id).toBe('wind-turbine-1');
+    });
+
+    it('31. Inputs are not mutated', () => {
+      const frozenConfig: GenerationConfig = JSON.parse(JSON.stringify(sampleMixedConfig));
+      const configSnapshot = JSON.parse(JSON.stringify(frozenConfig));
+      const monthlyArrayRef = (frozenConfig.assets[2] as WindGenerationAsset).monthlyAverageWindSpeedMps;
+      const powerCurveRef = (frozenConfig.assets[2] as WindGenerationAsset).powerCurve;
+
+      buildGenerationExportLlmJson({
+        generationConfig: frozenConfig,
+        allowRenewableExport: true,
+        generationAwareResult: mockMixedGenerationAwareResult,
+        operationalProjection: mockMixedOperationalProjection25,
+        generationAnalysis: mixedFinancialAnalysis,
+        generationProjectCosts: mixedProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(frozenConfig).toEqual(configSnapshot);
+      expect((frozenConfig.assets[2] as WindGenerationAsset).monthlyAverageWindSpeedMps).toBe(monthlyArrayRef);
+      expect((frozenConfig.assets[2] as WindGenerationAsset).powerCurve).toBe(powerCurveRef);
     });
   });
 });

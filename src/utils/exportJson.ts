@@ -15,6 +15,7 @@ import {
   RateTier,
   SolarGenerationAsset,
   TouProfile,
+  WindGenerationAsset,
   YearProjection,
 } from '../types/energy';
 import { APP_VERSION } from '../version';
@@ -494,6 +495,30 @@ export interface GenerationExportSolarArray {
   monthly_peak_sun_hours_per_day?: number[];
 }
 
+export interface GenerationExportWindTurbine {
+  id: string;
+  name: string;
+  resource_mode: 'annual_average' | 'monthly_average';
+  rated_power_kw: number;
+  hub_height_m: number;
+  rotor_diameter_m: number;
+  cut_in_wind_speed_mps: number;
+  rated_wind_speed_mps: number;
+  cut_out_wind_speed_mps: number;
+  availability_pct: number;
+  system_loss_pct: number;
+  measurement_height_m: number;
+  wind_shear_exponent: number;
+  annual_average_wind_speed_mps?: number;
+  monthly_average_wind_speed_mps?: number[];
+  power_curve: Array<{
+    wind_speed_mps: number;
+    output_kw: number;
+  }>;
+  installed_cost_usd: number;
+  annual_maintenance_cost_usd: number;
+}
+
 export interface GenerationExportAnnualProjectionRow {
   year: number;
   solar_generation_kwh: number;
@@ -524,6 +549,18 @@ export interface GenerationExportAnnualProjectionRow {
   battery_export_kwh: number;
   battery_discharged_kwh: number;
   equivalent_full_cycles: number;
+
+  wind_generation_kwh?: number;
+  wind_direct_to_load_kwh?: number;
+  wind_to_battery_kwh?: number;
+  wind_export_kwh?: number;
+  wind_curtailed_kwh?: number;
+
+  renewable_generation_kwh?: number;
+  renewable_direct_to_load_kwh?: number;
+  renewable_to_battery_kwh?: number;
+  renewable_export_kwh?: number;
+  renewable_curtailed_kwh?: number;
 }
 
 export interface GenerationLlmExportPayload {
@@ -627,6 +664,8 @@ export interface GenerationLlmExportPayload {
     solar_export_permission: boolean;
     solar_arrays: GenerationExportSolarArray[];
     enabled_solar_arrays: GenerationExportSolarArray[];
+    allow_renewable_export?: boolean;
+    wind_turbines?: GenerationExportWindTurbine[];
   };
   generation_year_1_results: {
     total_home_load_kwh: number;
@@ -641,6 +680,18 @@ export interface GenerationLlmExportPayload {
     baseline_electricity_cost_usd: number;
     modeled_project_electricity_cost_usd: number;
     electricity_savings_usd: number;
+
+    wind_generated_kwh?: number;
+    wind_direct_to_load_kwh?: number;
+    wind_to_battery_ac_kwh?: number;
+    wind_export_kwh?: number;
+    wind_curtailed_kwh?: number;
+
+    renewable_generated_kwh?: number;
+    renewable_direct_to_load_kwh?: number;
+    renewable_to_battery_ac_kwh?: number;
+    renewable_export_kwh?: number;
+    renewable_curtailed_kwh?: number;
   };
   generation_project_costs: {
     battery_capex_usd: number;
@@ -687,7 +738,8 @@ export interface GenerationLlmExportPayload {
 
 export interface BuildGenerationExportLlmJsonParams {
   generationConfig: GenerationConfig;
-  allowSolarExport: boolean;
+  allowSolarExport?: boolean;
+  allowRenewableExport?: boolean;
   generationAwareResult: GenerationAwareSimulationResult;
   operationalProjection: GenerationOperationalProjection;
   generationAnalysis: GenerationFinancialAnalysis;
@@ -704,6 +756,7 @@ export interface CanExportGenerationProjectionsJsonParams {
   operationalProjection?: GenerationOperationalProjection | null;
   generationAwareResult?: GenerationAwareSimulationResult | null;
   generationProjectCosts?: GenerationProjectCostSummary | null;
+  generationConfig?: GenerationConfig | null;
   csvResult?: CsvValidationResult | null;
   analysisState?: AnalysisState;
 }
@@ -711,7 +764,7 @@ export interface CanExportGenerationProjectionsJsonParams {
 /**
  * Validates whether a generation analysis can be exported to projection JSON.
  * Returns false if any required authoritative inputs are missing, or if dataset is partial-period,
- * or if generation financial analysis is in a pending state.
+ * or if generation financial analysis is in a pending state, or if unsupported active assets exist.
  */
 export function canExportGenerationProjectionsJson(
   params: CanExportGenerationProjectionsJsonParams
@@ -721,6 +774,7 @@ export function canExportGenerationProjectionsJson(
     operationalProjection,
     generationAwareResult,
     generationProjectCosts,
+    generationConfig,
     csvResult,
     analysisState,
   } = params;
@@ -742,6 +796,27 @@ export function canExportGenerationProjectionsJson(
     return false;
   }
 
+  if (generationConfig?.assets && Array.isArray(generationConfig.assets)) {
+    const hasUnsupportedAsset = generationConfig.assets.some((a) => {
+      if (!a || !a.enabled) return false;
+      if (a.type === 'generator') return true;
+      if (a.type === 'wind') {
+        const windAsset = a as WindGenerationAsset;
+        if (windAsset.resourceMode === 'interval_file') return true;
+        if (
+          windAsset.resourceMode !== 'annual_average' &&
+          windAsset.resourceMode !== 'monthly_average'
+        ) {
+          return true;
+        }
+      }
+      return false;
+    });
+    if (hasUnsupportedAsset) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -755,6 +830,7 @@ export function buildGenerationExportLlmJson(
   const {
     generationConfig,
     allowSolarExport,
+    allowRenewableExport,
     generationAwareResult,
     operationalProjection,
     generationAnalysis,
@@ -780,6 +856,36 @@ export function buildGenerationExportLlmJson(
     throw new Error('All authoritative generation simulation, operational, cost, and financial outputs must be provided.');
   }
 
+  // Reject unsupported active assets
+  const enabledAssets = (generationConfig.assets || []).filter((a) => a && a.enabled);
+  for (const asset of enabledAssets) {
+    if (asset.type === 'generator') {
+      throw new Error('Enabled generator assets are not supported for generation export.');
+    }
+    if (asset.type === 'wind') {
+      const windAsset = asset as WindGenerationAsset;
+      if (windAsset.resourceMode === 'interval_file') {
+        throw new Error('Enabled wind assets with interval_file resource mode are not supported for generation export.');
+      }
+      if (windAsset.resourceMode !== 'annual_average' && windAsset.resourceMode !== 'monthly_average') {
+        throw new Error(`Unsupported wind resource mode: ${windAsset.resourceMode}`);
+      }
+    }
+  }
+
+  const enabledSolarAssets = enabledAssets.filter(
+    (a): a is SolarGenerationAsset => a.type === 'solar'
+  );
+  const enabledWindAssets = enabledAssets.filter(
+    (a): a is WindGenerationAsset => a.type === 'wind'
+  );
+  const hasEnabledWind = enabledWindAssets.length > 0;
+
+  const effectiveAllowRenewableExport =
+    allowRenewableExport !== undefined
+      ? Boolean(allowRenewableExport)
+      : Boolean(allowSolarExport);
+
   const safeHorizon = Math.max(1, Math.min(25, Math.round(projectionHorizon || 0)));
 
   const opYears = operationalProjection.years || [];
@@ -800,7 +906,7 @@ export function buildGenerationExportLlmJson(
     }
   }
 
-  // Authoritative presentation metrics from G4D adapter
+  // Authoritative presentation metrics from G4D/G5E adapter
   const opDisplay = deriveGenerationOperationalDisplayMetrics(generationAwareResult);
 
   // Authoritative horizon summary from G4C engine
@@ -810,11 +916,6 @@ export function buildGenerationExportLlmJson(
   const batteryProfile = generationAnalysis.batteryProfile;
   const usableDod = batteryProfile.usableDodPercent;
   const usableCapacity = Math.round(batteryProfile.totalCapacityKwh * (usableDod / 100) * 100) / 100;
-
-  // Enabled solar assets only
-  const enabledSolarAssets = (generationConfig.assets || []).filter(
-    (a): a is SolarGenerationAsset => a != null && a.type === 'solar' && a.enabled === true
-  );
 
   const solarArraysExport: GenerationExportSolarArray[] = enabledSolarAssets.map((asset) => {
     const entry: GenerationExportSolarArray = {
@@ -836,13 +937,49 @@ export function buildGenerationExportLlmJson(
     return entry;
   });
 
+  const windTurbinesExport: GenerationExportWindTurbine[] = enabledWindAssets.map((asset) => {
+    const entry: GenerationExportWindTurbine = {
+      id: asset.id,
+      name: asset.name,
+      resource_mode: asset.resourceMode as 'annual_average' | 'monthly_average',
+      rated_power_kw: asset.ratedPowerKw,
+      hub_height_m: asset.hubHeightM,
+      rotor_diameter_m: asset.rotorDiameterM,
+      cut_in_wind_speed_mps: asset.cutInWindSpeedMps,
+      rated_wind_speed_mps: asset.ratedWindSpeedMps,
+      cut_out_wind_speed_mps: asset.cutOutWindSpeedMps,
+      availability_pct: asset.availabilityPercent,
+      system_loss_pct: asset.systemLossPercent,
+      measurement_height_m: asset.measurementHeightM,
+      wind_shear_exponent: asset.windShearExponent,
+      power_curve: (asset.powerCurve || []).map((pt) => ({
+        wind_speed_mps: pt.windSpeedMps,
+        output_kw: pt.outputKw,
+      })),
+      installed_cost_usd: asset.installedCostUsd,
+      annual_maintenance_cost_usd: asset.annualMaintenanceCostUsd,
+    };
+
+    if (asset.resourceMode === 'annual_average') {
+      if (asset.annualAverageWindSpeedMps !== null && asset.annualAverageWindSpeedMps !== undefined) {
+        entry.annual_average_wind_speed_mps = asset.annualAverageWindSpeedMps;
+      }
+    } else if (asset.resourceMode === 'monthly_average') {
+      if (asset.monthlyAverageWindSpeedMps && Array.isArray(asset.monthlyAverageWindSpeedMps)) {
+        entry.monthly_average_wind_speed_mps = [...asset.monthlyAverageWindSpeedMps];
+      }
+    }
+
+    return entry;
+  });
+
   // Annual projection time series
   const annualProjection: GenerationExportAnnualProjectionRow[] = [];
   for (let i = 0; i < safeHorizon; i++) {
     const opYear = opYears[i];
     const finYear = finYears[i];
 
-    annualProjection.push({
+    const row: GenerationExportAnnualProjectionRow = {
       year: opYear.year,
       solar_generation_kwh: opYear.solarGeneratedKwh,
       solar_assets: (opYear.solarAssets || []).map((sa) => ({
@@ -873,7 +1010,23 @@ export function buildGenerationExportLlmJson(
       battery_export_kwh: opYear.batteryExportKwh,
       battery_discharged_kwh: opYear.batteryDischargedKwh,
       equivalent_full_cycles: opYear.equivalentFullCycles,
-    });
+    };
+
+    if (hasEnabledWind) {
+      row.wind_generation_kwh = opYear.windGeneratedKwh;
+      row.wind_direct_to_load_kwh = opYear.windDirectToLoadKwh;
+      row.wind_to_battery_kwh = opYear.windToBatteryKwh;
+      row.wind_export_kwh = opYear.windExportKwh;
+      row.wind_curtailed_kwh = opYear.windCurtailedKwh;
+
+      row.renewable_generation_kwh = opYear.renewableGeneratedKwh;
+      row.renewable_direct_to_load_kwh = opYear.renewableDirectToLoadKwh;
+      row.renewable_to_battery_kwh = opYear.renewableToBatteryKwh;
+      row.renewable_export_kwh = opYear.renewableExportKwh;
+      row.renewable_curtailed_kwh = opYear.renewableCurtailedKwh;
+    }
+
+    annualProjection.push(row);
   }
 
   const completeness = csvResult?.completeness;
@@ -990,10 +1143,16 @@ export function buildGenerationExportLlmJson(
         time_zone: generationConfig.site?.timeZone ?? 'UTC',
         elevation_m: generationConfig.site?.elevationM ?? null,
       },
-      allow_solar_export: Boolean(allowSolarExport),
-      solar_export_permission: Boolean(allowSolarExport),
+      allow_solar_export: effectiveAllowRenewableExport,
+      solar_export_permission: effectiveAllowRenewableExport,
       solar_arrays: solarArraysExport,
       enabled_solar_arrays: solarArraysExport,
+      ...(hasEnabledWind
+        ? {
+            allow_renewable_export: effectiveAllowRenewableExport,
+            wind_turbines: windTurbinesExport,
+          }
+        : {}),
     },
     generation_year_1_results: {
       total_home_load_kwh: opDisplay.totalHomeLoadKwh,
@@ -1008,6 +1167,21 @@ export function buildGenerationExportLlmJson(
       baseline_electricity_cost_usd: opDisplay.baselineCostUsd,
       modeled_project_electricity_cost_usd: opDisplay.modeledProjectCostUsd,
       electricity_savings_usd: opDisplay.electricitySavingsUsd,
+      ...(hasEnabledWind
+        ? {
+            wind_generated_kwh: opDisplay.windGeneratedKwh,
+            wind_direct_to_load_kwh: opDisplay.windDirectToLoadKwh,
+            wind_to_battery_ac_kwh: opDisplay.windToBatteryAcKwh,
+            wind_export_kwh: opDisplay.windExportKwh,
+            wind_curtailed_kwh: opDisplay.windCurtailedKwh,
+
+            renewable_generated_kwh: opDisplay.renewableGeneratedKwh,
+            renewable_direct_to_load_kwh: opDisplay.renewableDirectToLoadKwh,
+            renewable_to_battery_ac_kwh: opDisplay.renewableToBatteryAcKwh,
+            renewable_export_kwh: opDisplay.renewableExportKwh,
+            renewable_curtailed_kwh: opDisplay.renewableCurtailedKwh,
+          }
+        : {}),
     },
     generation_project_costs: {
       battery_capex_usd: generationAnalysis.batteryCapexUsd,
