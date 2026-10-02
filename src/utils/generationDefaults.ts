@@ -92,6 +92,7 @@ export const DEFAULT_GENERATOR_ASSET: GeneratorGenerationAsset = {
 
   fuelPricePerUnit: 0,
   variableMaintenanceCostPerHourUsd: 0,
+  startupFuelUnits: 0,
 
   fuelCurve: [],
 

@@ -2395,6 +2395,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
             customFuelUnitLabel: '',
             fuelPricePerUnit: 1.5,
             variableMaintenanceCostPerHourUsd: 0.5,
+            startupFuelUnits: 0,
             fuelCurve: [],
             dispatchMode: 'standby',
             allowBatteryCharging: false,

@@ -665,6 +665,7 @@ describe('G5B — Wind Generation Profile & Fleet Aggregation', () => {
         customFuelUnitLabel: '',
         fuelPricePerUnit: 1.5,
         variableMaintenanceCostPerHourUsd: 0.1,
+        startupFuelUnits: 0,
         fuelCurve: [],
         dispatchMode: 'standby',
         allowBatteryCharging: false,

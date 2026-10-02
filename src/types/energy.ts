@@ -499,6 +499,7 @@ export interface GeneratorGenerationAsset extends GenerationAssetBase {
 
   fuelPricePerUnit: number;
   variableMaintenanceCostPerHourUsd: number;
+  startupFuelUnits: number;
 
   fuelCurve: GeneratorFuelCurvePoint[];
 
