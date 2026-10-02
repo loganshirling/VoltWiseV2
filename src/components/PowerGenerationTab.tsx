@@ -184,7 +184,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      {/* Informational Callout: Active Solar Simulation */}
+      {/* Informational Callout: Active Renewable Simulation */}
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 sm:p-5 flex items-start gap-3 sm:gap-4 shadow-sm">
         <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">
           <Activity className="h-5 w-5" />
@@ -192,14 +192,14 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
         <div className="flex-1 text-xs text-emerald-200/90 leading-relaxed">
           <div className="flex items-center gap-2 mb-1">
             <span className="font-semibold text-emerald-100 text-sm">
-              Active Solar Modeling & Dispatch Simulation
+              Active Solar & Wind Modeling
             </span>
             <span className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               Active Simulation
             </span>
           </div>
           <p>
-            On-site photovoltaic solar generation is actively integrated into the dispatch and financial engine. Enabled solar arrays directly offset home load and charge battery storage. Surplus solar export to the utility grid is governed independently by the toggle below. Wind turbine and generator hardware configurations remain persisted contracts.
+            Enabled solar photovoltaic arrays and supported wind turbines are actively simulated in the dispatch and financial engine. Both resources directly serve home load and charge battery storage. Passive renewable surplus is governed by the site renewable export setting below. Generator hardware configuration remains persisted, but generator simulation is not yet supported.
           </p>
         </div>
       </div>
@@ -213,10 +213,10 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-semibold text-slate-100">
-                Installation Site & Solar Geometry
+                Installation Site & Resource Parameters
               </h2>
               <p className="text-[11px] text-slate-400">
-                Geographic coordinates for solar zenith calculation and wind air density adjustment.
+                Geographic coordinates for solar geometry calculation and wind air density adjustment.
               </p>
             </div>
           </div>
@@ -309,24 +309,24 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
         </div>
       </div>
 
-      {/* Grid Interconnection & Solar Export Policy */}
+      {/* Grid Interconnection & Renewable Export Policy */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center gap-3">
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
-              <Sun className="h-5 w-5" />
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+              <Zap className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-slate-100">
-                  Allow surplus solar export to grid
+                  Allow Renewable Export
                 </h3>
                 <span className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded bg-slate-800 text-slate-400 border border-slate-700">
                   Grid Interconnection
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Controls export of unused solar generation to the utility grid and is independent of the battery&apos;s grid-export permission. When disabled, excess solar generation beyond load and battery charging capacity is curtailed.
+                Controls export of unused solar and wind generation after home load and battery charging. Battery grid-export permission remains separate. When disabled, excess renewable generation beyond load and battery charging capacity is curtailed.
               </p>
             </div>
           </div>
@@ -1097,50 +1097,87 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
         <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
           Wind Resource Modeling Mode
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
           {[
             {
               id: 'annual_average' as WindResourceMode,
               title: 'Annual Average Wind Speed',
-              desc: 'Single mean wind speed with standard Rayleigh/Weibull distribution.',
+              desc: 'Annual mean wind speed modeled as deterministic expected turbine output using a Rayleigh distribution and the manufacturer power curve.',
+              disabled: false,
             },
             {
               id: 'monthly_average' as WindResourceMode,
               title: 'Monthly Average Wind Speed',
-              desc: '12 distinct monthly mean wind speed values (m/s).',
+              desc: '12 monthly mean wind speeds calculating deterministic expected turbine output for intervals in each calendar month.',
+              disabled: false,
             },
             {
               id: 'interval_file' as WindResourceMode,
-              title: 'Hourly Interval Wind File',
-              desc: 'Explicit 8,760h anemometer time-series wind velocities.',
+              title: 'Hourly / Interval Wind File',
+              desc: 'Explicit 8,760h anemometer time-series wind velocities (Coming later / External resource support).',
+              disabled: true,
+              tag: 'Unavailable',
             },
           ].map((mode) => {
             const isSelected = asset.resourceMode === mode.id;
+            const isDisabled = Boolean(mode.disabled);
             return (
               <div
                 key={mode.id}
-                onClick={() => onUpdate({ resourceMode: mode.id })}
-                className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                  isSelected
-                    ? 'bg-sky-500/10 border-sky-500/60 shadow-sm ring-1 ring-sky-500/30'
-                    : 'bg-slate-950/40 border-slate-800 hover:border-slate-700'
+                onClick={() => {
+                  if (!isDisabled) {
+                    onUpdate({ resourceMode: mode.id });
+                  }
+                }}
+                className={`p-3 rounded-lg border transition-all ${
+                  isDisabled
+                    ? 'opacity-60 cursor-not-allowed bg-slate-950/20 border-slate-800'
+                    : isSelected
+                    ? 'cursor-pointer bg-sky-500/10 border-sky-500/60 shadow-sm ring-1 ring-sky-500/30'
+                    : 'cursor-pointer bg-slate-950/40 border-slate-800 hover:border-slate-700'
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-slate-200">{mode.title}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-xs font-semibold ${isDisabled ? 'text-slate-400' : 'text-slate-200'}`}>
+                      {mode.title}
+                    </span>
+                    {isDisabled && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-amber-400 border border-amber-500/20">
+                        Unavailable
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="radio"
                     name={`wind-resource-mode-${asset.id}`}
                     checked={isSelected}
-                    onChange={() => onUpdate({ resourceMode: mode.id })}
-                    className="accent-sky-500"
+                    disabled={isDisabled}
+                    onChange={() => {
+                      if (!isDisabled) {
+                        onUpdate({ resourceMode: mode.id });
+                      }
+                    }}
+                    className={`accent-sky-500 ${isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 leading-normal">{mode.desc}</p>
+                {isDisabled && (
+                  <p className="text-[10px] text-amber-400/90 mt-1 font-mono">
+                    Interval-resource ingestion is not yet supported.
+                  </p>
+                )}
               </div>
             );
           })}
         </div>
+
+        {/* Average-Resource Wind Disclosure */}
+        {(asset.resourceMode === 'annual_average' || asset.resourceMode === 'monthly_average') && (
+          <p className="text-[11px] text-slate-400 mb-4 bg-slate-950/40 p-2.5 rounded-lg border border-slate-800/80">
+            Annual/monthly mean resource inputs estimate expected production. They do not represent measured hourly wind conditions.
+          </p>
+        )}
 
         {/* Annual Average Input */}
         {asset.resourceMode === 'annual_average' && (
@@ -1204,8 +1241,8 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
         )}
 
         {asset.resourceMode === 'interval_file' && (
-          <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-4 text-xs text-slate-400 leading-relaxed">
-            <strong className="text-slate-200">Interval File Mode:</strong> Interval wind-resource file ingestion will be implemented in the wind modeling milestone.
+          <div className="bg-amber-950/20 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-200/90 leading-relaxed">
+            <strong className="text-amber-100 font-semibold">Unsupported Mode:</strong> Interval wind-resource file ingestion is not yet supported by the simulation engine. This asset remains persisted in interval_file mode, but the engine will reject simulation until switched to Annual or Monthly Average mode.
           </div>
         )}
       </div>

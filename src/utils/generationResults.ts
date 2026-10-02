@@ -22,6 +22,21 @@ export interface GenerationOperationalDisplayMetrics {
   solarToBatteryAcKwh: number;
   solarExportKwh: number;
   solarCurtailedKwh: number;
+
+  // Authoritative wind operational flows (kWh)
+  windGeneratedKwh: number;
+  windDirectToLoadKwh: number;
+  windToBatteryAcKwh: number;
+  windExportKwh: number;
+  windCurtailedKwh: number;
+
+  // Authoritative combined renewable operational flows (kWh)
+  renewableGeneratedKwh: number;
+  renewableDirectToLoadKwh: number;
+  renewableToBatteryAcKwh: number;
+  renewableExportKwh: number;
+  renewableCurtailedKwh: number;
+
   gridImportKwh: number;
   gridExportKwh: number;
   batteryExportKwh: number;
@@ -32,8 +47,9 @@ export interface GenerationOperationalDisplayMetrics {
   modeledProjectCostUsd: number;
   electricitySavingsUsd: number;
 
-  // Structural aliases matching G3 aggregate field names
+  // Structural aliases matching G3/G5 aggregate field names
   totalHomeLoadKwh: number;
+
   totalSolarGenerationKwh: number;
   totalSolarDirectToLoadKwh: number;
   totalSolarToBatteryAcKwh: number;
@@ -44,6 +60,29 @@ export interface GenerationOperationalDisplayMetrics {
   totalSolarCurtailedKwh: number;
   totalCurtailedSolarKwh: number;
   curtailedSolarKwh: number;
+
+  totalWindGenerationKwh: number;
+  totalWindDirectToLoadKwh: number;
+  totalWindToBatteryAcKwh: number;
+  totalWindToBatteryKwh: number;
+  windToBatteryKwh: number;
+  windDirectConsumptionKwh: number;
+  totalWindExportKwh: number;
+  totalWindCurtailedKwh: number;
+  totalCurtailedWindKwh: number;
+  curtailedWindKwh: number;
+
+  totalRenewableGenerationKwh: number;
+  totalRenewableDirectToLoadKwh: number;
+  totalRenewableToBatteryAcKwh: number;
+  totalRenewableToBatteryKwh: number;
+  renewableToBatteryKwh: number;
+  renewableDirectConsumptionKwh: number;
+  totalRenewableExportKwh: number;
+  totalRenewableCurtailedKwh: number;
+  totalCurtailedRenewableKwh: number;
+  curtailedRenewableKwh: number;
+
   totalGridImportKwh: number;
   totalGridExportKwh: number;
   totalBatteryExportKwh: number;
@@ -56,8 +95,8 @@ export interface GenerationOperationalDisplayMetrics {
 /**
  * Extracts and adapts authoritative operational presentation metrics from a GenerationAwareSimulationResult.
  *
- * Invariant: Sums authoritative interval values for solar-to-battery AC without modifying physics.
- * Strictly adheres to GenerationAwareSimulationResult contract; returns 0 if intervals are absent
+ * Invariant: Uses direct authoritative G5C aggregate fields when present, preserving exact physics.
+ * Strictly adheres to GenerationAwareSimulationResult contract; returns 0 if intervals/aggregates are absent
  * and never reads undeclared fallback properties.
  */
 export function deriveGenerationOperationalDisplayMetrics(
@@ -67,28 +106,80 @@ export function deriveGenerationOperationalDisplayMetrics(
     throw new Error('A valid GenerationAwareSimulationResult must be provided.');
   }
 
-  // Sum authoritative solarToBatteryAcKwh strictly from preExportFlow intervals.
-  // If intervals are absent, defaults to 0 with no ad-hoc fallback properties.
-  let totalSolarToBatteryAcKwh = 0;
-  if (result.exportAwareBatteryFlow?.intervals && Array.isArray(result.exportAwareBatteryFlow.intervals)) {
+  // Determine solar-to-battery: prefer authoritative aggregate, fall back to intervals if needed
+  let solarToBatteryAc = 0;
+  if (result.totalSolarToBatteryKwh !== undefined) {
+    solarToBatteryAc = Math.round(result.totalSolarToBatteryKwh * 100) / 100;
+  } else if (result.exportAwareBatteryFlow?.intervals && Array.isArray(result.exportAwareBatteryFlow.intervals)) {
+    let sum = 0;
     for (let i = 0; i < result.exportAwareBatteryFlow.intervals.length; i++) {
       const interval = result.exportAwareBatteryFlow.intervals[i];
       if (interval?.preExportFlow) {
-        totalSolarToBatteryAcKwh += interval.preExportFlow.solarToBatteryAcKwh ?? 0;
+        sum += interval.preExportFlow.solarToBatteryAcKwh ?? 0;
       }
     }
+    solarToBatteryAc = Math.round(sum * 100) / 100;
   }
 
-  const solarToBatteryAc = Math.round(totalSolarToBatteryAcKwh * 100) / 100;
-  const solarCurtailed = result.gridFlows?.totalCurtailedSolarKwh ?? 0;
+  // Determine wind-to-battery: prefer authoritative aggregate, fall back to intervals if needed
+  let windToBatteryAc = 0;
+  if (result.totalWindToBatteryKwh !== undefined) {
+    windToBatteryAc = Math.round(result.totalWindToBatteryKwh * 100) / 100;
+  } else if (result.exportAwareBatteryFlow?.intervals && Array.isArray(result.exportAwareBatteryFlow.intervals)) {
+    let sum = 0;
+    for (let i = 0; i < result.exportAwareBatteryFlow.intervals.length; i++) {
+      const interval = result.exportAwareBatteryFlow.intervals[i];
+      if (interval?.preExportFlow) {
+        sum += interval.preExportFlow.windToBatteryAcKwh ?? 0;
+      }
+    }
+    windToBatteryAc = Math.round(sum * 100) / 100;
+  }
+
+  // Determine renewable-to-battery: prefer authoritative aggregate, fall back to sum
+  let renewableToBatteryAc = 0;
+  if (result.totalRenewableToBatteryKwh !== undefined) {
+    renewableToBatteryAc = Math.round(result.totalRenewableToBatteryKwh * 100) / 100;
+  } else {
+    renewableToBatteryAc = Math.round((solarToBatteryAc + windToBatteryAc) * 100) / 100;
+  }
+
+  const solarCurtailed = result.totalSolarCurtailedKwh ?? (result.gridFlows?.totalCurtailedSolarKwh ?? 0);
+  const windCurtailed = result.totalWindCurtailedKwh ?? (result.gridFlows?.totalCurtailedWindKwh ?? 0);
+  const renewableCurtailed = result.totalRenewableCurtailedKwh ?? (result.gridFlows?.totalCurtailedRenewableKwh ?? (solarCurtailed + windCurtailed));
+
+  const solarGenerated = result.totalSolarGenerationKwh ?? 0;
+  const solarDirectToLoad = result.totalSolarDirectToLoadKwh ?? 0;
+  const solarExport = result.totalSolarExportKwh ?? 0;
+
+  const windGenerated = result.totalWindGenerationKwh ?? 0;
+  const windDirectToLoad = result.totalWindDirectToLoadKwh ?? 0;
+  const windExport = result.totalWindExportKwh ?? 0;
+
+  const renewableGenerated = result.totalRenewableGenerationKwh ?? (solarGenerated + windGenerated);
+  const renewableDirectToLoad = result.totalRenewableDirectToLoadKwh ?? (solarDirectToLoad + windDirectToLoad);
+  const renewableExport = result.totalRenewableExportKwh ?? (solarExport + windExport);
 
   return {
     homeLoadKwh: result.totalHomeLoadKwh,
-    solarGeneratedKwh: result.totalSolarGenerationKwh,
-    solarDirectToLoadKwh: result.totalSolarDirectToLoadKwh,
+    solarGeneratedKwh: solarGenerated,
+    solarDirectToLoadKwh: solarDirectToLoad,
     solarToBatteryAcKwh: solarToBatteryAc,
-    solarExportKwh: result.totalSolarExportKwh,
+    solarExportKwh: solarExport,
     solarCurtailedKwh: solarCurtailed,
+
+    windGeneratedKwh: windGenerated,
+    windDirectToLoadKwh: windDirectToLoad,
+    windToBatteryAcKwh: windToBatteryAc,
+    windExportKwh: windExport,
+    windCurtailedKwh: windCurtailed,
+
+    renewableGeneratedKwh: renewableGenerated,
+    renewableDirectToLoadKwh: renewableDirectToLoad,
+    renewableToBatteryAcKwh: renewableToBatteryAc,
+    renewableExportKwh: renewableExport,
+    renewableCurtailedKwh: renewableCurtailed,
+
     gridImportKwh: result.totalGridImportKwh,
     gridExportKwh: result.totalGridExportKwh,
     batteryExportKwh: result.totalBatteryExportKwh,
@@ -99,16 +190,40 @@ export function deriveGenerationOperationalDisplayMetrics(
 
     // Aliases
     totalHomeLoadKwh: result.totalHomeLoadKwh,
-    totalSolarGenerationKwh: result.totalSolarGenerationKwh,
-    totalSolarDirectToLoadKwh: result.totalSolarDirectToLoadKwh,
+
+    totalSolarGenerationKwh: solarGenerated,
+    totalSolarDirectToLoadKwh: solarDirectToLoad,
     totalSolarToBatteryAcKwh: solarToBatteryAc,
     totalSolarToBatteryKwh: solarToBatteryAc,
     solarToBatteryKwh: solarToBatteryAc,
-    solarDirectConsumptionKwh: result.totalSolarDirectToLoadKwh,
-    totalSolarExportKwh: result.totalSolarExportKwh,
+    solarDirectConsumptionKwh: solarDirectToLoad,
+    totalSolarExportKwh: solarExport,
     totalSolarCurtailedKwh: solarCurtailed,
     totalCurtailedSolarKwh: solarCurtailed,
     curtailedSolarKwh: solarCurtailed,
+
+    totalWindGenerationKwh: windGenerated,
+    totalWindDirectToLoadKwh: windDirectToLoad,
+    totalWindToBatteryAcKwh: windToBatteryAc,
+    totalWindToBatteryKwh: windToBatteryAc,
+    windToBatteryKwh: windToBatteryAc,
+    windDirectConsumptionKwh: windDirectToLoad,
+    totalWindExportKwh: windExport,
+    totalWindCurtailedKwh: windCurtailed,
+    totalCurtailedWindKwh: windCurtailed,
+    curtailedWindKwh: windCurtailed,
+
+    totalRenewableGenerationKwh: renewableGenerated,
+    totalRenewableDirectToLoadKwh: renewableDirectToLoad,
+    totalRenewableToBatteryAcKwh: renewableToBatteryAc,
+    totalRenewableToBatteryKwh: renewableToBatteryAc,
+    renewableToBatteryKwh: renewableToBatteryAc,
+    renewableDirectConsumptionKwh: renewableDirectToLoad,
+    totalRenewableExportKwh: renewableExport,
+    totalRenewableCurtailedKwh: renewableCurtailed,
+    totalCurtailedRenewableKwh: renewableCurtailed,
+    curtailedRenewableKwh: renewableCurtailed,
+
     totalGridImportKwh: result.totalGridImportKwh,
     totalGridExportKwh: result.totalGridExportKwh,
     totalBatteryExportKwh: result.totalBatteryExportKwh,

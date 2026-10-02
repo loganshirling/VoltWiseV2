@@ -391,4 +391,238 @@ describe('G4D — Generation Results & Analytics Integration', () => {
       }
     }, 60000);
   });
+
+  describe('7. G5E — Wind & Combined Renewable Presentation Adapter', () => {
+    it('1. sources solar-only metrics from authoritative fields and sets wind to zero', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 8000,
+        totalSolarGenerationKwh: 5000,
+        totalSolarDirectToLoadKwh: 3000,
+        totalSolarToBatteryKwh: 1000,
+        totalSolarExportKwh: 800,
+        totalSolarCurtailedKwh: 200,
+        totalWindGenerationKwh: 0,
+        totalWindDirectToLoadKwh: 0,
+        totalWindToBatteryKwh: 0,
+        totalWindExportKwh: 0,
+        totalWindCurtailedKwh: 0,
+        totalRenewableGenerationKwh: 5000,
+        totalRenewableDirectToLoadKwh: 3000,
+        totalRenewableToBatteryKwh: 1000,
+        totalRenewableExportKwh: 800,
+        totalRenewableCurtailedKwh: 200,
+        totalGridImportKwh: 5000,
+        totalBatteryExportKwh: 300,
+        totalGridExportKwh: 1100,
+        baselineCost: 2500,
+        simulatedCost: 1200,
+        netSavings: 1300,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.solarGeneratedKwh).toBe(5000);
+      expect(metrics.solarDirectToLoadKwh).toBe(3000);
+      expect(metrics.solarToBatteryAcKwh).toBe(1000);
+      expect(metrics.solarExportKwh).toBe(800);
+      expect(metrics.solarCurtailedKwh).toBe(200);
+
+      expect(metrics.windGeneratedKwh).toBe(0);
+      expect(metrics.windDirectToLoadKwh).toBe(0);
+      expect(metrics.windToBatteryAcKwh).toBe(0);
+      expect(metrics.windExportKwh).toBe(0);
+      expect(metrics.windCurtailedKwh).toBe(0);
+
+      expect(metrics.renewableGeneratedKwh).toBe(5000);
+      expect(metrics.batteryExportKwh).toBe(300);
+      expect(metrics.gridExportKwh).toBe(1100);
+    });
+
+    it('2. extracts wind-only metrics from GenerationAwareSimulationResult', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 9000,
+        totalSolarGenerationKwh: 0,
+        totalSolarDirectToLoadKwh: 0,
+        totalSolarToBatteryKwh: 0,
+        totalSolarExportKwh: 0,
+        totalSolarCurtailedKwh: 0,
+        totalWindGenerationKwh: 7000,
+        totalWindDirectToLoadKwh: 4000,
+        totalWindToBatteryKwh: 1500,
+        totalWindExportKwh: 1200,
+        totalWindCurtailedKwh: 300,
+        totalRenewableGenerationKwh: 7000,
+        totalRenewableDirectToLoadKwh: 4000,
+        totalRenewableToBatteryKwh: 1500,
+        totalRenewableExportKwh: 1200,
+        totalRenewableCurtailedKwh: 300,
+        totalGridImportKwh: 5000,
+        totalBatteryExportKwh: 450,
+        totalGridExportKwh: 1650,
+        baselineCost: 3000,
+        simulatedCost: 1400,
+        netSavings: 1600,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.windGeneratedKwh).toBe(7000);
+      expect(metrics.windDirectToLoadKwh).toBe(4000);
+      expect(metrics.windToBatteryAcKwh).toBe(1500);
+      expect(metrics.windExportKwh).toBe(1200);
+      expect(metrics.windCurtailedKwh).toBe(300);
+
+      expect(metrics.solarGeneratedKwh).toBe(0);
+      expect(metrics.renewableGeneratedKwh).toBe(7000);
+      expect(metrics.batteryExportKwh).toBe(450);
+      expect(metrics.gridExportKwh).toBe(1650);
+    });
+
+    it('3. accurately exposes both sources in mixed solar + wind configurations', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 10000,
+        totalSolarGenerationKwh: 4000,
+        totalSolarDirectToLoadKwh: 2000,
+        totalSolarToBatteryKwh: 800,
+        totalSolarExportKwh: 1000,
+        totalSolarCurtailedKwh: 200,
+        totalWindGenerationKwh: 3000,
+        totalWindDirectToLoadKwh: 1500,
+        totalWindToBatteryKwh: 700,
+        totalWindExportKwh: 600,
+        totalWindCurtailedKwh: 200,
+        totalRenewableGenerationKwh: 7000,
+        totalRenewableDirectToLoadKwh: 3500,
+        totalRenewableToBatteryKwh: 1500,
+        totalRenewableExportKwh: 1600,
+        totalRenewableCurtailedKwh: 400,
+        totalGridImportKwh: 6500,
+        totalBatteryExportKwh: 500,
+        totalGridExportKwh: 2100,
+        baselineCost: 3500,
+        simulatedCost: 1500,
+        netSavings: 2000,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.solarGeneratedKwh).toBe(4000);
+      expect(metrics.windGeneratedKwh).toBe(3000);
+      expect(metrics.solarDirectToLoadKwh).toBe(2000);
+      expect(metrics.windDirectToLoadKwh).toBe(1500);
+      expect(metrics.solarToBatteryAcKwh).toBe(800);
+      expect(metrics.windToBatteryAcKwh).toBe(700);
+      expect(metrics.solarExportKwh).toBe(1000);
+      expect(metrics.windExportKwh).toBe(600);
+      expect(metrics.solarCurtailedKwh).toBe(200);
+      expect(metrics.windCurtailedKwh).toBe(200);
+    });
+
+    it('4-8. presentation-level reconciliation verifies renewable totals equal authoritative sums', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 12000,
+        totalSolarGenerationKwh: 4500,
+        totalSolarDirectToLoadKwh: 2200,
+        totalSolarToBatteryKwh: 1100,
+        totalSolarExportKwh: 900,
+        totalSolarCurtailedKwh: 300,
+        totalWindGenerationKwh: 3500,
+        totalWindDirectToLoadKwh: 1800,
+        totalWindToBatteryKwh: 900,
+        totalWindExportKwh: 700,
+        totalWindCurtailedKwh: 100,
+        totalRenewableGenerationKwh: 8000,
+        totalRenewableDirectToLoadKwh: 4000,
+        totalRenewableToBatteryKwh: 2000,
+        totalRenewableExportKwh: 1600,
+        totalRenewableCurtailedKwh: 400,
+        totalGridImportKwh: 8000,
+        totalBatteryExportKwh: 600,
+        totalGridExportKwh: 2200,
+        baselineCost: 4000,
+        simulatedCost: 2000,
+        netSavings: 2000,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      // Invariants:
+      expect(metrics.renewableGeneratedKwh).toBe(metrics.solarGeneratedKwh + metrics.windGeneratedKwh);
+      expect(metrics.renewableDirectToLoadKwh).toBe(metrics.solarDirectToLoadKwh + metrics.windDirectToLoadKwh);
+      expect(metrics.renewableToBatteryAcKwh).toBe(metrics.solarToBatteryAcKwh + metrics.windToBatteryAcKwh);
+      expect(metrics.renewableExportKwh).toBe(metrics.solarExportKwh + metrics.windExportKwh);
+      expect(metrics.renewableCurtailedKwh).toBe(metrics.solarCurtailedKwh + metrics.windCurtailedKwh);
+    });
+
+    it('9-10. keeps solar and wind export distinct from battery export and preserves total grid export', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 10000,
+        totalSolarGenerationKwh: 5000,
+        totalSolarDirectToLoadKwh: 2500,
+        totalSolarToBatteryKwh: 1000,
+        totalSolarExportKwh: 1200,
+        totalSolarCurtailedKwh: 300,
+        totalWindGenerationKwh: 4000,
+        totalWindDirectToLoadKwh: 2000,
+        totalWindToBatteryKwh: 800,
+        totalWindExportKwh: 1000,
+        totalWindCurtailedKwh: 200,
+        totalRenewableGenerationKwh: 9000,
+        totalRenewableDirectToLoadKwh: 4500,
+        totalRenewableToBatteryKwh: 1800,
+        totalRenewableExportKwh: 2200,
+        totalRenewableCurtailedKwh: 500,
+        totalGridImportKwh: 5500,
+        totalBatteryExportKwh: 400,
+        totalGridExportKwh: 2600, // 1200 (solar) + 1000 (wind) + 400 (battery)
+        baselineCost: 3200,
+        simulatedCost: 1300,
+        netSavings: 1900,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.solarExportKwh).toBe(1200);
+      expect(metrics.windExportKwh).toBe(1000);
+      expect(metrics.batteryExportKwh).toBe(400);
+      expect(metrics.gridExportKwh).toBe(2600);
+      expect(metrics.solarExportKwh + metrics.windExportKwh + metrics.batteryExportKwh).toBe(metrics.gridExportKwh);
+      expect(metrics.windExportKwh).not.toBe(metrics.batteryExportKwh);
+      expect(metrics.solarExportKwh).not.toBe(metrics.batteryExportKwh);
+    });
+
+    it('11. presentation adapter directly consumes authoritative G5 aggregates without re-summing interval physics', () => {
+      // Mock result with authoritative aggregates but without intervals attached
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 11000,
+        totalSolarGenerationKwh: 6000,
+        totalSolarDirectToLoadKwh: 3000,
+        totalSolarToBatteryKwh: 1400.45,
+        totalSolarExportKwh: 1300,
+        totalSolarCurtailedKwh: 300,
+        totalWindGenerationKwh: 4500,
+        totalWindDirectToLoadKwh: 2500,
+        totalWindToBatteryKwh: 800.25,
+        totalWindExportKwh: 900,
+        totalWindCurtailedKwh: 300,
+        totalRenewableGenerationKwh: 10500,
+        totalRenewableDirectToLoadKwh: 5500,
+        totalRenewableToBatteryKwh: 2200.70,
+        totalRenewableExportKwh: 2200,
+        totalRenewableCurtailedKwh: 600,
+        totalGridImportKwh: 5500,
+        totalBatteryExportKwh: 350,
+        totalGridExportKwh: 2550,
+        baselineCost: 3500,
+        simulatedCost: 1500,
+        netSavings: 2000,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.solarToBatteryAcKwh).toBe(1400.45);
+      expect(metrics.windToBatteryAcKwh).toBe(800.25);
+      expect(metrics.renewableToBatteryAcKwh).toBe(2200.70);
+    });
+  });
 });

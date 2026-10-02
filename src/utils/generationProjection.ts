@@ -34,6 +34,7 @@ import {
   SolarAssetProjectionState,
   SolarGenerationAsset,
   TouSeason,
+  WindGenerationAsset,
 } from '../types/energy';
 import { runUnifiedSimulation } from './simulationRouter';
 
@@ -45,7 +46,8 @@ export interface GenerationOperationalProjectionParams {
   batteryProfile: BatteryProfile;
   seasons?: TouSeason[];
   generationConfig: GenerationConfig;
-  allowSolarExport: boolean;
+  allowSolarExport?: boolean;
+  allowRenewableExport?: boolean;
 
   macroFinancials?:
     | MacroFinancials
@@ -68,9 +70,10 @@ export interface GenerationOperationalProjectionParams {
  * Derives a cloned GenerationConfig for a given projection year.
  * Degrades enabled solar asset DC capacity independently based on its annualDegradationPercent.
  * Preserves inverterAcCapacityKw and all other asset settings unchanged.
- * Disabled solar assets remain disabled and contribute nothing.
+ * Enabled wind assets are preserved without degradation; nested arrays/objects are cloned.
+ * Disabled generation assets remain disabled and contribute nothing.
  */
-export function deriveSolarConfigForProjectionYear(
+export function deriveGenerationConfigForProjectionYear(
   baseConfig: GenerationConfig,
   year: number
 ): {
@@ -114,7 +117,20 @@ export function deriveSolarConfigForProjectionYear(
       } as SolarGenerationAsset;
     }
 
-    // Preserve non-solar assets if present
+    if (asset.type === 'wind') {
+      const windAsset = asset as WindGenerationAsset;
+      return {
+        ...windAsset,
+        monthlyAverageWindSpeedMps: windAsset.monthlyAverageWindSpeedMps
+          ? [...windAsset.monthlyAverageWindSpeedMps]
+          : undefined,
+        powerCurve: windAsset.powerCurve
+          ? windAsset.powerCurve.map((pt) => ({ ...pt }))
+          : undefined,
+      } as WindGenerationAsset;
+    }
+
+    // Preserve non-solar/non-wind assets if present (e.g. disabled generator)
     return { ...asset };
   });
 
@@ -126,6 +142,9 @@ export function deriveSolarConfigForProjectionYear(
     solarAssets,
   };
 }
+
+/** Backward-compatible alias for deriveGenerationConfigForProjectionYear */
+export const deriveSolarConfigForProjectionYear = deriveGenerationConfigForProjectionYear;
 
 /**
  * Derives a cloned BatteryProfile for a given projection year.
@@ -248,7 +267,19 @@ export function calculateGenerationOperationalProjection(
     seasons,
     generationConfig,
     allowSolarExport,
+    allowRenewableExport,
   } = params;
+
+  const effectiveAllowRenewableExport =
+    allowRenewableExport !== undefined
+      ? allowRenewableExport
+      : allowSolarExport;
+
+  if (typeof effectiveAllowRenewableExport !== 'boolean') {
+    throw new Error(
+      'allowRenewableExport or allowSolarExport must be provided as a boolean.'
+    );
+  }
 
   if (!dataPoints || !Array.isArray(dataPoints) || dataPoints.length === 0) {
     throw new Error('dataPoints must be a non-empty array of interval data points.');
@@ -267,21 +298,44 @@ export function calculateGenerationOperationalProjection(
     ? assets.filter((asset) => asset != null && asset.enabled === true)
     : [];
 
-  const enabledSolarAssets = enabledAssets.filter(
-    (a) => a.type === 'solar'
-  ) as SolarGenerationAsset[];
-
-  if (enabledSolarAssets.length === 0) {
+  // Reject enabled generators explicitly
+  const enabledGenerators = enabledAssets.filter((a) => a.type === 'generator');
+  if (enabledGenerators.length > 0) {
     throw new Error(
-      'Generation operational projection requires at least one enabled solar asset.'
+      `Unsupported generation asset type: "generator". Only passive solar and wind assets are supported in this simulation pipeline.`
     );
   }
 
-  // Reject unsupported generation asset types (wind, generator)
-  const unsupportedAssets = enabledAssets.filter((a) => a.type !== 'solar');
+  // Reject unsupported generation asset types (anything other than solar or wind)
+  const unsupportedAssets = enabledAssets.filter(
+    (a) => a.type !== 'solar' && a.type !== 'wind'
+  );
   if (unsupportedAssets.length > 0) {
     throw new Error(
-      `Unsupported generation asset type: "${unsupportedAssets[0].type}". Only solar assets are supported in this simulation pipeline.`
+      `Unsupported generation asset type: "${unsupportedAssets[0].type}". Only solar and wind assets are supported in this simulation pipeline.`
+    );
+  }
+
+  // Reject enabled wind assets with interval_file resource mode
+  const enabledIntervalWind = enabledAssets.filter(
+    (a) => a.type === 'wind' && (a as WindGenerationAsset).resourceMode === 'interval_file'
+  );
+  if (enabledIntervalWind.length > 0) {
+    throw new Error(
+      'Wind assets with resourceMode "interval_file" are unsupported in multi-year operational projection.'
+    );
+  }
+
+  // At least one enabled supported generation asset (solar or supported wind) is required
+  const enabledSupportedAssets = enabledAssets.filter(
+    (a) =>
+      a.type === 'solar' ||
+      (a.type === 'wind' && (a as WindGenerationAsset).resourceMode !== 'interval_file')
+  );
+
+  if (enabledSupportedAssets.length === 0) {
+    throw new Error(
+      'Generation operational projection requires at least one enabled supported generation asset (solar or wind).'
     );
   }
 
@@ -321,7 +375,7 @@ export function calculateGenerationOperationalProjection(
 
   for (let y = 1; y <= horizon; y++) {
     // 1. Derive physically evolved Year-N inputs
-    const yearSolar = deriveSolarConfigForProjectionYear(generationConfig, y);
+    const yearGen = deriveGenerationConfigForProjectionYear(generationConfig, y);
     const yearBattery = deriveBatteryProfileForProjectionYear(
       batteryProfile,
       y,
@@ -342,8 +396,9 @@ export function calculateGenerationOperationalProjection(
       scheduleMatrix,
       batteryProfile: yearBattery.batteryProfile,
       seasons: yearTariffs.seasons,
-      generationConfig: yearSolar.generationConfig,
-      allowSolarExport,
+      generationConfig: yearGen.generationConfig,
+      allowSolarExport: effectiveAllowRenewableExport,
+      allowRenewableExport: effectiveAllowRenewableExport,
     });
 
     if (simResult.mode !== 'generation-aware' || !simResult.generationAwareResult) {
@@ -355,14 +410,7 @@ export function calculateGenerationOperationalProjection(
     const genResult = simResult.generationAwareResult;
     const summary = simResult.annualSummary;
 
-    // 3. Aggregate authoritative solar energy delivered to battery AC input
-    let totalSolarToBatteryAcKwh = 0;
-    const intervals = genResult.exportAwareBatteryFlow.intervals;
-    for (let i = 0; i < intervals.length; i++) {
-      totalSolarToBatteryAcKwh += intervals[i].preExportFlow.solarToBatteryAcKwh;
-    }
-
-    // 4. Construct compact annual aggregate (discarding all interval data)
+    // 3. Construct compact annual aggregate (discarding all interval data)
     years.push({
       year: y,
 
@@ -372,9 +420,21 @@ export function calculateGenerationOperationalProjection(
 
       solarGeneratedKwh: genResult.totalSolarGenerationKwh,
       solarDirectToLoadKwh: genResult.totalSolarDirectToLoadKwh,
-      solarToBatteryKwh: totalSolarToBatteryAcKwh,
+      solarToBatteryKwh: genResult.totalSolarToBatteryKwh,
       solarExportKwh: genResult.totalSolarExportKwh,
-      solarCurtailedKwh: genResult.gridFlows.totalCurtailedSolarKwh,
+      solarCurtailedKwh: genResult.totalSolarCurtailedKwh,
+
+      windGeneratedKwh: genResult.totalWindGenerationKwh,
+      windDirectToLoadKwh: genResult.totalWindDirectToLoadKwh,
+      windToBatteryKwh: genResult.totalWindToBatteryKwh,
+      windExportKwh: genResult.totalWindExportKwh,
+      windCurtailedKwh: genResult.totalWindCurtailedKwh,
+
+      renewableGeneratedKwh: genResult.totalRenewableGenerationKwh,
+      renewableDirectToLoadKwh: genResult.totalRenewableDirectToLoadKwh,
+      renewableToBatteryKwh: genResult.totalRenewableToBatteryKwh,
+      renewableExportKwh: genResult.totalRenewableExportKwh,
+      renewableCurtailedKwh: genResult.totalRenewableCurtailedKwh,
 
       gridImportKwh: genResult.totalGridImportKwh,
       gridExportKwh: genResult.totalGridExportKwh,
@@ -386,7 +446,7 @@ export function calculateGenerationOperationalProjection(
       batteryCapacityRetentionFactor: yearBattery.capacityRetentionFactor,
       batteryUsableCapacityKwh: yearBattery.usableCapacityKwh,
 
-      solarAssets: yearSolar.solarAssets,
+      solarAssets: yearGen.solarAssets,
     });
   }
 

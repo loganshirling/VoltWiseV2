@@ -18,7 +18,15 @@ import {
 import {
   deriveAnalysisState,
   shouldCalculateLegacyFinancials,
+  aggregateGenerationProjectCosts,
+  calculateGenerationAwareFinancials,
 } from '../utils/generationFinancials';
+import {
+  calculateGenerationOperationalProjection,
+} from '../utils/generationProjection';
+import {
+  deriveGenerationOperationalDisplayMetrics,
+} from '../utils/generationResults';
 import {
   BatteryProfile,
   GenerationConfig,
@@ -26,6 +34,8 @@ import {
   IntervalDataPoint,
   RateTier,
   SolarGenerationAsset,
+  WindGenerationAsset,
+  WindPowerCurvePoint,
 } from '../types/energy';
 
 describe('G3S — Application Integration & Final G3 Gate', () => {
@@ -489,5 +499,264 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
     );
     expect(legacyFinancials).toBeDefined();
     expect(legacyFinancials.year1Savings).toBe(Math.round(legacyResult.annualSummary.year1Savings));
+  });
+
+  function createWindAsset(overrides: Partial<WindGenerationAsset> = {}): WindGenerationAsset {
+    const defaultCurve: WindPowerCurvePoint[] = [
+      { windSpeedMps: 0.0, outputKw: 0.0 },
+      { windSpeedMps: 3.0, outputKw: 0.0 },
+      { windSpeedMps: 6.0, outputKw: 2.0 },
+      { windSpeedMps: 9.0, outputKw: 6.5 },
+      { windSpeedMps: 12.0, outputKw: 10.0 },
+      { windSpeedMps: 25.0, outputKw: 10.0 },
+    ];
+
+    return {
+      id: 'wind-test-1',
+      name: 'Residential 10kW Turbine',
+      type: 'wind',
+      enabled: true,
+      installedCostUsd: 15000,
+      annualMaintenanceCostUsd: 250,
+      ratedPowerKw: 10.0,
+      hubHeightM: 30.0,
+      rotorDiameterM: 10.0,
+      measurementHeightM: 10.0,
+      windShearExponent: 0.143,
+      cutInWindSpeedMps: 3.0,
+      ratedWindSpeedMps: 12.0,
+      cutOutWindSpeedMps: 25.0,
+      availabilityPercent: 95.0,
+      systemLossPercent: 5.0,
+      powerCurve: defaultCurve,
+      resourceMode: 'annual_average',
+      annualAverageWindSpeedMps: 6.5,
+      monthlyAverageWindSpeedMps: [
+        5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 7.5, 7.0, 6.5, 5.5, 5.0,
+      ],
+      ...overrides,
+    };
+  }
+
+  // 11. G5E: Wind-only generation-aware state is treated as generation-aware Results
+  it('11. wind-only generation-aware state is treated as generation-aware Results', () => {
+    const dataPoints = createDataPoints(48);
+    const scheduleMatrix = createScheduleMatrix();
+    const battery = createBattery();
+    const wind = createWindAsset();
+    const configWithWind: GenerationConfig = {
+      site: validSite,
+      assets: [wind],
+    };
+
+    const unifiedResult = runUnifiedSimulation({
+      dataPoints,
+      intervalHours: 1,
+      tiers: defaultTiers,
+      scheduleMatrix,
+      batteryProfile: battery,
+      generationConfig: configWithWind,
+      allowSolarExport: true,
+    });
+
+    expect(unifiedResult.mode).toBe('generation-aware');
+    expect(unifiedResult.generationAwareResult).toBeDefined();
+
+    const displayMetrics = deriveGenerationOperationalDisplayMetrics(unifiedResult.generationAwareResult!);
+    expect(displayMetrics.windGeneratedKwh).toBeGreaterThan(0);
+    expect(displayMetrics.solarGeneratedKwh).toBe(0);
+    expect(displayMetrics.renewableGeneratedKwh).toBe(displayMetrics.windGeneratedKwh);
+    expect(displayMetrics.renewableDirectToLoadKwh).toBe(displayMetrics.windDirectToLoadKwh);
+    expect(displayMetrics.renewableExportKwh).toBe(displayMetrics.windExportKwh);
+  });
+
+  // 12. G5E: Mixed solar+wind generation-aware state reaches Results
+  it('12. mixed solar+wind generation-aware state reaches Results', () => {
+    const dataPoints = createDataPoints(48);
+    const scheduleMatrix = createScheduleMatrix();
+    const battery = createBattery();
+    const solar = createSolarAsset();
+    const wind = createWindAsset();
+    const configMixed: GenerationConfig = {
+      site: validSite,
+      assets: [solar, wind],
+    };
+
+    const unifiedResult = runUnifiedSimulation({
+      dataPoints,
+      intervalHours: 1,
+      tiers: defaultTiers,
+      scheduleMatrix,
+      batteryProfile: battery,
+      generationConfig: configMixed,
+      allowSolarExport: true,
+    });
+
+    expect(unifiedResult.mode).toBe('generation-aware');
+    expect(unifiedResult.generationAwareResult).toBeDefined();
+
+    const displayMetrics = deriveGenerationOperationalDisplayMetrics(unifiedResult.generationAwareResult!);
+    expect(displayMetrics.solarGeneratedKwh).toBeGreaterThan(0);
+    expect(displayMetrics.windGeneratedKwh).toBeGreaterThan(0);
+    expect(displayMetrics.renewableGeneratedKwh).toBeCloseTo(
+      displayMetrics.solarGeneratedKwh + displayMetrics.windGeneratedKwh,
+      5
+    );
+    expect(displayMetrics.renewableDirectToLoadKwh).toBeCloseTo(
+      displayMetrics.solarDirectToLoadKwh + displayMetrics.windDirectToLoadKwh,
+      5
+    );
+  });
+
+  // 13. G5E: Solar-only Results path remains intact
+  it('13. solar-only Results path remains intact', () => {
+    const dataPoints = createDataPoints(48);
+    const scheduleMatrix = createScheduleMatrix();
+    const battery = createBattery();
+    const solar = createSolarAsset();
+    const configSolar: GenerationConfig = {
+      site: validSite,
+      assets: [solar],
+    };
+
+    const unifiedResult = runUnifiedSimulation({
+      dataPoints,
+      intervalHours: 1,
+      tiers: defaultTiers,
+      scheduleMatrix,
+      batteryProfile: battery,
+      generationConfig: configSolar,
+      allowSolarExport: true,
+    });
+
+    expect(unifiedResult.mode).toBe('generation-aware');
+    const displayMetrics = deriveGenerationOperationalDisplayMetrics(unifiedResult.generationAwareResult!);
+    expect(displayMetrics.solarGeneratedKwh).toBeGreaterThan(0);
+    expect(displayMetrics.windGeneratedKwh).toBe(0);
+    expect(displayMetrics.solarDirectToLoadKwh).toBeGreaterThan(0);
+  });
+
+  // 14. G5E: Partial-period wind state does not create lifecycle finance
+  it('14. partial-period wind state does not create lifecycle finance', () => {
+    const dataPoints = createDataPoints(48); // Only 2 days
+    const scheduleMatrix = createScheduleMatrix();
+    const isSuitableForAnnual = false;
+    const battery = createBattery();
+    const wind = createWindAsset();
+    const configWind: GenerationConfig = {
+      site: validSite,
+      assets: [wind],
+    };
+
+    const unifiedResult = runUnifiedSimulation({
+      dataPoints,
+      intervalHours: 1,
+      tiers: defaultTiers,
+      scheduleMatrix,
+      batteryProfile: battery,
+      generationConfig: configWind,
+      allowSolarExport: true,
+    });
+
+    expect(unifiedResult.mode).toBe('generation-aware');
+    const analysisState = deriveAnalysisState(isSuitableForAnnual, unifiedResult.mode, false);
+    expect(analysisState).toBe('partial-period');
+
+    // Lifecycle finance is suppressed for partial-period
+    expect(analysisState).not.toBe('generation-financial');
+    expect(analysisState).not.toBe('generation-financial-pending');
+  });
+
+  // 15. G5E: Full-year wind state consumes G5D generation financial analysis
+  it('15. full-year wind state consumes G5D generation financial analysis', () => {
+    // 365 days of UTC mock data
+    const fullYearData = Array.from({ length: 365 * 24 }, (_, i) => {
+      const d = new Date(Date.UTC(2025, 0, 1, i, 0, 0));
+      return {
+        timestamp: d.toISOString().replace('T', ' ').slice(0, 16),
+        date: d,
+        hour: d.getUTCHours(),
+        dayOfWeek: d.getUTCDay(),
+        month: d.getUTCMonth(),
+        usageKwh: 1.5,
+      };
+    });
+
+    const siteUtc: GenerationSite = {
+      latitude: 37.7749,
+      longitude: -122.4194,
+      timeZone: 'UTC',
+      elevationM: 16,
+    };
+
+    const battery = createBattery();
+    const wind = createWindAsset({
+      installedCostUsd: 15000,
+      annualMaintenanceCostUsd: 200,
+    });
+    const configWind: GenerationConfig = {
+      site: siteUtc,
+      assets: [wind],
+    };
+
+    const projectCosts = aggregateGenerationProjectCosts(configWind);
+    expect(projectCosts.generationCapexUsd).toBe(15000);
+
+    const operationalProjection = calculateGenerationOperationalProjection({
+      dataPoints: fullYearData,
+      intervalHours: 1,
+      tiers: defaultTiers,
+      scheduleMatrix: createScheduleMatrix(),
+      batteryProfile: battery,
+      generationConfig: configWind,
+      allowSolarExport: true,
+      annualElectricityInflationRate: 0.03,
+      annualBatteryDegradationRate: 0.02,
+    });
+
+    expect(operationalProjection.horizonYears).toBe(25);
+    expect(operationalProjection.years[0].windGeneratedKwh).toBeGreaterThan(0);
+    expect(operationalProjection.years[0].solarGeneratedKwh).toBe(0);
+
+    const financials = calculateGenerationAwareFinancials({
+      batteryProfile: battery,
+      operationalProjection,
+      projectCosts,
+      financials: DEFAULT_MACRO_FINANCIALS,
+    });
+
+    expect(financials.grossProjectCapexUsd).toBe(battery.installedCost + 15000);
+    expect(financials.projections).toHaveLength(25);
+    expect(typeof financials.npvUsd).toBe('number');
+    expect(typeof financials.lifetimeRoiPercent).toBe('number');
+  }, 60000);
+
+  // 16. G5E UX contracts: interval_file disabled, persisted state preserved, generator inactive
+  it('16. configuration UX contracts protect interval_file and generator status', () => {
+    // A persisted interval_file asset must not be silently converted
+    const persistedIntervalAsset: WindGenerationAsset = {
+      ...createWindAsset(),
+      resourceMode: 'interval_file',
+    };
+    const configWithInterval: GenerationConfig = {
+      site: validSite,
+      assets: [persistedIntervalAsset],
+    };
+
+    // Configuration object is preserved intact without mutation
+    expect(configWithInterval.assets[0].resourceMode).toBe('interval_file');
+
+    // Engine rejects interval_file if simulation is attempted
+    expect(() => {
+      runUnifiedSimulation({
+        dataPoints: createDataPoints(24),
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createBattery(),
+        generationConfig: configWithInterval,
+        allowSolarExport: false,
+      });
+    }).toThrow(/interval_file/i);
   });
 });

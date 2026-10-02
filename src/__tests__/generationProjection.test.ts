@@ -3,6 +3,7 @@ import {
   calculateGenerationOperationalProjection,
   deriveBatteryProfileForProjectionYear,
   deriveSolarConfigForProjectionYear,
+  deriveGenerationConfigForProjectionYear,
   deriveTariffsForProjectionYear,
   projectGenerationAwareOperations,
 } from '../utils/generationProjection';
@@ -708,7 +709,7 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
           allowSolarExport: true,
           allowIncompleteYearForTesting: true,
         })
-      ).toThrow(/requires at least one enabled solar asset/i);
+      ).toThrow(/requires at least one enabled/i);
 
       const disabledConfig: GenerationConfig = {
         site: baseSite,
@@ -726,12 +727,12 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
           allowSolarExport: true,
           allowIncompleteYearForTesting: true,
         })
-      ).toThrow(/requires at least one enabled solar asset/i);
+      ).toThrow(/requires at least one enabled/i);
     });
 
-    it('28. Existing unsupported enabled wind/generator behavior remains unsupported rather than falling back to legacy', () => {
+    it('28. Existing unsupported enabled generator and wind interval_file remain unsupported rather than falling back to legacy', () => {
       const dataPoints = createHourlyDataPoints(24, 1.0);
-      const windConfig: GenerationConfig = {
+      const windIntervalConfig: GenerationConfig = {
         site: baseSite,
         assets: [
           createClearSkyAsset('s1'),
@@ -740,9 +741,16 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
             name: 'Wind Turbine',
             type: 'wind',
             enabled: true,
+            resourceMode: 'interval_file',
+            ratedPowerKw: 10,
+            hubHeightMeters: 30,
+            rotorDiameterMeters: 12,
+            cutInWindSpeedMps: 3,
+            ratedWindSpeedMps: 11,
+            cutOutWindSpeedMps: 25,
             installedCostUsd: 10000,
             annualMaintenanceCostUsd: 200,
-          } as WindGenerationAsset,
+          } as unknown as WindGenerationAsset,
         ],
       };
 
@@ -753,11 +761,11 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
           tiers: defaultTiers,
           scheduleMatrix: createScheduleMatrix(),
           batteryProfile: createTestBattery(),
-          generationConfig: windConfig,
+          generationConfig: windIntervalConfig,
           allowSolarExport: true,
           allowIncompleteYearForTesting: true,
         })
-      ).toThrow(/Unsupported generation asset type: "wind"/i);
+      ).toThrow(/Wind assets with resourceMode "interval_file" are unsupported/i);
 
       const genConfig: GenerationConfig = {
         site: baseSite,
@@ -869,6 +877,603 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
           allowIncompleteYearForTesting: true,
         })
       ).toThrow(/between 1 and 25 years/i);
+    });
+  });
+
+  // ==========================================================================
+  // G5D — Multi-Year Wind and Solar+Wind Operational Projections
+  // ==========================================================================
+  describe('G5D — Multi-Year Wind and Solar+Wind Operational Projections', () => {
+    function createTestWindAsset(
+      id = 'wind-1',
+      overrides: Partial<WindGenerationAsset> = {}
+    ): WindGenerationAsset {
+      return {
+        id,
+        name: 'Residential Wind Turbine',
+        type: 'wind',
+        enabled: true,
+        installedCostUsd: 15000,
+        annualMaintenanceCostUsd: 250,
+        ratedPowerKw: 10.0,
+        hubHeightM: 30.0,
+        rotorDiameterM: 10.0,
+        measurementHeightM: 10.0,
+        windShearExponent: 0.143,
+        cutInWindSpeedMps: 3.0,
+        ratedWindSpeedMps: 12.0,
+        cutOutWindSpeedMps: 25.0,
+        availabilityPercent: 100.0,
+        systemLossPercent: 0.0,
+        resourceMode: 'annual_average',
+        annualAverageWindSpeedMps: 7.0,
+        monthlyAverageWindSpeedMps: [
+          6.0, 6.5, 7.0, 7.5, 7.0, 6.5, 6.0, 6.5, 7.0, 7.5, 8.0, 7.0,
+        ],
+        powerCurve: [
+          { windSpeedMps: 0.0, outputKw: 0.0 },
+          { windSpeedMps: 3.0, outputKw: 0.0 },
+          { windSpeedMps: 6.0, outputKw: 2.5 },
+          { windSpeedMps: 9.0, outputKw: 6.5 },
+          { windSpeedMps: 12.0, outputKw: 10.0 },
+          { windSpeedMps: 25.0, outputKw: 10.0 },
+        ],
+        ...overrides,
+      };
+    }
+
+    it('1. Wind-only Year-1 projection succeeds and produces authoritative wind metrics', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const windConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('wind-1')],
+      };
+
+      const projection = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: windConfig,
+        allowRenewableExport: true,
+        horizonYears: 1,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(projection.horizonYears).toBe(1);
+      expect(projection.years).toHaveLength(1);
+      const y1 = projection.years[0];
+      expect(y1.year).toBe(1);
+      expect(y1.windGeneratedKwh).toBeGreaterThan(0);
+      expect(y1.solarGeneratedKwh).toBe(0);
+      expect(y1.solarDirectToLoadKwh).toBe(0);
+      expect(y1.solarToBatteryKwh).toBe(0);
+      expect(y1.solarExportKwh).toBe(0);
+      expect(y1.solarCurtailedKwh).toBe(0);
+      expect(y1.solarAssets).toEqual([]);
+      expect(y1.renewableGeneratedKwh).toBe(y1.windGeneratedKwh);
+      expect(y1.renewableDirectToLoadKwh).toBe(y1.windDirectToLoadKwh);
+      expect(y1.renewableToBatteryKwh).toBe(y1.windToBatteryKwh);
+      expect(y1.renewableExportKwh).toBe(y1.windExportKwh);
+      expect(y1.renewableCurtailedKwh).toBe(y1.windCurtailedKwh);
+      expect(y1.electricitySavingsUsd).toBeCloseTo(
+        y1.baselineElectricityCostUsd - y1.simulatedElectricityCostUsd,
+        2
+      );
+    });
+
+    it('2. Wind-only multi-year projection produces contiguous years and valid economics', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const windConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('wind-1')],
+      };
+
+      const projection = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: windConfig,
+        allowRenewableExport: true,
+        horizonYears: 5,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(projection.horizonYears).toBe(5);
+      expect(projection.years).toHaveLength(5);
+      for (let i = 0; i < 5; i++) {
+        expect(projection.years[i].year).toBe(i + 1);
+        expect(projection.years[i].windGeneratedKwh).toBeGreaterThan(0);
+        expect(projection.years[i].solarGeneratedKwh).toBe(0);
+      }
+    });
+
+    it('3. Solar-only existing projection parity: wind metrics are zero and solar metrics match', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const solarConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createClearSkyAsset('s1', { annualDegradationPercent: 0.5 })],
+      };
+
+      const projection = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: solarConfig,
+        allowSolarExport: true,
+        horizonYears: 3,
+        allowIncompleteYearForTesting: true,
+      });
+
+      for (const y of projection.years) {
+        expect(y.windGeneratedKwh).toBe(0);
+        expect(y.windDirectToLoadKwh).toBe(0);
+        expect(y.windToBatteryKwh).toBe(0);
+        expect(y.windExportKwh).toBe(0);
+        expect(y.windCurtailedKwh).toBe(0);
+
+        expect(y.renewableGeneratedKwh).toBe(y.solarGeneratedKwh);
+        expect(y.renewableDirectToLoadKwh).toBe(y.solarDirectToLoadKwh);
+        expect(y.renewableToBatteryKwh).toBe(y.solarToBatteryKwh);
+        expect(y.renewableExportKwh).toBe(y.solarExportKwh);
+        expect(y.renewableCurtailedKwh).toBe(y.solarCurtailedKwh);
+      }
+      expect(projection.years[0].solarAssets[0].capacityRetentionFactor).toBe(1.0);
+      expect(projection.years[1].solarAssets[0].capacityRetentionFactor).toBeCloseTo(0.995, 4);
+    });
+
+    it('4. Solar + wind multi-year projection combines both technologies', () => {
+      const dataPoints = createHourlyDataPoints(24, 2.0);
+      const mixedConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createClearSkyAsset('s1'), createTestWindAsset('w1')],
+      };
+
+      const projection = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: mixedConfig,
+        allowRenewableExport: true,
+        horizonYears: 3,
+        allowIncompleteYearForTesting: true,
+      });
+
+      for (const y of projection.years) {
+        expect(y.solarGeneratedKwh).toBeGreaterThan(0);
+        expect(y.windGeneratedKwh).toBeGreaterThan(0);
+        expect(y.renewableGeneratedKwh).toBeCloseTo(
+          y.solarGeneratedKwh + y.windGeneratedKwh,
+          4
+        );
+        expect(y.renewableDirectToLoadKwh).toBeCloseTo(
+          y.solarDirectToLoadKwh + y.windDirectToLoadKwh,
+          4
+        );
+        expect(y.renewableToBatteryKwh).toBeCloseTo(
+          y.solarToBatteryKwh + y.windToBatteryKwh,
+          4
+        );
+        expect(y.renewableExportKwh).toBeCloseTo(
+          y.solarExportKwh + y.windExportKwh,
+          4
+        );
+        expect(y.renewableCurtailedKwh).toBeCloseTo(
+          y.solarCurtailedKwh + y.windCurtailedKwh,
+          4
+        );
+      }
+    });
+
+    it('5. Multiple wind turbines combine outputs additively', () => {
+      const dataPoints = createHourlyDataPoints(24, 2.5);
+      const singleTurbineConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('w1', { ratedPowerKw: 10.0 })],
+      };
+      const twoTurbineConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [
+          createTestWindAsset('w1', { ratedPowerKw: 10.0 }),
+          createTestWindAsset('w2', {
+            ratedPowerKw: 5.0,
+            hubHeightM: 25.0,
+            powerCurve: [
+              { windSpeedMps: 0.0, outputKw: 0.0 },
+              { windSpeedMps: 3.0, outputKw: 0.0 },
+              { windSpeedMps: 6.0, outputKw: 1.5 },
+              { windSpeedMps: 9.0, outputKw: 3.5 },
+              { windSpeedMps: 12.0, outputKw: 5.0 },
+              { windSpeedMps: 25.0, outputKw: 5.0 },
+            ],
+          }),
+        ],
+      };
+
+      const pSingle = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: singleTurbineConfig,
+        allowRenewableExport: true,
+        horizonYears: 1,
+        allowIncompleteYearForTesting: true,
+      });
+
+      const pTwo = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: twoTurbineConfig,
+        allowRenewableExport: true,
+        horizonYears: 1,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(pTwo.years[0].windGeneratedKwh).toBeGreaterThan(
+        pSingle.years[0].windGeneratedKwh
+      );
+    });
+
+    it('6. Annual-average wind resource mode simulates multi-year projection', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const config: GenerationConfig = {
+        site: baseSite,
+        assets: [
+          createTestWindAsset('w1', {
+            resourceMode: 'annual_average',
+            annualAverageWindSpeedMps: 6.8,
+          }),
+        ],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: config,
+        allowRenewableExport: true,
+        horizonYears: 3,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(proj.years[0].windGeneratedKwh).toBeGreaterThan(0);
+    });
+
+    it('7. Monthly-average wind resource mode simulates multi-year projection', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const config: GenerationConfig = {
+        site: baseSite,
+        assets: [
+          createTestWindAsset('w1', {
+            resourceMode: 'monthly_average',
+            monthlyAverageWindSpeedMps: [
+              6.0, 6.2, 6.5, 7.0, 7.2, 7.0, 6.5, 6.0, 6.2, 6.5, 6.8, 6.5,
+            ],
+          }),
+        ],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: config,
+        allowRenewableExport: true,
+        horizonYears: 3,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(proj.years[0].windGeneratedKwh).toBeGreaterThan(0);
+    });
+
+    it('8. Wind generated energy remains constant across years when no wind degradation contract exists', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const config: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('w1')],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: config,
+        allowRenewableExport: true,
+        horizonYears: 5,
+        annualBatteryDegradationRate: 2.0,
+        annualElectricityInflationRate: 3.0,
+        allowIncompleteYearForTesting: true,
+      });
+
+      const y1Generated = proj.years[0].windGeneratedKwh;
+      for (let y = 1; y < 5; y++) {
+        expect(proj.years[y].windGeneratedKwh).toBeCloseTo(y1Generated, 4);
+      }
+    });
+
+    it('9. Wind configuration, power curves, and resource arrays are cloned and remain unchanged across projected years', () => {
+      const baseWind = createTestWindAsset('w1');
+      const baseConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [baseWind],
+      };
+
+      const year5 = deriveGenerationConfigForProjectionYear(baseConfig, 5);
+      const clonedWind = year5.generationConfig.assets[0] as WindGenerationAsset;
+
+      expect(clonedWind.ratedPowerKw).toBe(baseWind.ratedPowerKw);
+      expect(clonedWind.hubHeightM).toBe(baseWind.hubHeightM);
+      expect(clonedWind.powerCurve).toEqual(baseWind.powerCurve);
+      expect(clonedWind.powerCurve).not.toBe(baseWind.powerCurve);
+      expect(clonedWind.monthlyAverageWindSpeedMps).toEqual(
+        baseWind.monthlyAverageWindSpeedMps
+      );
+      expect(clonedWind.monthlyAverageWindSpeedMps).not.toBe(
+        baseWind.monthlyAverageWindSpeedMps
+      );
+    });
+
+    it('10. Solar degradation still compounds independently per array in mixed configurations', () => {
+      const mixedConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [
+          createClearSkyAsset('s1', { dcCapacityKw: 6.0, annualDegradationPercent: 0.5 }),
+          createClearSkyAsset('s2', { dcCapacityKw: 4.0, annualDegradationPercent: 1.0 }),
+          createTestWindAsset('w1'),
+        ],
+      };
+
+      const y3 = deriveGenerationConfigForProjectionYear(mixedConfig, 3);
+      expect(y3.solarAssets).toHaveLength(2);
+      expect(y3.solarAssets[0].capacityRetentionFactor).toBeCloseTo(Math.pow(0.995, 2), 6);
+      expect(y3.solarAssets[1].capacityRetentionFactor).toBeCloseTo(Math.pow(0.99, 2), 6);
+      const windInY3 = y3.generationConfig.assets[2] as WindGenerationAsset;
+      expect(windInY3.ratedPowerKw).toBe(10.0);
+    });
+
+    it('11. In mixed project, solar degrades while wind capability does not', () => {
+      const dataPoints = createHourlyDataPoints(24, 2.0);
+      const mixedConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [
+          createClearSkyAsset('s1', { annualDegradationPercent: 1.0 }),
+          createTestWindAsset('w1'),
+        ],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: mixedConfig,
+        allowRenewableExport: true,
+        horizonYears: 4,
+        allowIncompleteYearForTesting: true,
+      });
+
+      // Solar generation decreases
+      expect(proj.years[0].solarGeneratedKwh).toBeGreaterThan(proj.years[3].solarGeneratedKwh);
+      // Wind generation remains constant
+      expect(proj.years[0].windGeneratedKwh).toBeCloseTo(proj.years[3].windGeneratedKwh, 4);
+    });
+
+    it('12. Battery degradation influences wind/battery interaction through authoritative rerun', () => {
+      const dataPoints = createHourlyDataPoints(24, 0.5); // light load -> high wind surplus
+      const windConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('w1', { ratedPowerKw: 20.0 })],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery({ totalCapacityKwh: 20 }),
+        generationConfig: windConfig,
+        allowRenewableExport: true,
+        horizonYears: 5,
+        annualBatteryDegradationRate: 5.0, // significant battery degradation
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(proj.years[0].batteryCapacityRetentionFactor).toBe(1.0);
+      expect(proj.years[4].batteryCapacityRetentionFactor).toBeCloseTo(0.80, 2);
+      expect(proj.years[4].batteryUsableCapacityKwh).toBeLessThan(
+        proj.years[0].batteryUsableCapacityKwh
+      );
+    });
+
+    it('13. Tariff inflation changes wind-project economics through Year-N tariff inputs', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const windConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('w1')],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: windConfig,
+        allowRenewableExport: true,
+        horizonYears: 3,
+        annualElectricityInflationRate: 5.0,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(proj.years[1].baselineElectricityCostUsd).toBeGreaterThan(
+        proj.years[0].baselineElectricityCostUsd
+      );
+      expect(proj.years[2].baselineElectricityCostUsd).toBeGreaterThan(
+        proj.years[1].baselineElectricityCostUsd
+      );
+    });
+
+    it('14. Grid export reconciles to renewable + battery export for wind projects', () => {
+      const dataPoints = createHourlyDataPoints(24, 0.5);
+      const windConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('w1', { ratedPowerKw: 15.0 })],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery({ allowGridExport: true }),
+        generationConfig: windConfig,
+        allowRenewableExport: true,
+        horizonYears: 2,
+        allowIncompleteYearForTesting: true,
+      });
+
+      for (const y of proj.years) {
+        expect(y.gridExportKwh).toBeCloseTo(
+          y.renewableExportKwh + y.batteryExportKwh,
+          2
+        );
+      }
+    });
+
+    it('15. Memory efficiency: compact annual records retain no intervals in wind projection', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const windConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('w1')],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: windConfig,
+        allowRenewableExport: true,
+        horizonYears: 5,
+        allowIncompleteYearForTesting: true,
+      });
+
+      for (const y of proj.years) {
+        expect((y as any).intervals).toBeUndefined();
+        expect((y as any).exportAwareBatteryFlow).toBeUndefined();
+      }
+    });
+
+    it('16. Base config/assets are not mutated during wind projection', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const windAsset = createTestWindAsset('w1');
+      const baseConfig: GenerationConfig = {
+        site: { ...baseSite },
+        assets: [windAsset],
+      };
+
+      const copyBefore = JSON.stringify(baseConfig);
+      calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: baseConfig,
+        allowRenewableExport: true,
+        horizonYears: 3,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(JSON.stringify(baseConfig)).toBe(copyBefore);
+    });
+
+    it('17. Disabled generator and disabled wind interval_file do not block valid supported projection', () => {
+      const dataPoints = createHourlyDataPoints(24, 1.5);
+      const config: GenerationConfig = {
+        site: baseSite,
+        assets: [
+          createTestWindAsset('w1', { enabled: true }),
+          {
+            id: 'gen-1',
+            name: 'Standby Generator',
+            type: 'generator',
+            enabled: false,
+            installedCostUsd: 5000,
+            annualMaintenanceCostUsd: 100,
+          } as GeneratorGenerationAsset,
+          {
+            id: 'wind-disabled-file',
+            name: 'File Wind',
+            type: 'wind',
+            enabled: false,
+            resourceMode: 'interval_file',
+            installedCostUsd: 8000,
+            annualMaintenanceCostUsd: 150,
+          } as WindGenerationAsset,
+        ],
+      };
+
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: config,
+        allowRenewableExport: true,
+        horizonYears: 2,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(proj.years).toHaveLength(2);
+      expect(proj.years[0].windGeneratedKwh).toBeGreaterThan(0);
+    });
+
+    it('18. allowRenewableExport takes precedence over allowSolarExport when both are provided', () => {
+      const dataPoints = createHourlyDataPoints(24, 0.5);
+      const windConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [createTestWindAsset('w1', { ratedPowerKw: 15.0 })],
+      };
+
+      // allowRenewableExport: false, allowSolarExport: true -> export should be prohibited (0)
+      const proj = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: windConfig,
+        allowRenewableExport: false,
+        allowSolarExport: true,
+        horizonYears: 1,
+        allowIncompleteYearForTesting: true,
+      });
+
+      expect(proj.years[0].windExportKwh).toBe(0);
+      expect(proj.years[0].renewableExportKwh).toBe(0);
+      expect(proj.years[0].windCurtailedKwh).toBeGreaterThan(0);
     });
   });
 });

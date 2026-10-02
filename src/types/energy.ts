@@ -1355,6 +1355,18 @@ export interface GenerationOperationalYear {
   solarExportKwh: number;
   solarCurtailedKwh: number;
 
+  windGeneratedKwh: number;
+  windDirectToLoadKwh: number;
+  windToBatteryKwh: number;
+  windExportKwh: number;
+  windCurtailedKwh: number;
+
+  renewableGeneratedKwh: number;
+  renewableDirectToLoadKwh: number;
+  renewableToBatteryKwh: number;
+  renewableExportKwh: number;
+  renewableCurtailedKwh: number;
+
   gridImportKwh: number;
   gridExportKwh: number;
   batteryExportKwh: number;
@@ -1405,6 +1417,8 @@ export interface GenerationProjectFinancialYear {
   batteryUsableCapacityKwh?: number;
   equivalentFullCycles?: number;
   solarGeneratedKwh?: number;
+  windGeneratedKwh?: number;
+  renewableGeneratedKwh?: number;
 }
 
 export interface GenerationFinancialAnalysis {

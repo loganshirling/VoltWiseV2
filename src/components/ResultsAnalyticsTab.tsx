@@ -29,6 +29,8 @@ import {
   Flame,
   Snowflake,
   FileJson,
+  Wind,
+  Info,
 } from 'lucide-react';
 import {
   BatteryProfile,
@@ -163,6 +165,22 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
     if (!activeGenerationAwareResult) return null;
     return deriveGenerationOperationalDisplayMetrics(activeGenerationAwareResult);
   }, [activeGenerationAwareResult]);
+
+  const hasSolar = Boolean(
+    (generationOperationalMetrics && generationOperationalMetrics.solarGeneratedKwh > 0) ||
+    generationConfig?.assets?.some((a) => a.type === 'solar' && a.enabled) ||
+    activeGenerationOperationalProjection?.years?.some((y) => (y.solarGeneratedKwh ?? 0) > 0)
+  );
+
+  const hasWind = Boolean(
+    (generationOperationalMetrics && generationOperationalMetrics.windGeneratedKwh > 0) ||
+    generationConfig?.assets?.some((a) => a.type === 'wind' && a.enabled) ||
+    activeGenerationOperationalProjection?.years?.some((y) => (y.windGeneratedKwh ?? 0) > 0)
+  );
+
+  const isMixedGeneration = hasSolar && hasWind;
+  const isWindOnly = hasWind && !hasSolar;
+  const isSolarOnly = !isWindOnly && !isMixedGeneration;
 
   // Chart Controls State
   const [projectionHorizon, setProjectionHorizon] = useState<number>(15); // 1 to 25 years
@@ -955,7 +973,17 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
             Tariff: <strong className="text-cyan-400">{activeTouProfile?.name || 'Standard TOU'}</strong> · {isGenerationAware ? (
-              <>Project: <strong className="text-emerald-400">{profile.name}</strong> + <strong className="text-amber-300">Solar</strong> · Mode: {isFinanced ? 'Loan Financed' : 'Cash Purchase'}.</>
+              <>
+                Project: <strong className="text-emerald-400">{profile.name}</strong> + {isMixedGeneration ? (
+                  <>
+                    <strong className="text-amber-300">Solar</strong> & <strong className="text-sky-300">Wind</strong>
+                  </>
+                ) : isWindOnly ? (
+                  <strong className="text-sky-300">Wind</strong>
+                ) : (
+                  <strong className="text-amber-300">Solar</strong>
+                )} · Mode: {isFinanced ? 'Loan Financed' : 'Cash Purchase'}.
+              </>
             ) : (
               <>Battery: <strong className="text-emerald-400">{profile.name}</strong> ({profile.model}) · Mode: {isFinanced ? 'Loan Financed' : 'Cash Purchase'}.</>
             )}
@@ -1058,13 +1086,19 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
         </div>
       )}
 
-      {/* AUTHORITATIVE GENERATION & GRID DISPATCH OPERATIONAL SUMMARY (MILESTONE G4D) */}
+      {/* AUTHORITATIVE GENERATION & GRID DISPATCH OPERATIONAL SUMMARY (MILESTONE G4D / G5E) */}
       {generationOperationalMetrics && (
         <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 space-y-4 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
             <div>
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-                <Sun className="h-4 w-4 text-amber-400" />
+                {isWindOnly ? (
+                  <Wind className="h-4 w-4 text-sky-400" />
+                ) : isMixedGeneration ? (
+                  <Zap className="h-4 w-4 text-emerald-400" />
+                ) : (
+                  <Sun className="h-4 w-4 text-amber-400" />
+                )}
                 <span>Authoritative Generation & Grid Dispatch Operations</span>
                 <span className="text-[10px] font-mono font-normal px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 text-emerald-300">
                   {isPartialPeriod ? `${partialMetrics.durationDays}-Day Observed Period` : 'Year 1 (8,760 Hours)'}
@@ -1072,7 +1106,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 {isPartialPeriod
-                  ? 'Observed energy flows and solar dispatch across the uploaded period. Values represent actual observed totals (not annualized).'
+                  ? 'Observed energy flows and renewable dispatch across the uploaded period. Values represent actual observed totals (not annualized).'
                   : 'Full-year 8,760-hour simulated physical dispatch, direct self-consumption, battery absorption, and grid boundary interactions.'}
               </p>
             </div>
@@ -1082,72 +1116,253 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               </div>
             ) : generationProjectCosts ? (
               <div className="text-xs font-mono text-slate-400 bg-slate-950 px-2.5 py-1 rounded border border-slate-800">
-                Configured Solar CapEx: ${generationProjectCosts.generationCapexUsd.toLocaleString()}
+                Configured Generation CAPEX: ${generationProjectCosts.generationCapexUsd.toLocaleString()}
               </div>
             ) : null}
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {/* Solar Generated */}
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
-              <span className="text-[11px] text-slate-400 block">Solar Generated</span>
-              <span className="text-lg font-bold font-mono text-amber-300 block tabular-nums">
-                {generationOperationalMetrics.solarGeneratedKwh.toLocaleString()}
-                <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
-              </span>
-              <span className="text-[10px] text-slate-500 block">Total modeled DC-to-AC</span>
-            </div>
+          {isSolarOnly ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {/* Solar Generated */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Solar Generated</span>
+                <span className="text-lg font-bold font-mono text-amber-300 block tabular-nums">
+                  {generationOperationalMetrics.solarGeneratedKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Total modeled DC-to-AC</span>
+              </div>
 
-            {/* Solar Direct to Load */}
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
-              <span className="text-[11px] text-slate-400 block">Solar Direct to Load</span>
-              <span className="text-lg font-bold font-mono text-emerald-400 block tabular-nums">
-                {generationOperationalMetrics.solarDirectToLoadKwh.toLocaleString()}
-                <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
-              </span>
-              <span className="text-[10px] text-slate-500 block">Immediate self-consumption</span>
-            </div>
+              {/* Solar Direct to Load */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Solar Direct to Load</span>
+                <span className="text-lg font-bold font-mono text-emerald-400 block tabular-nums">
+                  {generationOperationalMetrics.solarDirectToLoadKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Immediate self-consumption</span>
+              </div>
 
-            {/* Solar Sent to Battery */}
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
-              <span className="text-[11px] text-slate-400 block">Solar to Battery</span>
-              <span className="text-lg font-bold font-mono text-cyan-400 block tabular-nums">
-                {generationOperationalMetrics.solarToBatteryAcKwh.toLocaleString()}
-                <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
-              </span>
-              <span className="text-[10px] text-slate-500 block">Surplus stored as AC</span>
-            </div>
+              {/* Solar Sent to Battery */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Solar to Battery</span>
+                <span className="text-lg font-bold font-mono text-cyan-400 block tabular-nums">
+                  {generationOperationalMetrics.solarToBatteryAcKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Surplus stored as AC</span>
+              </div>
 
-            {/* Solar Exported */}
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
-              <span className="text-[11px] text-slate-400 block">Solar Export to Grid</span>
-              <span className="text-lg font-bold font-mono text-emerald-300 block tabular-nums">
-                {generationOperationalMetrics.solarExportKwh.toLocaleString()}
-                <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
-              </span>
-              <span className="text-[10px] text-slate-500 block">Direct solar surplus exported</span>
-            </div>
+              {/* Solar Exported */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Solar Export to Grid</span>
+                <span className="text-lg font-bold font-mono text-emerald-300 block tabular-nums">
+                  {generationOperationalMetrics.solarExportKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Direct solar surplus exported</span>
+              </div>
 
-            {/* Battery Exported */}
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
-              <span className="text-[11px] text-slate-400 block">Battery Export to Grid</span>
-              <span className="text-lg font-bold font-mono text-indigo-300 block tabular-nums">
-                {generationOperationalMetrics.batteryExportKwh.toLocaleString()}
-                <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
-              </span>
-              <span className="text-[10px] text-slate-500 block">Arbitrage dispatch to grid</span>
-            </div>
+              {/* Battery Exported */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Battery Export to Grid</span>
+                <span className="text-lg font-bold font-mono text-indigo-300 block tabular-nums">
+                  {generationOperationalMetrics.batteryExportKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Arbitrage dispatch to grid</span>
+              </div>
 
-            {/* Solar Curtailed */}
-            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
-              <span className="text-[11px] text-slate-400 block">Solar Curtailed</span>
-              <span className="text-lg font-bold font-mono text-amber-500 block tabular-nums">
-                {generationOperationalMetrics.solarCurtailedKwh.toLocaleString()}
-                <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
-              </span>
-              <span className="text-[10px] text-slate-500 block">Inverter/export constrained</span>
+              {/* Solar Curtailed */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Solar Curtailed</span>
+                <span className="text-lg font-bold font-mono text-amber-500 block tabular-nums">
+                  {generationOperationalMetrics.solarCurtailedKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Inverter/export constrained</span>
+              </div>
             </div>
-          </div>
+          ) : isWindOnly ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {/* Wind Generated */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Wind Generated</span>
+                <span className="text-lg font-bold font-mono text-sky-300 block tabular-nums">
+                  {generationOperationalMetrics.windGeneratedKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Total modeled turbine output</span>
+              </div>
+
+              {/* Wind Direct to Load */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Wind Direct to Load</span>
+                <span className="text-lg font-bold font-mono text-emerald-400 block tabular-nums">
+                  {generationOperationalMetrics.windDirectToLoadKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Immediate self-consumption</span>
+              </div>
+
+              {/* Wind to Battery */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Wind to Battery</span>
+                <span className="text-lg font-bold font-mono text-cyan-400 block tabular-nums">
+                  {generationOperationalMetrics.windToBatteryAcKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Surplus stored as AC</span>
+              </div>
+
+              {/* Wind Export to Grid */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Wind Export to Grid</span>
+                <span className="text-lg font-bold font-mono text-emerald-300 block tabular-nums">
+                  {generationOperationalMetrics.windExportKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Direct wind surplus exported</span>
+              </div>
+
+              {/* Battery Export to Grid */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Battery Export to Grid</span>
+                <span className="text-lg font-bold font-mono text-indigo-300 block tabular-nums">
+                  {generationOperationalMetrics.batteryExportKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Arbitrage dispatch to grid</span>
+              </div>
+
+              {/* Wind Curtailed */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                <span className="text-[11px] text-slate-400 block">Wind Curtailed</span>
+                <span className="text-lg font-bold font-mono text-amber-500 block tabular-nums">
+                  {generationOperationalMetrics.windCurtailedKwh.toLocaleString()}
+                  <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                </span>
+                <span className="text-[10px] text-slate-500 block">Export/inverter constrained</span>
+              </div>
+            </div>
+          ) : (
+            /* Mixed Solar + Wind Layout */
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {/* Total Renewable Generated */}
+                <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                  <span className="text-[11px] text-slate-400 block">Renewable Generated</span>
+                  <span className="text-lg font-bold font-mono text-amber-200 block tabular-nums">
+                    {generationOperationalMetrics.renewableGeneratedKwh.toLocaleString()}
+                    <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">Solar + Wind generation</span>
+                </div>
+
+                {/* Renewable Direct to Load */}
+                <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                  <span className="text-[11px] text-slate-400 block">Renewables to Load</span>
+                  <span className="text-lg font-bold font-mono text-emerald-400 block tabular-nums">
+                    {generationOperationalMetrics.renewableDirectToLoadKwh.toLocaleString()}
+                    <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">Immediate self-consumption</span>
+                </div>
+
+                {/* Renewable to Battery */}
+                <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                  <span className="text-[11px] text-slate-400 block">Renewables to Battery</span>
+                  <span className="text-lg font-bold font-mono text-cyan-400 block tabular-nums">
+                    {generationOperationalMetrics.renewableToBatteryAcKwh.toLocaleString()}
+                    <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">Surplus stored as AC</span>
+                </div>
+
+                {/* Renewable Export to Grid */}
+                <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                  <span className="text-[11px] text-slate-400 block">Renewable Export</span>
+                  <span className="text-lg font-bold font-mono text-emerald-300 block tabular-nums">
+                    {generationOperationalMetrics.renewableExportKwh.toLocaleString()}
+                    <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">Direct surplus exported</span>
+                </div>
+
+                {/* Battery Export to Grid */}
+                <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                  <span className="text-[11px] text-slate-400 block">Battery Export to Grid</span>
+                  <span className="text-lg font-bold font-mono text-indigo-300 block tabular-nums">
+                    {generationOperationalMetrics.batteryExportKwh.toLocaleString()}
+                    <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">Arbitrage dispatch to grid</span>
+                </div>
+
+                {/* Renewable Curtailed */}
+                <div className="p-3 bg-slate-950 rounded-lg border border-slate-800/90 space-y-1">
+                  <span className="text-[11px] text-slate-400 block">Renewable Curtailed</span>
+                  <span className="text-lg font-bold font-mono text-amber-500 block tabular-nums">
+                    {generationOperationalMetrics.renewableCurtailedKwh.toLocaleString()}
+                    <span className="text-xs font-normal text-slate-400 font-sans ml-1">kWh</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500 block">Export/inverter constrained</span>
+                </div>
+              </div>
+
+              {/* Resource Allocation Breakdown (Solar vs. Wind) */}
+              <div className="p-3 bg-slate-950/70 rounded-lg border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-400 font-semibold uppercase tracking-wider">
+                  <span>Resource Allocation Breakdown</span>
+                  <span className="text-[10px] text-slate-500 font-mono normal-case">Authoritative Solar & Wind Sub-totals</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                        <th className="pb-1.5 font-medium">Source</th>
+                        <th className="pb-1.5 text-right font-medium text-amber-300/90">Generated</th>
+                        <th className="pb-1.5 text-right font-medium text-emerald-400/90">Direct to Load</th>
+                        <th className="pb-1.5 text-right font-medium text-cyan-400/90">To Battery</th>
+                        <th className="pb-1.5 text-right font-medium text-emerald-300/90">Direct Export</th>
+                        <th className="pb-1.5 text-right font-medium text-amber-400/90">Curtailed</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                      <tr>
+                        <td className="py-1.5 text-amber-300 font-semibold flex items-center gap-1.5">
+                          <Sun className="h-3.5 w-3.5" /> Solar
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums text-amber-300">{generationOperationalMetrics.solarGeneratedKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-emerald-400">{generationOperationalMetrics.solarDirectToLoadKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-cyan-400">{generationOperationalMetrics.solarToBatteryAcKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-emerald-300">{generationOperationalMetrics.solarExportKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-amber-500">{generationOperationalMetrics.solarCurtailedKwh.toLocaleString()} kWh</td>
+                      </tr>
+                      <tr>
+                        <td className="py-1.5 text-sky-300 font-semibold flex items-center gap-1.5">
+                          <Wind className="h-3.5 w-3.5" /> Wind
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums text-sky-300">{generationOperationalMetrics.windGeneratedKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-emerald-400">{generationOperationalMetrics.windDirectToLoadKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-cyan-400">{generationOperationalMetrics.windToBatteryAcKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-emerald-300">{generationOperationalMetrics.windExportKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-amber-500">{generationOperationalMetrics.windCurtailedKwh.toLocaleString()} kWh</td>
+                      </tr>
+                      <tr className="font-semibold text-white bg-slate-900/40">
+                        <td className="py-1.5 text-emerald-300">Total Combined</td>
+                        <td className="py-1.5 text-right tabular-nums text-amber-200">{generationOperationalMetrics.renewableGeneratedKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-emerald-300">{generationOperationalMetrics.renewableDirectToLoadKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-cyan-300">{generationOperationalMetrics.renewableToBatteryAcKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-emerald-200">{generationOperationalMetrics.renewableExportKwh.toLocaleString()} kWh</td>
+                        <td className="py-1.5 text-right tabular-nums text-amber-400">{generationOperationalMetrics.renewableCurtailedKwh.toLocaleString()} kWh</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Grid Flow Accounting Ribbon */}
           <div className="p-3 bg-slate-950/80 rounded-lg border border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs font-mono">
@@ -1157,7 +1372,19 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               <span>Grid Import: <strong className="text-rose-400">{generationOperationalMetrics.gridImportKwh.toLocaleString()} kWh</strong></span>
               <span>·</span>
               <span>Total Grid Export: <strong className="text-emerald-400">{generationOperationalMetrics.gridExportKwh.toLocaleString()} kWh</strong></span>
-              <span className="text-slate-500 text-[11px]">(Solar: {generationOperationalMetrics.solarExportKwh.toLocaleString()} + Battery: {generationOperationalMetrics.batteryExportKwh.toLocaleString()})</span>
+              {isMixedGeneration ? (
+                <span className="text-slate-500 text-[11px]">
+                  (Solar: {generationOperationalMetrics.solarExportKwh.toLocaleString()} + Wind: {generationOperationalMetrics.windExportKwh.toLocaleString()} + Battery: {generationOperationalMetrics.batteryExportKwh.toLocaleString()})
+                </span>
+              ) : isWindOnly ? (
+                <span className="text-slate-500 text-[11px]">
+                  (Wind: {generationOperationalMetrics.windExportKwh.toLocaleString()} + Battery: {generationOperationalMetrics.batteryExportKwh.toLocaleString()})
+                </span>
+              ) : (
+                <span className="text-slate-500 text-[11px]">
+                  (Solar: {generationOperationalMetrics.solarExportKwh.toLocaleString()} + Battery: {generationOperationalMetrics.batteryExportKwh.toLocaleString()})
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <span className="text-slate-400">Net Electricity Savings:</span>
@@ -1168,6 +1395,16 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               </span>
             </div>
           </div>
+
+          {/* Average-Resource Wind Modeling Disclosure */}
+          {hasWind && (
+            <div className="p-3 bg-sky-950/20 border border-sky-500/20 rounded-lg text-xs text-sky-200/90 flex items-start gap-2.5">
+              <Info className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
+              <div className="leading-relaxed">
+                <strong className="text-sky-100 font-semibold">Average-Resource Wind Modeling:</strong> VoltWise evaluates average wind-speed statistics through the configured manufacturer power curve to calculate deterministic expected turbine energy rather than reconstructed observed hourly wind weather. Modeled battery interaction reflects this expected-profile approximation. Higher-fidelity interval wind-resource ingestion remains a future capability.
+              </div>
+            </div>
+          )}
 
           {/* Project Capital Breakdown */}
           {isGenerationFinancial && activeGenerationAnalysis ? (
@@ -2087,7 +2324,13 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <span className="text-slate-300 font-medium block">Lifecycle Model</span>
                 <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 text-[11px] space-y-1.5 text-slate-400 leading-relaxed">
                   <p>
-                    <strong className="text-slate-200">Annual Physical Simulations:</strong> Modeled with {formatSolarDegradationClause(generationProjectCosts?.solarMetadata)}, electrochemical battery capacity fade ({financials?.annualBatteryDegradationRate ?? 2}%/yr), and compound tariff escalation ({financials?.annualElectricityInflationRate ?? 3}%/yr).
+                    <strong className="text-slate-200">Annual Physical Simulations:</strong> Modeled with {
+                      isMixedGeneration
+                        ? `${formatSolarDegradationClause(generationProjectCosts?.solarMetadata)} and wind turbine degradation`
+                        : isWindOnly
+                        ? 'wind turbine degradation'
+                        : formatSolarDegradationClause(generationProjectCosts?.solarMetadata)
+                    }, electrochemical battery capacity fade ({financials?.annualBatteryDegradationRate ?? 2}%/yr), and compound tariff escalation ({financials?.annualElectricityInflationRate ?? 3}%/yr).
                   </p>
                   <p className="text-[10px] text-slate-500 font-mono pt-1 border-t border-slate-800">
                     Authoritative Year 1–25 physical evolution
@@ -2146,9 +2389,27 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                   <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800">
                     <tr>
                       <th className="py-2.5 px-3">Year</th>
-                      <th className="py-2.5 px-3 text-right text-amber-300">Solar Gen</th>
-                      <th className="py-2.5 px-3 text-right">Grid Import</th>
-                      <th className="py-2.5 px-3 text-right text-emerald-300">Solar Export</th>
+                      {isMixedGeneration ? (
+                        <>
+                          <th className="py-2.5 px-3 text-right text-amber-300">Solar Gen</th>
+                          <th className="py-2.5 px-3 text-right text-sky-300">Wind Gen</th>
+                          <th className="py-2.5 px-3 text-right text-amber-200">Renewable Gen</th>
+                          <th className="py-2.5 px-3 text-right">Grid Import</th>
+                          <th className="py-2.5 px-3 text-right text-emerald-300">Renewable Export</th>
+                        </>
+                      ) : isWindOnly ? (
+                        <>
+                          <th className="py-2.5 px-3 text-right text-sky-300">Wind Gen</th>
+                          <th className="py-2.5 px-3 text-right">Grid Import</th>
+                          <th className="py-2.5 px-3 text-right text-emerald-300">Wind Export</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="py-2.5 px-3 text-right text-amber-300">Solar Gen</th>
+                          <th className="py-2.5 px-3 text-right">Grid Import</th>
+                          <th className="py-2.5 px-3 text-right text-emerald-300">Solar Export</th>
+                        </>
+                      )}
                       <th className="py-2.5 px-3 text-right text-indigo-300">Battery Export</th>
                       <th className="py-2.5 px-3 text-right text-emerald-400">Bill Savings</th>
                       <th className="py-2.5 px-3 text-right text-amber-400">Gen O&M</th>
@@ -2162,8 +2423,12 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                     {activeGenerationAnalysis.projections.slice(0, projectionHorizon).map((p, idx) => {
                       const opYear = activeGenerationOperationalProjection?.years[idx];
                       const solarGen = opYear ? opYear.solarGeneratedKwh : (p.solarGeneratedKwh ?? 0);
+                      const windGen = opYear ? opYear.windGeneratedKwh : (p.windGeneratedKwh ?? 0);
+                      const renewableGen = opYear ? opYear.renewableGeneratedKwh : (p.renewableGeneratedKwh ?? (solarGen + windGen));
                       const gridImport = opYear ? opYear.gridImportKwh : 0;
                       const solarExport = opYear ? opYear.solarExportKwh : 0;
+                      const windExport = opYear ? opYear.windExportKwh : 0;
+                      const renewableExport = opYear ? opYear.renewableExportKwh : (solarExport + windExport);
                       const batteryExport = opYear ? opYear.batteryExportKwh : 0;
                       const usableCap = p.batteryUsableCapacityKwh != null
                         ? `${p.batteryUsableCapacityKwh.toFixed(1)} kWh`
@@ -2179,9 +2444,27 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                       return (
                         <tr key={p.year} className="hover:bg-slate-800/50 transition-colors">
                           <td className="py-2 px-3 font-bold text-white">Year {p.year}</td>
-                          <td className="py-2 px-3 text-right tabular-nums text-amber-300">{Math.round(solarGen).toLocaleString()} kWh</td>
-                          <td className="py-2 px-3 text-right tabular-nums text-slate-300">{Math.round(gridImport).toLocaleString()} kWh</td>
-                          <td className="py-2 px-3 text-right tabular-nums text-emerald-300">{Math.round(solarExport).toLocaleString()} kWh</td>
+                          {isMixedGeneration ? (
+                            <>
+                              <td className="py-2 px-3 text-right tabular-nums text-amber-300">{Math.round(solarGen).toLocaleString()} kWh</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-sky-300">{Math.round(windGen).toLocaleString()} kWh</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-amber-200 font-semibold">{Math.round(renewableGen).toLocaleString()} kWh</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-slate-300">{Math.round(gridImport).toLocaleString()} kWh</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-emerald-300">{Math.round(renewableExport).toLocaleString()} kWh</td>
+                            </>
+                          ) : isWindOnly ? (
+                            <>
+                              <td className="py-2 px-3 text-right tabular-nums text-sky-300">{Math.round(windGen).toLocaleString()} kWh</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-slate-300">{Math.round(gridImport).toLocaleString()} kWh</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-emerald-300">{Math.round(windExport).toLocaleString()} kWh</td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="py-2 px-3 text-right tabular-nums text-amber-300">{Math.round(solarGen).toLocaleString()} kWh</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-slate-300">{Math.round(gridImport).toLocaleString()} kWh</td>
+                              <td className="py-2 px-3 text-right tabular-nums text-emerald-300">{Math.round(solarExport).toLocaleString()} kWh</td>
+                            </>
+                          )}
                           <td className="py-2 px-3 text-right tabular-nums text-indigo-300">{Math.round(batteryExport).toLocaleString()} kWh</td>
                           <td className="py-2 px-3 text-right tabular-nums text-emerald-400">+${Math.round(p.electricitySavingsUsd).toLocaleString()}</td>
                           <td className="py-2 px-3 text-right tabular-nums text-amber-400">-${Math.round(p.generationMaintenanceUsd).toLocaleString()}</td>

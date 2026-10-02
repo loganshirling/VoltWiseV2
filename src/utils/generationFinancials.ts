@@ -237,16 +237,16 @@ export function shouldCalculateLegacyFinancials(
 }
 
 /**
- * Authoritative lifecycle financial engine for battery + supported solar generation projects (Milestone G4C).
+ * Authoritative lifecycle financial engine for battery + supported generation projects (solar, wind, solar+wind).
  *
  * Consumes:
  * 1. G4A authoritative project costs (GenerationProjectCostSummary)
- * 2. G4B authoritative multi-year operational projection (GenerationOperationalProjection)
+ * 2. G4B/G5D authoritative multi-year operational projection (GenerationOperationalProjection)
  *
  * Rules:
  * - Pure function.
  * - Does not rerun simulation or modify operational projection values.
- * - G4B electricity savings are authoritative and never scaled by inflation or degradation again.
+ * - Multi-year electricity savings are authoritative and never scaled by inflation or degradation again.
  * - Project CAPEX includes battery installed cost + enabled generation CAPEX exactly once.
  * - Immediate rebate reduces the upfront project basis.
  * - Deferred federal tax credit is calculated on gross project CAPEX and realized as a cash inflow.
@@ -507,6 +507,8 @@ export function calculateGenerationAwareFinancials(
       batteryUsableCapacityKwh: yearData.batteryUsableCapacityKwh,
       equivalentFullCycles: yearData.equivalentFullCycles,
       solarGeneratedKwh: yearData.solarGeneratedKwh,
+      windGeneratedKwh: yearData.windGeneratedKwh,
+      renewableGeneratedKwh: yearData.renewableGeneratedKwh,
     });
   }
 

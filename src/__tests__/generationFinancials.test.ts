@@ -447,6 +447,16 @@ describe('G4A — Financial Safety Gate & Generation Project Cost Contracts', ()
         solarToBatteryKwh: 3000,
         solarExportKwh: 2500,
         solarCurtailedKwh: 500,
+        windGeneratedKwh: 0,
+        windDirectToLoadKwh: 0,
+        windToBatteryKwh: 0,
+        windExportKwh: 0,
+        windCurtailedKwh: 0,
+        renewableGeneratedKwh: 10000,
+        renewableDirectToLoadKwh: 4000,
+        renewableToBatteryKwh: 3000,
+        renewableExportKwh: 2500,
+        renewableCurtailedKwh: 500,
         gridImportKwh: 4000,
         gridExportKwh: 2500,
         batteryExportKwh: 0,
@@ -1686,6 +1696,453 @@ describe('G4A — Financial Safety Gate & Generation Project Cost Contracts', ()
         expect(horizonSummary.cumulativeCashFlow).toBe(financials.lifetimeNetProfitUsd);
         expect(horizonSummary.netPresentValue).toBe(financials.npvUsd);
       });
+    });
+  });
+
+  // ==========================================================================
+  // G5D — Multi-Year Wind and Mixed Solar+Wind Project Finance
+  // ==========================================================================
+  describe('G5D — Multi-Year Wind and Mixed Solar+Wind Project Finance', () => {
+    const mockBattery: BatteryProfile = {
+      id: 'test-battery',
+      name: 'PowerStore 10',
+      model: 'PS-10',
+      totalCapacityKwh: 10,
+      usableDodPercent: 100,
+      maxContinuousOutputKw: 5,
+      maxContinuousChargeKw: 5,
+      roundTripEfficiencyPercent: 90,
+      ratedCycleLife: 4000,
+      installedCost: 10000,
+      strategy: 'arbitrage',
+      chargeTiers: [],
+      dischargeTiers: [],
+    };
+
+    function createTestWind(
+      id = 'wind-1',
+      overrides: Partial<WindGenerationAsset> = {}
+    ): WindGenerationAsset {
+      return {
+        id,
+        name: 'Residential Wind Turbine',
+        type: 'wind',
+        enabled: true,
+        installedCostUsd: 15000,
+        annualMaintenanceCostUsd: 250,
+        ratedPowerKw: 10.0,
+        hubHeightM: 30.0,
+        rotorDiameterM: 10.0,
+        measurementHeightM: 10.0,
+        windShearExponent: 0.143,
+        cutInWindSpeedMps: 3.0,
+        ratedWindSpeedMps: 12.0,
+        cutOutWindSpeedMps: 25.0,
+        availabilityPercent: 100.0,
+        systemLossPercent: 0.0,
+        resourceMode: 'annual_average',
+        annualAverageWindSpeedMps: 7.0,
+        monthlyAverageWindSpeedMps: [
+          6.0, 6.5, 7.0, 7.5, 7.0, 6.5, 6.0, 6.5, 7.0, 7.5, 8.0, 7.0,
+        ],
+        powerCurve: [
+          { windSpeedMps: 0.0, outputKw: 0.0 },
+          { windSpeedMps: 3.0, outputKw: 0.0 },
+          { windSpeedMps: 6.0, outputKw: 2.5 },
+          { windSpeedMps: 9.0, outputKw: 6.5 },
+          { windSpeedMps: 12.0, outputKw: 10.0 },
+          { windSpeedMps: 25.0, outputKw: 10.0 },
+        ],
+        ...overrides,
+      };
+    }
+
+    function createMockOperationalYearWithWind(
+      year: number,
+      savings: number,
+      overrides: Partial<GenerationOperationalYear> = {}
+    ): GenerationOperationalYear {
+      return {
+        year,
+        baselineElectricityCostUsd: 3000,
+        simulatedElectricityCostUsd: 3000 - savings,
+        electricitySavingsUsd: savings,
+        solarGeneratedKwh: 0,
+        solarDirectToLoadKwh: 0,
+        solarToBatteryKwh: 0,
+        solarExportKwh: 0,
+        solarCurtailedKwh: 0,
+        windGeneratedKwh: 12000,
+        windDirectToLoadKwh: 5000,
+        windToBatteryKwh: 3500,
+        windExportKwh: 3000,
+        windCurtailedKwh: 500,
+        renewableGeneratedKwh: 12000,
+        renewableDirectToLoadKwh: 5000,
+        renewableToBatteryKwh: 3500,
+        renewableExportKwh: 3000,
+        renewableCurtailedKwh: 500,
+        gridImportKwh: 4000,
+        gridExportKwh: 3000,
+        batteryExportKwh: 0,
+        batteryDischargedKwh: 3000,
+        equivalentFullCycles: 300,
+        batteryCapacityRetentionFactor: 1.0 - (year - 1) * 0.02,
+        batteryUsableCapacityKwh: 10.0 * (1.0 - (year - 1) * 0.02),
+        solarAssets: [],
+        ...overrides,
+      };
+    }
+
+    it('22. Wind CAPEX is counted exactly once', () => {
+      const wind = createTestWind('w1', { installedCostUsd: 14000 });
+      const costs = aggregateGenerationProjectCosts([wind]);
+      expect(costs.generationCapexUsd).toBe(14000);
+      expect(costs.byType.wind.installedCostUsd).toBe(14000);
+      expect(costs.byAsset[0].installedCostUsd).toBe(14000);
+    });
+
+    it('23. Wind annual O&M is counted exactly once', () => {
+      const wind = createTestWind('w1', { annualMaintenanceCostUsd: 350 });
+      const costs = aggregateGenerationProjectCosts([wind]);
+      expect(costs.annualGenerationMaintenanceUsd).toBe(350);
+      expect(costs.byType.wind.annualMaintenanceCostUsd).toBe(350);
+      expect(costs.byAsset[0].annualMaintenanceCostUsd).toBe(350);
+    });
+
+    it('24. Multiple wind assets reconcile by asset and by type', () => {
+      const w1 = createTestWind('w1', { installedCostUsd: 15000, annualMaintenanceCostUsd: 250 });
+      const w2 = createTestWind('w2', { installedCostUsd: 9000, annualMaintenanceCostUsd: 150 });
+      const costs = aggregateGenerationProjectCosts([w1, w2]);
+      expect(costs.generationCapexUsd).toBe(24000);
+      expect(costs.annualGenerationMaintenanceUsd).toBe(400);
+      expect(costs.byType.wind.assetCount).toBe(2);
+      expect(costs.byType.wind.installedCostUsd).toBe(24000);
+      expect(costs.byType.wind.annualMaintenanceCostUsd).toBe(400);
+      expect(costs.byAsset).toHaveLength(2);
+    });
+
+    it('25. Mixed solar + wind generation CAPEX and O&M reconcile across types', () => {
+      const solar = makeSolar('s1', true, 16000, 180);
+      const wind = createTestWind('w1', { installedCostUsd: 14000, annualMaintenanceCostUsd: 220 });
+      const costs = aggregateGenerationProjectCosts([solar, wind]);
+
+      expect(costs.generationCapexUsd).toBe(30000);
+      expect(costs.annualGenerationMaintenanceUsd).toBe(400);
+      expect(costs.byType.solar.installedCostUsd).toBe(16000);
+      expect(costs.byType.solar.annualMaintenanceCostUsd).toBe(180);
+      expect(costs.byType.wind.installedCostUsd).toBe(14000);
+      expect(costs.byType.wind.annualMaintenanceCostUsd).toBe(220);
+    });
+
+    it('26. Disabled wind contributes zero cost', () => {
+      const enabledWind = createTestWind('w1', { installedCostUsd: 12000, annualMaintenanceCostUsd: 200 });
+      const disabledWind = createTestWind('w2', { enabled: false, installedCostUsd: 10000, annualMaintenanceCostUsd: 180 });
+      const costs = aggregateGenerationProjectCosts([enabledWind, disabledWind]);
+
+      expect(costs.generationCapexUsd).toBe(12000);
+      expect(costs.annualGenerationMaintenanceUsd).toBe(200);
+      expect(costs.byType.wind.assetCount).toBe(1);
+    });
+
+    it('27. Gross project CAPEX equals battery + supported generation CAPEX (wind and mixed)', () => {
+      // Wind-only
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { installedCostUsd: 15000 })]);
+      const windFin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000
+        operationalProjection: [createMockOperationalYearWithWind(1, 2000)],
+        projectCosts: windCosts,
+        financials: DEFAULT_MACRO_FINANCIALS,
+      });
+      expect(windFin.batteryCapexUsd).toBe(10000);
+      expect(windFin.generationCapexUsd).toBe(15000);
+      expect(windFin.grossProjectCapexUsd).toBe(25000);
+
+      // Mixed solar + wind
+      const mixedCosts = aggregateGenerationProjectCosts([
+        makeSolar('s1', true, 12000, 100),
+        createTestWind('w1', { installedCostUsd: 14000, annualMaintenanceCostUsd: 200 }),
+      ]);
+      const mixedFin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000
+        operationalProjection: [createMockOperationalYearWithWind(1, 2500)],
+        projectCosts: mixedCosts,
+        financials: DEFAULT_MACRO_FINANCIALS,
+      });
+      expect(mixedFin.batteryCapexUsd).toBe(10000);
+      expect(mixedFin.generationCapexUsd).toBe(26000);
+      expect(mixedFin.grossProjectCapexUsd).toBe(36000);
+    });
+
+    it('28. Financing principal derives from combined project basis', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { installedCostUsd: 15000 })]);
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000
+        operationalProjection: [createMockOperationalYearWithWind(1, 2000)],
+        projectCosts: windCosts, // 15,000 -> gross 25,000
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: true,
+          loanDownPaymentPercent: 20, // 20% down of 25,000 = 5,000
+          loanAprPercent: 6.0,
+          loanTermYears: 10,
+        },
+      });
+
+      expect(fin.upfrontOutOfPocketUsd).toBe(5000);
+      expect(fin.loanPrincipalUsd).toBe(20000);
+      expect(fin.monthlyLoanPaymentUsd).toBeGreaterThan(0);
+      expect(fin.totalLoanPaymentsUsd).toBeGreaterThan(fin.loanPrincipalUsd);
+    });
+
+    it('29. Existing incentive semantics apply to combined wind + battery project basis', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { installedCostUsd: 20000 })]);
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000 -> gross 30,000
+        operationalProjection: [
+          createMockOperationalYearWithWind(1, 2200),
+          createMockOperationalYearWithWind(2, 2200),
+        ],
+        projectCosts: windCosts,
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          localRebateFlat: 2000,
+          federalTaxCreditPercent: 30, // 30% of 30,000 = 9,000
+          federalTaxCreditRealizationYear: 2,
+        },
+      });
+
+      expect(fin.immediateRebateUsd).toBe(2000);
+      expect(fin.deferredFederalTaxCreditUsd).toBe(9000);
+      expect(fin.upfrontOutOfPocketUsd).toBe(28000); // 30,000 - 2,000 rebate
+      // Inflow occurs in Year 2
+      expect(fin.projections[0].taxCreditInflowUsd).toBe(0);
+      expect(fin.projections[1].taxCreditInflowUsd).toBe(9000);
+    });
+
+    it('30. Wind-only project annual cash flow reconciles with wind O&M', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { installedCostUsd: 15000, annualMaintenanceCostUsd: 300 })]);
+      const years = [
+        createMockOperationalYearWithWind(1, 2500),
+        createMockOperationalYearWithWind(2, 2600),
+        createMockOperationalYearWithWind(3, 2700),
+      ];
+
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000 -> gross 25,000
+        operationalProjection: years,
+        projectCosts: windCosts,
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          federalTaxCreditPercent: 30, // 7500 inflow in Year 1
+          federalTaxCreditRealizationYear: 1,
+        },
+      });
+
+      // Year 1: net = 2500 - 300 + 7500 = 9700
+      expect(fin.projections[0].netProjectCashFlowUsd).toBe(2500 - 300 + 7500);
+      // Year 2: net = 2600 - 300 = 2300
+      expect(fin.projections[1].netProjectCashFlowUsd).toBe(2600 - 300);
+      // Year 3: net = 2700 - 300 = 2400
+      expect(fin.projections[2].netProjectCashFlowUsd).toBe(2700 - 300);
+    });
+
+    it('31. Mixed project annual cash flow reconciles with combined solar + wind O&M', () => {
+      const mixedCosts = aggregateGenerationProjectCosts([
+        makeSolar('s1', true, 10000, 150),
+        createTestWind('w1', { installedCostUsd: 12000, annualMaintenanceCostUsd: 250 }),
+      ]); // total O&M = 400
+
+      const years = [
+        createMockOperationalYearWithWind(1, 3000),
+        createMockOperationalYearWithWind(2, 3100),
+      ];
+
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery,
+        operationalProjection: years,
+        projectCosts: mixedCosts,
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          federalTaxCreditPercent: 0,
+        },
+      });
+
+      expect(fin.annualGenerationMaintenanceUsd).toBe(400);
+      expect(fin.projections[0].netProjectCashFlowUsd).toBe(3000 - 400);
+      expect(fin.projections[1].netProjectCashFlowUsd).toBe(3100 - 400);
+    });
+
+    it('32. Payback reconciles to cumulative project cash flow in wind project', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { installedCostUsd: 10000, annualMaintenanceCostUsd: 0 })]);
+      // gross 20,000. Upfront: 20,000. Yearly savings 5,000. Payback should be exactly 4.0 years.
+      const years = Array.from({ length: 5 }, (_, i) =>
+        createMockOperationalYearWithWind(i + 1, 5000)
+      );
+
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000
+        operationalProjection: years,
+        projectCosts: windCosts,
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          federalTaxCreditPercent: 0,
+        },
+      });
+
+      expect(fin.paybackYears).toBe(4.0);
+      expect(fin.projections[3].cumulativeCashFlowUsd).toBe(0);
+    });
+
+    it('33. NPV reconciles to discounted cash flow series in wind project', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { installedCostUsd: 10000, annualMaintenanceCostUsd: 100 })]);
+      const years = [
+        createMockOperationalYearWithWind(1, 3000),
+        createMockOperationalYearWithWind(2, 3000),
+      ];
+
+      const discountRate = 0.05;
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000 -> gross 20,000
+        operationalProjection: years,
+        projectCosts: windCosts,
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          federalTaxCreditPercent: 0,
+          discountRatePercent: 5.0,
+        },
+      });
+
+      const net1 = 3000 - 100;
+      const net2 = 3000 - 100;
+      const expectedNpv = -20000 + net1 / (1 + discountRate) + net2 / Math.pow(1 + discountRate, 2);
+      expect(fin.npvUsd).toBeCloseTo(expectedNpv, 1);
+    });
+
+    it('34. IRR uses the same cash-flow series as cumulative cash flow in wind project', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { installedCostUsd: 8000, annualMaintenanceCostUsd: 100 })]);
+      const years = Array.from({ length: 5 }, (_, i) =>
+        createMockOperationalYearWithWind(i + 1, 4000)
+      );
+
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000 -> gross 18,000
+        operationalProjection: years,
+        projectCosts: windCosts,
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          federalTaxCreditPercent: 0,
+        },
+      });
+
+      const cashFlows = [-18000, ...fin.projections.map((p) => p.netProjectCashFlowUsd)];
+      const expectedIrr = calculateIRR(cashFlows);
+      expect(fin.irrPercent).toBe(expectedIrr);
+    });
+
+    it('35. Lifetime net profit and ROI reconcile to total project cash outlays in wind project', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { installedCostUsd: 10000, annualMaintenanceCostUsd: 200 })]);
+      const years = Array.from({ length: 5 }, (_, i) =>
+        createMockOperationalYearWithWind(i + 1, 3000)
+      );
+
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000 -> gross 20,000
+        operationalProjection: years,
+        projectCosts: windCosts,
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          federalTaxCreditPercent: 0,
+        },
+      });
+
+      const expectedProfit = fin.projections[4].cumulativeCashFlowUsd;
+      expect(fin.lifetimeNetProfitUsd).toBe(expectedProfit);
+      // Total outlays = upfront (20,000) + 5 * 200 (maintenance) = 21,000
+      expect(fin.totalProjectCashOutlaysUsd).toBe(21000);
+      const expectedRoi = Math.round(((expectedProfit / 21000) * 100) * 10) / 10;
+      expect(fin.lifetimeRoiPercent).toBe(expectedRoi);
+    });
+
+    it('36. Physical wind and renewable metrics are preserved in financial projection rows', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1')]);
+      const years = [
+        createMockOperationalYearWithWind(1, 2000, {
+          windGeneratedKwh: 12500,
+          renewableGeneratedKwh: 12500,
+        }),
+      ];
+
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery,
+        operationalProjection: years,
+        projectCosts: windCosts,
+        financials: DEFAULT_MACRO_FINANCIALS,
+      });
+
+      expect(fin.projections[0].windGeneratedKwh).toBe(12500);
+      expect(fin.projections[0].renewableGeneratedKwh).toBe(12500);
+      expect(fin.projections[0].solarGeneratedKwh).toBe(0);
+    });
+
+    it('37. Opportunity-cost benchmark includes wind maintenance in annual contributions', () => {
+      const windCosts = aggregateGenerationProjectCosts([createTestWind('w1', { annualMaintenanceCostUsd: 300 })]);
+      const years = [
+        createMockOperationalYearWithWind(1, 2500),
+        createMockOperationalYearWithWind(2, 2500),
+      ];
+
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery,
+        operationalProjection: years,
+        projectCosts: windCosts,
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          opportunityCostRatePercent: 4.0,
+        },
+      });
+
+      expect(fin.opportunityCostFutureValueUsd).toBeGreaterThan(fin.upfrontOutOfPocketUsd);
+      expect(fin.opportunityCostProfitUsd).toBeGreaterThan(0);
+      expect(fin.opportunityCostDiffUsd).toBeCloseTo(
+        fin.lifetimeNetProfitUsd - fin.opportunityCostProfitUsd,
+        2
+      );
+    });
+
+    it('38. Solar-only financial regression remains completely unchanged', () => {
+      const solarCosts = aggregateGenerationProjectCosts([makeSolar('s1', true, 16000, 180)]);
+      const years = [
+        createMockOperationalYearWithWind(1, 2400, { solarGeneratedKwh: 10000, windGeneratedKwh: 0, renewableGeneratedKwh: 10000 }),
+        createMockOperationalYearWithWind(2, 2380, { solarGeneratedKwh: 9950, windGeneratedKwh: 0, renewableGeneratedKwh: 9950 }),
+        createMockOperationalYearWithWind(3, 2360, { solarGeneratedKwh: 9900, windGeneratedKwh: 0, renewableGeneratedKwh: 9900 }),
+      ];
+
+      const fin = calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery, // 10,000
+        operationalProjection: years,
+        projectCosts: solarCosts, // 16,000 -> gross 26,000
+        financials: {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          federalTaxCreditPercent: 30, // 7800
+          federalTaxCreditRealizationYear: 1,
+        },
+      });
+
+      expect(fin.grossProjectCapexUsd).toBe(26000);
+      expect(fin.deferredFederalTaxCreditUsd).toBe(7800);
+      expect(fin.annualGenerationMaintenanceUsd).toBe(180);
+      expect(fin.projections[0].solarGeneratedKwh).toBe(10000);
+      expect(fin.projections[0].windGeneratedKwh).toBe(0);
+      expect(fin.projections[0].netProjectCashFlowUsd).toBe(2400 - 180 + 7800);
     });
   });
 });
