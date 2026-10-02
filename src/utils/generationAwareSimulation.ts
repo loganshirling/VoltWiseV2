@@ -1,22 +1,24 @@
 /**
- * Authoritative Solar Generation Simulation Pipeline (Milestone G3Q)
+ * Authoritative Renewable Generation Simulation Pipeline (Milestone G5C)
  *
  * Single pure orchestration entry point composing authoritative stages:
  *   1. Load timestamp alignment to site timezone (alignLoadTimestampsToSite)
- *   2. Generation asset filtering & validation (solar enabled only, reject unsupported)
+ *   2. Generation asset filtering & validation (solar and wind enabled, reject generator/interval_file)
  *   3. Multi-array solar fleet profile generation (generateSolarFleetProfile)
- *   4. Direct solar-to-load flow accounting (calculateSolarLoadFlow)
- *   5. TOU battery dispatch policy generation (generateBatteryDispatchPolicy)
- *   6. Tariff buy/sell rate resolution (resolveTariffRates)
- *   7. Chronological export-aware battery flow & cost basis tracking (routeExportAwareBatteryFlow)
- *   8. Grid boundary import/export flow accounting (calculateExportAwareGridFlows)
- *   9. TOU & export-aware tariff cost accounting (calculateExportAwareTariffCosts)
+ *   4. Multi-turbine wind fleet profile generation (generateWindFleetProfile)
+ *   5. Shared source-aware renewable load flow accounting (calculateRenewableLoadFlow)
+ *   6. TOU battery dispatch policy generation (generateBatteryDispatchPolicy)
+ *   7. Tariff buy/sell rate resolution (resolveTariffRates)
+ *   8. Chronological export-aware battery flow & cost basis tracking (routeExportAwareBatteryFlow)
+ *   9. Grid boundary import/export flow accounting (calculateExportAwareGridFlows)
+ *  10. TOU & export-aware tariff cost accounting (calculateExportAwareTariffCosts)
  *
  * Invariants:
  *   - Pure function; does not mutate inputs.
  *   - Strictly preserves interval count and timestamp ordering across all stages.
  *   - Reconciles final grid SOC with final grid cost-basis energy.
  *   - Derives aggregate convenience values directly from authoritative stage outputs.
+ *   - Solar-only projects maintain bit-for-bit numerical parity with G4 authoritative values.
  */
 
 import {
@@ -29,12 +31,15 @@ import {
   GridSocCostBasisState,
   IntervalDataPoint,
   RateTier,
+  RenewableLoadFlowInterval,
   ResolvedTariffRateInterval,
   SolarFleetGenerationInterval,
   SolarGenerationAsset,
   SolarLoadFlowInterval,
   TariffCostResult,
   TouSeason,
+  WindFleetGenerationInterval,
+  WindGenerationAsset,
 } from '../types/energy';
 import {
   AlignedLoadTimestamp,
@@ -42,10 +47,11 @@ import {
   isValidIanaTimeZone,
 } from './loadTimeAlignment';
 import { generateSolarFleetProfile } from './solarGeneration';
+import { generateWindFleetProfile } from './windGeneration';
 import {
-  calculateSolarLoadFlow,
-  summarizeSolarLoadFlow,
-} from './solarLoadFlow';
+  calculateRenewableLoadFlow,
+  summarizeRenewableLoadFlow,
+} from './renewableLoadFlow';
 import { generateBatteryDispatchPolicy } from './batteryDispatchPolicy';
 import { resolveTariffRates } from './tariffRateResolver';
 import { routeExportAwareBatteryFlow } from './exportAwareBatteryFlow';
@@ -60,7 +66,8 @@ export interface GenerationAwareSimulationParams {
   scheduleMatrix: string[][];
   batteryProfile: BatteryProfile;
   seasons?: TouSeason[];
-  allowSolarExport: boolean;
+  allowSolarExport?: boolean;
+  allowRenewableExport?: boolean;
   initialBatteryState: BatterySocProvenanceState;
   initialCostBasisState: GridSocCostBasisState;
 }
@@ -69,6 +76,8 @@ export interface GenerationAwareSimulationResult {
   // Authoritative stage outputs
   alignedTimestamps: AlignedLoadTimestamp[];
   solarFleetProfile: SolarFleetGenerationInterval[];
+  windFleetProfile: WindFleetGenerationInterval[];
+  renewableLoadFlow: RenewableLoadFlowInterval[];
   solarLoadFlow: SolarLoadFlowInterval[];
   dispatchPolicy: BatteryDispatchPolicyInterval[];
   resolvedRates: ResolvedTariffRateInterval[];
@@ -79,10 +88,26 @@ export interface GenerationAwareSimulationResult {
   // Concise aggregate convenience values
   totalIntervals?: number;
   totalHomeLoadKwh: number;
+
   totalSolarGenerationKwh: number;
   totalSolarDirectToLoadKwh: number;
-  totalGridImportKwh: number;
+  totalSolarToBatteryKwh: number;
   totalSolarExportKwh: number;
+  totalSolarCurtailedKwh: number;
+
+  totalWindGenerationKwh: number;
+  totalWindDirectToLoadKwh: number;
+  totalWindToBatteryKwh: number;
+  totalWindExportKwh: number;
+  totalWindCurtailedKwh: number;
+
+  totalRenewableGenerationKwh: number;
+  totalRenewableDirectToLoadKwh: number;
+  totalRenewableToBatteryKwh: number;
+  totalRenewableExportKwh: number;
+  totalRenewableCurtailedKwh: number;
+
+  totalGridImportKwh: number;
   totalBatteryExportKwh: number;
   totalGridExportKwh: number;
   baselineCost: number;
@@ -91,7 +116,7 @@ export interface GenerationAwareSimulationResult {
 }
 
 /**
- * Runs the authoritative end-to-end solar generation, battery dispatch, grid export,
+ * Runs the authoritative end-to-end solar, wind, battery dispatch, grid export,
  * and tariff cost simulation pipeline.
  */
 export function runGenerationAwareSimulation(
@@ -110,6 +135,7 @@ export function runGenerationAwareSimulation(
     batteryProfile,
     seasons,
     allowSolarExport,
+    allowRenewableExport,
     initialBatteryState,
     initialCostBasisState,
   } = params;
@@ -132,9 +158,17 @@ export function runGenerationAwareSimulation(
     );
   }
 
-  if (typeof allowSolarExport !== 'boolean') {
+  if (
+    typeof allowSolarExport !== 'boolean' &&
+    typeof allowRenewableExport !== 'boolean'
+  ) {
     throw new Error('allowSolarExport must be a boolean.');
   }
+
+  const effectiveAllowRenewableExport =
+    allowRenewableExport !== undefined
+      ? allowRenewableExport
+      : allowSolarExport!;
 
   // 2. Stage 1: Align load timestamps to site timezone
   const alignedTimestamps = alignLoadTimestampsToSite(
@@ -150,6 +184,8 @@ export function runGenerationAwareSimulation(
   }
 
   const enabledSolarAssets: SolarGenerationAsset[] = [];
+  const enabledWindAssets: WindGenerationAsset[] = [];
+
   for (const asset of assets) {
     if (!asset || typeof asset !== 'object') {
       throw new Error('Each generation asset must be a valid object.');
@@ -162,18 +198,20 @@ export function runGenerationAwareSimulation(
 
     if (asset.type === 'solar') {
       enabledSolarAssets.push(asset);
-    } else if (asset.type === 'wind' || asset.type === 'generator') {
+    } else if (asset.type === 'wind') {
+      enabledWindAssets.push(asset);
+    } else if (asset.type === 'generator') {
       throw new Error(
-        `Unsupported generation asset type: "${asset.type}" for asset "${asset.name ?? asset.id}". Only solar assets are currently supported in this simulation pipeline.`
+        `Unsupported generation asset type: "generator" for asset "${asset.name ?? asset.id}". Generator assets are not currently supported in this simulation pipeline.`
       );
     } else {
       throw new Error(
-        `Unsupported generation asset type: "${(asset as any).type}" for asset "${(asset as any).name ?? (asset as any).id}". Only solar assets are currently supported in this simulation pipeline.`
+        `Unsupported generation asset type: "${(asset as any).type}" for asset "${(asset as any).name ?? (asset as any).id}". Only solar and wind assets are currently supported in this simulation pipeline.`
       );
     }
   }
 
-  // 4. Stage 3: Generate solar fleet profile
+  // 4. Stage 3 & 4: Generate solar fleet and wind fleet profiles independently
   const solarFleetProfile = generateSolarFleetProfile(
     alignedTimestamps.map((x) => x.instantUtc),
     intervalHours,
@@ -181,14 +219,34 @@ export function runGenerationAwareSimulation(
     enabledSolarAssets
   );
 
-  // 5. Stage 4: Calculate solar-to-load flow
-  const solarLoadFlow = calculateSolarLoadFlow(
-    dataPoints,
+  const windFleetProfile = generateWindFleetProfile(
     alignedTimestamps,
-    solarFleetProfile
+    intervalHours,
+    enabledWindAssets,
+    generationConfig.site
   );
 
-  // 6. Stage 5: Generate battery dispatch policy
+  // 5. Stage 5: Calculate shared source-aware renewable load flow
+  const renewableLoadFlow = calculateRenewableLoadFlow(
+    dataPoints,
+    alignedTimestamps,
+    solarFleetProfile,
+    windFleetProfile
+  );
+
+  // Solar-only compatibility adapter: preserves existing SolarLoadFlowInterval shape
+  const solarLoadFlow: SolarLoadFlowInterval[] = renewableLoadFlow.map((r) => ({
+    sourceIndex: r.sourceIndex,
+    sourceTimestamp: r.sourceTimestamp,
+    timestampUtc: r.timestampUtc,
+    homeLoadKwh: r.homeLoadKwh,
+    solarGenerationKwh: r.solarGenerationKwh,
+    solarDirectToLoadKwh: r.solarDirectToLoadKwh,
+    residualHomeLoadKwh: r.residualHomeLoadKwh,
+    surplusSolarKwh: r.surplusSolarKwh,
+  }));
+
+  // 6. Stage 6: Generate battery dispatch policy
   const dispatchPolicy = generateBatteryDispatchPolicy(
     alignedTimestamps,
     generationConfig.site.timeZone,
@@ -196,7 +254,7 @@ export function runGenerationAwareSimulation(
     batteryProfile
   );
 
-  // 7. Stage 6: Resolve tariff rates
+  // 7. Stage 7: Resolve tariff rates
   const resolvedRates = resolveTariffRates(
     dispatchPolicy,
     alignedTimestamps,
@@ -205,9 +263,9 @@ export function runGenerationAwareSimulation(
     seasons
   );
 
-  // 8. Stage 7: Route export-aware battery flow
+  // 8. Stage 8: Route export-aware battery flow (source-aware renewable charging)
   const exportAwareBatteryFlow = routeExportAwareBatteryFlow(
-    solarLoadFlow,
+    renewableLoadFlow,
     dispatchPolicy,
     resolvedRates,
     intervalHours,
@@ -216,13 +274,13 @@ export function runGenerationAwareSimulation(
     initialCostBasisState
   );
 
-  // 9. Stage 8: Calculate export-aware grid flows
+  // 9. Stage 9: Calculate export-aware grid flows
   const gridFlows = calculateExportAwareGridFlows(
     exportAwareBatteryFlow.intervals,
-    allowSolarExport
+    effectiveAllowRenewableExport
   );
 
-  // 10. Stage 9: Calculate export-aware tariff costs
+  // 10. Stage 10: Calculate export-aware tariff costs
   const tariffCosts = calculateExportAwareTariffCosts(
     gridFlows.intervals,
     exportAwareBatteryFlow.intervals,
@@ -257,6 +315,8 @@ export function runGenerationAwareSimulation(
     const tsUtc = alignedTimestamps[i].timestampUtc;
     if (
       solarFleetProfile[i].timestampUtc !== tsUtc ||
+      windFleetProfile[i].timestampUtc !== tsUtc ||
+      renewableLoadFlow[i].timestampUtc !== tsUtc ||
       solarLoadFlow[i].timestampUtc !== tsUtc ||
       dispatchPolicy[i].timestampUtc !== tsUtc ||
       resolvedRates[i].timestampUtc !== tsUtc ||
@@ -271,11 +331,38 @@ export function runGenerationAwareSimulation(
   }
 
   // 12. Derive concise aggregate convenience values directly from authoritative stage outputs
-  const solarSummary = summarizeSolarLoadFlow(solarLoadFlow);
+  const renewableSummary = summarizeRenewableLoadFlow(renewableLoadFlow);
+
+  const totalSolarToBatteryKwh = exportAwareBatteryFlow.intervals.reduce(
+    (sum, inv) => sum + inv.preExportFlow.solarToBatteryAcKwh,
+    0
+  );
+
+  const totalWindToBatteryKwh = exportAwareBatteryFlow.intervals.reduce(
+    (sum, inv) => sum + (inv.preExportFlow.windToBatteryAcKwh ?? 0),
+    0
+  );
+
+  const totalRenewableToBatteryKwh =
+    totalSolarToBatteryKwh + totalWindToBatteryKwh;
+
+  const totalSolarCurtailedKwh = gridFlows.totalCurtailedSolarKwh;
+  const totalWindCurtailedKwh = gridFlows.totalCurtailedWindKwh ?? 0;
+  const totalRenewableCurtailedKwh =
+    gridFlows.totalCurtailedRenewableKwh ??
+    totalSolarCurtailedKwh + totalWindCurtailedKwh;
+
+  const totalSolarExportKwh = gridFlows.totalSolarExportKwh;
+  const totalWindExportKwh = gridFlows.totalWindExportKwh ?? 0;
+  const totalRenewableExportKwh =
+    gridFlows.totalRenewableExportKwh ??
+    totalSolarExportKwh + totalWindExportKwh;
 
   return {
     alignedTimestamps,
     solarFleetProfile,
+    windFleetProfile,
+    renewableLoadFlow,
     solarLoadFlow,
     dispatchPolicy,
     resolvedRates,
@@ -284,11 +371,27 @@ export function runGenerationAwareSimulation(
     tariffCosts,
 
     totalIntervals: count,
-    totalHomeLoadKwh: solarSummary.totalHomeLoadKwh,
-    totalSolarGenerationKwh: solarSummary.totalSolarGenerationKwh,
-    totalSolarDirectToLoadKwh: solarSummary.totalSolarDirectToLoadKwh,
+    totalHomeLoadKwh: renewableSummary.totalHomeLoadKwh,
+
+    totalSolarGenerationKwh: renewableSummary.totalSolarGenerationKwh,
+    totalSolarDirectToLoadKwh: renewableSummary.totalSolarDirectToLoadKwh,
+    totalSolarToBatteryKwh,
+    totalSolarExportKwh,
+    totalSolarCurtailedKwh,
+
+    totalWindGenerationKwh: renewableSummary.totalWindGenerationKwh,
+    totalWindDirectToLoadKwh: renewableSummary.totalWindDirectToLoadKwh,
+    totalWindToBatteryKwh,
+    totalWindExportKwh,
+    totalWindCurtailedKwh,
+
+    totalRenewableGenerationKwh: renewableSummary.totalRenewableGenerationKwh,
+    totalRenewableDirectToLoadKwh: renewableSummary.totalRenewableDirectToLoadKwh,
+    totalRenewableToBatteryKwh,
+    totalRenewableExportKwh,
+    totalRenewableCurtailedKwh,
+
     totalGridImportKwh: gridFlows.totalGridImportKwh,
-    totalSolarExportKwh: gridFlows.totalSolarExportKwh,
     totalBatteryExportKwh: gridFlows.totalBatteryExportKwh,
     totalGridExportKwh: gridFlows.totalGridExportKwh,
     baselineCost: tariffCosts.baselineCost,

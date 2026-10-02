@@ -34,7 +34,8 @@ export interface UnifiedSimulationParams {
   batteryProfile: BatteryProfile;
   seasons?: TouSeason[];
   generationConfig: GenerationConfig;
-  allowSolarExport: boolean;
+  allowSolarExport?: boolean;
+  allowRenewableExport?: boolean;
 }
 
 export interface UnifiedSimulationResult {
@@ -46,7 +47,7 @@ export interface UnifiedSimulationResult {
 /**
  * Executes unified battery dispatch simulation.
  * When no generation assets are enabled, delegates directly to legacy runAnnualSimulation.
- * When generation assets are enabled, delegates to G3Q and adapts outputs.
+ * When generation assets are enabled, delegates to authoritative generation-aware simulation and adapts outputs.
  */
 export function runUnifiedSimulation(
   params: UnifiedSimulationParams
@@ -64,6 +65,7 @@ export function runUnifiedSimulation(
     seasons,
     generationConfig,
     allowSolarExport,
+    allowRenewableExport,
   } = params;
 
   // Determine enabled generation assets
@@ -89,6 +91,17 @@ export function runUnifiedSimulation(
     };
   }
 
+  const effectiveAllowRenewableExport =
+    allowRenewableExport !== undefined
+      ? allowRenewableExport
+      : allowSolarExport;
+
+  if (typeof effectiveAllowRenewableExport !== 'boolean') {
+    throw new Error(
+      'allowRenewableExport or allowSolarExport must be provided as a boolean.'
+    );
+  }
+
   // Generation-aware branch: Initial startup convention (50% synthetic usable SOC)
   const usableCapacityKwh =
     batteryProfile.totalCapacityKwh *
@@ -106,7 +119,7 @@ export function runUnifiedSimulation(
     totalAcquisitionCostUsd: 0,
   };
 
-  // Authoritative G3Q simulation call
+  // Authoritative renewable simulation call
   const generationAwareResult = runGenerationAwareSimulation({
     dataPoints,
     intervalHours,
@@ -115,7 +128,8 @@ export function runUnifiedSimulation(
     scheduleMatrix,
     batteryProfile,
     seasons,
-    allowSolarExport,
+    allowSolarExport: effectiveAllowRenewableExport,
+    allowRenewableExport: effectiveAllowRenewableExport,
     initialBatteryState,
     initialCostBasisState,
   });

@@ -23,22 +23,23 @@ import {
   BatterySocProvenanceState,
   IntegratedBatteryFlowInterval,
   IntegratedBatteryFlowResult,
+  RenewableLoadFlowInterval,
   SolarLoadFlowInterval,
 } from '../types/energy';
 import {
   calculateUsableCapacityKwh,
-  routeSurplusSolarToBattery,
+  routeSurplusRenewableToBattery,
 } from './solarBatteryCharging';
 import { chargeBatteryFromGrid } from './gridBatteryCharging';
 import { dischargeBatteryToHomeLoad } from './batteryDischarge';
 
 /**
- * Routes solar, grid charging, and battery flow sequentially across intervals.
+ * Routes solar, wind, grid charging, and battery flow sequentially across intervals.
  *
  * Pure function: does not mutate inputs or caller state.
  */
 export function routeIntegratedBatteryFlow(
-  intervals: SolarLoadFlowInterval[],
+  intervals: (SolarLoadFlowInterval | RenewableLoadFlowInterval)[],
   policy: BatteryDispatchPolicyInterval[],
   intervalHours: number,
   profile: BatteryProfile,
@@ -170,14 +171,22 @@ export function routeIntegratedBatteryFlow(
     generatorChargedSocKwh: initialState.generatorChargedSocKwh,
   };
 
-  let totalSolarToBatteryAcKwh = 0;
-  let totalRenewableEnergyStoredKwh = 0;
-  let totalGridToBatteryAcKwh = 0;
-  let totalGridEnergyStoredKwh = 0;
-  let totalBatteryDeliveredToLoadKwh = 0;
-  let totalStoredEnergyDrainedKwh = 0;
-  let totalResidualHomeLoadAfterBatteryKwh = 0;
-  let totalRemainingSurplusSolarKwh = 0;
+  let accumulatedSolarToBatteryAcKwh = 0;
+  let accumulatedWindToBatteryAcKwh = 0;
+  let accumulatedRenewableToBatteryAcKwh = 0;
+  let accumulatedRenewableEnergyStoredKwh = 0;
+  let accumulatedWindGenerationKwh = 0;
+  let accumulatedRenewableGenerationKwh = 0;
+  let accumulatedWindDirectToLoadKwh = 0;
+  let accumulatedRenewableDirectToLoadKwh = 0;
+  let accumulatedGridToBatteryAcKwh = 0;
+  let accumulatedGridEnergyStoredKwh = 0;
+  let accumulatedBatteryDeliveredToLoadKwh = 0;
+  let accumulatedStoredEnergyDrainedKwh = 0;
+  let accumulatedResidualHomeLoadAfterBatteryKwh = 0;
+  let accumulatedRemainingSurplusSolarKwh = 0;
+  let accumulatedRemainingSurplusWindKwh = 0;
+  let accumulatedRemainingSurplusRenewableKwh = 0;
 
   const resultIntervals: IntegratedBatteryFlowInterval[] = new Array(
     intervals.length
@@ -258,6 +267,32 @@ export function routeIntegratedBatteryFlow(
       );
     }
 
+    const windGenerationKwh =
+      typeof (inv as any).windGenerationKwh === 'number' &&
+      Number.isFinite((inv as any).windGenerationKwh) &&
+      (inv as any).windGenerationKwh >= 0
+        ? (inv as any).windGenerationKwh
+        : 0;
+
+    const totalRenewableGenerationKwh =
+      typeof (inv as any).totalRenewableGenerationKwh === 'number' &&
+      Number.isFinite((inv as any).totalRenewableGenerationKwh)
+        ? (inv as any).totalRenewableGenerationKwh
+        : inv.solarGenerationKwh + windGenerationKwh;
+
+    const windDirectToLoadKwh =
+      typeof (inv as any).windDirectToLoadKwh === 'number' &&
+      Number.isFinite((inv as any).windDirectToLoadKwh) &&
+      (inv as any).windDirectToLoadKwh >= 0
+        ? (inv as any).windDirectToLoadKwh
+        : 0;
+
+    const totalRenewableDirectToLoadKwh =
+      typeof (inv as any).totalRenewableDirectToLoadKwh === 'number' &&
+      Number.isFinite((inv as any).totalRenewableDirectToLoadKwh)
+        ? (inv as any).totalRenewableDirectToLoadKwh
+        : inv.solarDirectToLoadKwh + windDirectToLoadKwh;
+
     const residualHomeLoadKwh = inv.residualHomeLoadKwh;
     if (
       typeof residualHomeLoadKwh !== 'number' ||
@@ -280,10 +315,26 @@ export function routeIntegratedBatteryFlow(
       );
     }
 
+    const surplusWindBeforeBatteryKwh =
+      typeof (inv as any).surplusWindKwh === 'number' &&
+      Number.isFinite((inv as any).surplusWindKwh) &&
+      (inv as any).surplusWindKwh >= 0
+        ? (inv as any).surplusWindKwh
+        : 0;
+
+    const totalRenewableSurplusBeforeBatteryKwh =
+      typeof (inv as any).totalRenewableSurplusKwh === 'number' &&
+      Number.isFinite((inv as any).totalRenewableSurplusKwh)
+        ? (inv as any).totalRenewableSurplusKwh
+        : surplusSolarKwh + surplusWindBeforeBatteryKwh;
+
     // Reject contradictory upstream flow
-    if (residualHomeLoadKwh > 1e-9 && surplusSolarKwh > 1e-9) {
+    if (
+      residualHomeLoadKwh > 1e-9 &&
+      totalRenewableSurplusBeforeBatteryKwh > 1e-9
+    ) {
       throw new Error(
-        `Contradictory upstream solar-load flow at index ${i}: simultaneous residual load (${residualHomeLoadKwh} kWh) and surplus solar (${surplusSolarKwh} kWh).`
+        `Contradictory upstream renewable-load flow at index ${i}: simultaneous residual load (${residualHomeLoadKwh} kWh) and surplus renewable (${totalRenewableSurplusBeforeBatteryKwh} kWh).`
       );
     }
 
@@ -302,11 +353,15 @@ export function routeIntegratedBatteryFlow(
 
     // Stage 1: Renewable charging first
     let solarToBatteryAcKwh = 0;
+    let windToBatteryAcKwh = 0;
+    let totalRenewableToBatteryAcKwh = 0;
     let renewableEnergyStoredKwh = 0;
     let remainingSurplusSolarKwh = surplusSolarKwh;
+    let remainingSurplusWindKwh = surplusWindBeforeBatteryKwh;
+    let remainingSurplusRenewableKwh = totalRenewableSurplusBeforeBatteryKwh;
 
-    if (surplusSolarKwh > 1e-12) {
-      const chargeResult = routeSurplusSolarToBattery(
+    if (totalRenewableSurplusBeforeBatteryKwh > 1e-12) {
+      const chargeResult = routeSurplusRenewableToBattery(
         [inv],
         intervalHours,
         profile,
@@ -315,8 +370,16 @@ export function routeIntegratedBatteryFlow(
       const chargeInv = chargeResult.intervals[0];
 
       solarToBatteryAcKwh = chargeInv.solarToBatteryAcKwh;
+      windToBatteryAcKwh = chargeInv.windToBatteryAcKwh ?? 0;
+      totalRenewableToBatteryAcKwh =
+        chargeInv.totalRenewableToBatteryAcKwh ??
+        solarToBatteryAcKwh + windToBatteryAcKwh;
       renewableEnergyStoredKwh = chargeInv.renewableEnergyStoredKwh;
       remainingSurplusSolarKwh = chargeInv.remainingSurplusSolarKwh;
+      remainingSurplusWindKwh = chargeInv.remainingSurplusWindKwh ?? 0;
+      remainingSurplusRenewableKwh =
+        chargeInv.remainingSurplusRenewableKwh ??
+        remainingSurplusSolarKwh + remainingSurplusWindKwh;
 
       currentState = {
         syntheticSocKwh: chargeResult.finalState.syntheticSocKwh,
@@ -329,7 +392,7 @@ export function routeIntegratedBatteryFlow(
     // Stage 2: Remaining shared charge-power capacity
     const remainingChargePowerAcKwh = Math.max(
       0,
-      maxChargeAcKwh - solarToBatteryAcKwh
+      maxChargeAcKwh - totalRenewableToBatteryAcKwh
     );
 
     // Stage 3: Grid charging & Precedence Arbitration
@@ -420,14 +483,22 @@ export function routeIntegratedBatteryFlow(
       stateAfter.renewableChargedSocKwh +
       stateAfter.generatorChargedSocKwh;
 
-    totalSolarToBatteryAcKwh += solarToBatteryAcKwh;
-    totalRenewableEnergyStoredKwh += renewableEnergyStoredKwh;
-    totalGridToBatteryAcKwh += gridToBatteryAcKwh;
-    totalGridEnergyStoredKwh += gridEnergyStoredKwh;
-    totalBatteryDeliveredToLoadKwh += batteryDeliveredToLoadKwh;
-    totalStoredEnergyDrainedKwh += storedEnergyDrainedKwh;
-    totalResidualHomeLoadAfterBatteryKwh += residualHomeLoadAfterBatteryKwh;
-    totalRemainingSurplusSolarKwh += remainingSurplusSolarKwh;
+    accumulatedSolarToBatteryAcKwh += solarToBatteryAcKwh;
+    accumulatedWindToBatteryAcKwh += windToBatteryAcKwh;
+    accumulatedRenewableToBatteryAcKwh += totalRenewableToBatteryAcKwh;
+    accumulatedRenewableEnergyStoredKwh += renewableEnergyStoredKwh;
+    accumulatedWindGenerationKwh += windGenerationKwh;
+    accumulatedRenewableGenerationKwh += totalRenewableGenerationKwh;
+    accumulatedWindDirectToLoadKwh += windDirectToLoadKwh;
+    accumulatedRenewableDirectToLoadKwh += totalRenewableDirectToLoadKwh;
+    accumulatedGridToBatteryAcKwh += gridToBatteryAcKwh;
+    accumulatedGridEnergyStoredKwh += gridEnergyStoredKwh;
+    accumulatedBatteryDeliveredToLoadKwh += batteryDeliveredToLoadKwh;
+    accumulatedStoredEnergyDrainedKwh += storedEnergyDrainedKwh;
+    accumulatedResidualHomeLoadAfterBatteryKwh += residualHomeLoadAfterBatteryKwh;
+    accumulatedRemainingSurplusSolarKwh += remainingSurplusSolarKwh;
+    accumulatedRemainingSurplusWindKwh += remainingSurplusWindKwh;
+    accumulatedRemainingSurplusRenewableKwh += remainingSurplusRenewableKwh;
 
     resultIntervals[i] = {
       sourceIndex: inv.sourceIndex,
@@ -439,13 +510,22 @@ export function routeIntegratedBatteryFlow(
       solarGenerationKwh: inv.solarGenerationKwh,
       solarDirectToLoadKwh: inv.solarDirectToLoadKwh,
 
+      windGenerationKwh,
+      totalRenewableGenerationKwh,
+      windDirectToLoadKwh,
+      totalRenewableDirectToLoadKwh,
+
       residualHomeLoadBeforeBatteryKwh: residualHomeLoadKwh,
       surplusSolarBeforeBatteryKwh: surplusSolarKwh,
+      surplusWindBeforeBatteryKwh,
+      totalRenewableSurplusBeforeBatteryKwh,
 
       gridChargeAllowed: pol.allowGridChargeFromGrid,
       dischargeAllowed: pol.allowBatteryDischargeToLoad,
 
       solarToBatteryAcKwh,
+      windToBatteryAcKwh,
+      totalRenewableToBatteryAcKwh,
       renewableEnergyStoredKwh,
 
       requestedGridChargeAcKwh,
@@ -462,6 +542,8 @@ export function routeIntegratedBatteryFlow(
 
       residualHomeLoadAfterBatteryKwh,
       remainingSurplusSolarKwh,
+      remainingSurplusWindKwh,
+      remainingSurplusRenewableKwh,
 
       batterySocBeforeKwh,
       batterySocAfterKwh,
@@ -485,13 +567,21 @@ export function routeIntegratedBatteryFlow(
       renewableChargedSocKwh: currentState.renewableChargedSocKwh,
       generatorChargedSocKwh: currentState.generatorChargedSocKwh,
     },
-    totalSolarToBatteryAcKwh,
-    totalRenewableEnergyStoredKwh,
-    totalGridToBatteryAcKwh,
-    totalGridEnergyStoredKwh,
-    totalBatteryDeliveredToLoadKwh,
-    totalStoredEnergyDrainedKwh,
-    totalResidualHomeLoadAfterBatteryKwh,
-    totalRemainingSurplusSolarKwh,
+    totalSolarToBatteryAcKwh: accumulatedSolarToBatteryAcKwh,
+    totalWindToBatteryAcKwh: accumulatedWindToBatteryAcKwh,
+    totalRenewableToBatteryAcKwh: accumulatedRenewableToBatteryAcKwh,
+    totalRenewableEnergyStoredKwh: accumulatedRenewableEnergyStoredKwh,
+    totalWindGenerationKwh: accumulatedWindGenerationKwh,
+    totalRenewableGenerationKwh: accumulatedRenewableGenerationKwh,
+    totalWindDirectToLoadKwh: accumulatedWindDirectToLoadKwh,
+    totalRenewableDirectToLoadKwh: accumulatedRenewableDirectToLoadKwh,
+    totalGridToBatteryAcKwh: accumulatedGridToBatteryAcKwh,
+    totalGridEnergyStoredKwh: accumulatedGridEnergyStoredKwh,
+    totalBatteryDeliveredToLoadKwh: accumulatedBatteryDeliveredToLoadKwh,
+    totalStoredEnergyDrainedKwh: accumulatedStoredEnergyDrainedKwh,
+    totalResidualHomeLoadAfterBatteryKwh: accumulatedResidualHomeLoadAfterBatteryKwh,
+    totalRemainingSurplusSolarKwh: accumulatedRemainingSurplusSolarKwh,
+    totalRemainingSurplusWindKwh: accumulatedRemainingSurplusWindKwh,
+    totalRemainingSurplusRenewableKwh: accumulatedRemainingSurplusRenewableKwh,
   };
 }

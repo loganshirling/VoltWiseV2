@@ -12,10 +12,30 @@
 import {
   BatteryProfile,
   BatterySocProvenanceState,
+  RenewableLoadFlowInterval,
   SolarBatteryChargeInterval,
   SolarBatteryChargeResult,
   SolarLoadFlowInterval,
 } from '../types/energy';
+
+export interface RenewableBatteryChargeInterval
+  extends SolarBatteryChargeInterval {
+  surplusWindAvailableKwh?: number;
+  totalRenewableSurplusAvailableKwh?: number;
+  windToBatteryAcKwh?: number;
+  totalRenewableToBatteryAcKwh?: number;
+  remainingSurplusWindKwh?: number;
+  remainingSurplusRenewableKwh?: number;
+}
+
+export interface RenewableBatteryChargeResult
+  extends SolarBatteryChargeResult {
+  intervals: RenewableBatteryChargeInterval[];
+  totalWindToBatteryAcKwh?: number;
+  totalRenewableToBatteryAcKwh?: number;
+  totalRemainingSurplusWindKwh?: number;
+  totalRemainingSurplusRenewableKwh?: number;
+}
 
 /**
  * Calculates battery usable capacity:
@@ -39,16 +59,21 @@ export function calculateChargeEfficiency(profile: BatteryProfile): number {
 }
 
 /**
- * Routes surplus solar energy to battery charging sequentially across intervals.
+ * Routes surplus passive renewable energy (solar, wind, or combined) to battery charging
+ * sequentially across intervals.
  *
- * This function is pure and does not mutate its inputs or caller state.
+ * Source-neutral: total renewable surplus is evaluated against physical battery capacity
+ * and charge rate limit. If capacity is constrained, accepted charge is allocated
+ * proportionally between solar and wind according to their pre-battery surplus.
+ *
+ * Pure function: does not mutate inputs or caller state.
  */
-export function routeSurplusSolarToBattery(
-  intervals: SolarLoadFlowInterval[],
+export function routeSurplusRenewableToBattery(
+  intervals: (SolarLoadFlowInterval | RenewableLoadFlowInterval)[],
   intervalHours: number,
   profile: BatteryProfile,
   initialState: BatterySocProvenanceState
-): SolarBatteryChargeResult {
+): RenewableBatteryChargeResult {
   // Validate intervals array
   if (!Array.isArray(intervals)) {
     throw new Error('intervals must be an array.');
@@ -156,10 +181,14 @@ export function routeSurplusSolarToBattery(
   const currentGenerator = initialState.generatorChargedSocKwh;
 
   let totalSolarToBatteryAcKwh = 0;
+  let totalWindToBatteryAcKwh = 0;
+  let totalRenewableToBatteryAcKwh = 0;
   let totalRenewableEnergyStoredKwh = 0;
   let totalRemainingSurplusSolarKwh = 0;
+  let totalRemainingSurplusWindKwh = 0;
+  let totalRemainingSurplusRenewableKwh = 0;
 
-  const chargeIntervals: SolarBatteryChargeInterval[] = new Array(
+  const chargeIntervals: RenewableBatteryChargeInterval[] = new Array(
     intervals.length
   );
 
@@ -169,16 +198,29 @@ export function routeSurplusSolarToBattery(
       throw new Error(`Invalid interval at index ${i}: must be an object.`);
     }
 
-    const surplusAcKwh = inv.surplusSolarKwh;
+    const surplusSolarAvailableKwh = inv.surplusSolarKwh;
     if (
-      typeof surplusAcKwh !== 'number' ||
-      !Number.isFinite(surplusAcKwh) ||
-      surplusAcKwh < 0
+      typeof surplusSolarAvailableKwh !== 'number' ||
+      !Number.isFinite(surplusSolarAvailableKwh) ||
+      surplusSolarAvailableKwh < 0
     ) {
       throw new Error(
-        `Invalid surplusSolarKwh at index ${i}: must be a finite non-negative number. Received: ${surplusAcKwh}`
+        `Invalid surplusSolarKwh at index ${i}: must be a finite non-negative number. Received: ${surplusSolarAvailableKwh}`
       );
     }
+
+    const surplusWindAvailableKwh =
+      typeof (inv as any).surplusWindKwh === 'number' &&
+      Number.isFinite((inv as any).surplusWindKwh) &&
+      (inv as any).surplusWindKwh >= 0
+        ? (inv as any).surplusWindKwh
+        : 0;
+
+    const totalRenewableSurplusAvailableKwh =
+      typeof (inv as any).totalRenewableSurplusKwh === 'number' &&
+      Number.isFinite((inv as any).totalRenewableSurplusKwh)
+        ? (inv as any).totalRenewableSurplusKwh
+        : surplusSolarAvailableKwh + surplusWindAvailableKwh;
 
     const residualHomeLoadKwh = inv.residualHomeLoadKwh;
     if (
@@ -198,19 +240,43 @@ export function routeSurplusSolarToBattery(
     const roomStoredKwh = Math.max(0, usableCapacityKwh - batterySocBeforeKwh);
     const maxAcByCapacityKwh = roomStoredKwh / etaCharge;
 
-    let solarToBatteryAcKwh = Math.min(
-      surplusAcKwh,
+    let renewableToBatteryAcKwh = Math.min(
+      totalRenewableSurplusAvailableKwh,
       maxChargeAcKwh,
       maxAcByCapacityKwh
     );
 
+    if (renewableToBatteryAcKwh < 1e-12) {
+      renewableToBatteryAcKwh = 0;
+    }
+
+    let renewableEnergyStoredKwh = renewableToBatteryAcKwh * etaCharge;
+    if (renewableEnergyStoredKwh < 1e-12) {
+      renewableEnergyStoredKwh = 0;
+    }
+
+    // Source-neutral proportional allocation of accepted AC charge
+    let solarToBatteryAcKwh = 0;
+    let windToBatteryAcKwh = 0;
+
+    if (
+      renewableToBatteryAcKwh > 0 &&
+      totalRenewableSurplusAvailableKwh > 0
+    ) {
+      const solarShare =
+        surplusSolarAvailableKwh / totalRenewableSurplusAvailableKwh;
+      const windShare =
+        surplusWindAvailableKwh / totalRenewableSurplusAvailableKwh;
+
+      solarToBatteryAcKwh = renewableToBatteryAcKwh * solarShare;
+      windToBatteryAcKwh = renewableToBatteryAcKwh * windShare;
+    }
+
     if (solarToBatteryAcKwh < 1e-12) {
       solarToBatteryAcKwh = 0;
     }
-
-    let renewableEnergyStoredKwh = solarToBatteryAcKwh * etaCharge;
-    if (renewableEnergyStoredKwh < 1e-12) {
-      renewableEnergyStoredKwh = 0;
+    if (windToBatteryAcKwh < 1e-12) {
+      windToBatteryAcKwh = 0;
     }
 
     currentRenewable += renewableEnergyStoredKwh;
@@ -232,24 +298,51 @@ export function routeSurplusSolarToBattery(
       currentSynthetic + currentGrid + currentRenewable + currentGenerator;
     const renewableSocAfterKwh = currentRenewable;
 
-    let remainingSurplusSolarKwh = surplusAcKwh - solarToBatteryAcKwh;
+    let remainingSurplusSolarKwh =
+      surplusSolarAvailableKwh - solarToBatteryAcKwh;
     if (Math.abs(remainingSurplusSolarKwh) < 1e-12) {
       remainingSurplusSolarKwh = 0;
     }
 
+    let remainingSurplusWindKwh =
+      surplusWindAvailableKwh - windToBatteryAcKwh;
+    if (Math.abs(remainingSurplusWindKwh) < 1e-12) {
+      remainingSurplusWindKwh = 0;
+    }
+
+    let remainingSurplusRenewableKwh =
+      remainingSurplusSolarKwh + remainingSurplusWindKwh;
+    if (Math.abs(remainingSurplusRenewableKwh) < 1e-12) {
+      remainingSurplusRenewableKwh = 0;
+    }
+
     totalSolarToBatteryAcKwh += solarToBatteryAcKwh;
+    totalWindToBatteryAcKwh += windToBatteryAcKwh;
+    totalRenewableToBatteryAcKwh += renewableToBatteryAcKwh;
     totalRenewableEnergyStoredKwh += renewableEnergyStoredKwh;
     totalRemainingSurplusSolarKwh += remainingSurplusSolarKwh;
+    totalRemainingSurplusWindKwh += remainingSurplusWindKwh;
+    totalRemainingSurplusRenewableKwh += remainingSurplusRenewableKwh;
 
     chargeIntervals[i] = {
       sourceIndex: inv.sourceIndex,
       sourceTimestamp: inv.sourceTimestamp,
       timestampUtc: inv.timestampUtc,
       residualHomeLoadKwh,
-      surplusSolarAvailableKwh: surplusAcKwh,
+
+      surplusSolarAvailableKwh,
+      surplusWindAvailableKwh,
+      totalRenewableSurplusAvailableKwh,
+
       solarToBatteryAcKwh,
+      windToBatteryAcKwh,
+      totalRenewableToBatteryAcKwh: renewableToBatteryAcKwh,
       renewableEnergyStoredKwh,
+
       remainingSurplusSolarKwh,
+      remainingSurplusWindKwh,
+      remainingSurplusRenewableKwh,
+
       batterySocBeforeKwh,
       batterySocAfterKwh,
       renewableSocBeforeKwh,
@@ -272,7 +365,31 @@ export function routeSurplusSolarToBattery(
       generatorChargedSocKwh: currentGenerator,
     },
     totalSolarToBatteryAcKwh,
+    totalWindToBatteryAcKwh,
+    totalRenewableToBatteryAcKwh,
     totalRenewableEnergyStoredKwh,
     totalRemainingSurplusSolarKwh,
+    totalRemainingSurplusWindKwh,
+    totalRemainingSurplusRenewableKwh,
   };
+}
+
+/**
+ * Routes surplus solar energy to battery charging sequentially across intervals.
+ * Backwards-compatibility wrapper delegating to routeSurplusRenewableToBattery.
+ *
+ * This function is pure and does not mutate its inputs or caller state.
+ */
+export function routeSurplusSolarToBattery(
+  intervals: SolarLoadFlowInterval[],
+  intervalHours: number,
+  profile: BatteryProfile,
+  initialState: BatterySocProvenanceState
+): SolarBatteryChargeResult {
+  return routeSurplusRenewableToBattery(
+    intervals,
+    intervalHours,
+    profile,
+    initialState
+  );
 }

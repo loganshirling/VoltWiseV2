@@ -25,6 +25,7 @@ import {
   ExportAwareBatteryFlowInterval,
   ExportAwareBatteryFlowResult,
   GridSocCostBasisState,
+  RenewableLoadFlowInterval,
   ResolvedTariffRateInterval,
   SolarLoadFlowInterval,
 } from '../types/energy';
@@ -49,7 +50,7 @@ const ZERO_THRESHOLD = 1e-9;
  * @returns Result containing chronological export-aware flow intervals, state transitions, and export totals
  */
 export function routeExportAwareBatteryFlow(
-  intervals: SolarLoadFlowInterval[],
+  intervals: (SolarLoadFlowInterval | RenewableLoadFlowInterval)[],
   policy: BatteryDispatchPolicyInterval[],
   resolvedRates: ResolvedTariffRateInterval[],
   intervalHours: number,
@@ -364,11 +365,13 @@ export function routeExportAwareBatteryFlow(
       usableCapacityKwh - socAfterRenewable > ZERO_THRESHOLD;
 
     // Step 4: Determine export permission
+    const totalRenewableToBattery =
+      flow.totalRenewableToBatteryAcKwh ?? flow.solarToBatteryAcKwh;
     const allowBatteryExportInInterval =
       profile.strategy === 'arbitrage' &&
       pol.allowBatteryDischargeToLoad === true &&
       !gridChargeBranchSelected &&
-      flow.solarToBatteryAcKwh <= ZERO_THRESHOLD;
+      totalRenewableToBattery <= ZERO_THRESHOLD;
 
     // Step 5: Invoke G3L
     const exportResult = exportGridChargedBatteryEnergy(

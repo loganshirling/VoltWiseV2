@@ -25,6 +25,8 @@ interface NormalizedGridFlowItem {
   residualHomeLoadAfterBatteryKwh: number;
   gridToBatteryAcKwh: number;
   remainingSurplusSolarKwh: number;
+  remainingSurplusWindKwh?: number;
+  remainingSurplusRenewableKwh?: number;
   batteryExportKwh: number;
 }
 
@@ -33,13 +35,17 @@ interface NormalizedGridFlowItem {
  */
 function computeNormalizedGridFlows(
   items: NormalizedGridFlowItem[],
-  allowSolarExport: boolean
+  allowExport: boolean
 ): GridFlowResult {
   let totalGridImportForHomeKwh = 0;
   let totalGridImportForBatteryKwh = 0;
   let totalGridImportKwh = 0;
   let totalSolarExportKwh = 0;
+  let totalWindExportKwh = 0;
+  let totalRenewableExportKwh = 0;
   let totalCurtailedSolarKwh = 0;
+  let totalCurtailedWindKwh = 0;
+  let totalCurtailedRenewableKwh = 0;
   let totalBatteryExportKwh = 0;
   let totalGridExportKwh = 0;
 
@@ -51,6 +57,10 @@ function computeNormalizedGridFlows(
     const residualHomeLoadKwh = item.residualHomeLoadAfterBatteryKwh;
     const gridBatteryChargeKwh = item.gridToBatteryAcKwh;
     const remainingSurplusSolarKwh = item.remainingSurplusSolarKwh;
+    const remainingSurplusWindKwh = item.remainingSurplusWindKwh ?? 0;
+    const remainingSurplusRenewableKwh =
+      item.remainingSurplusRenewableKwh ??
+      remainingSurplusSolarKwh + remainingSurplusWindKwh;
 
     const gridImportForHomeKwh = residualHomeLoadKwh;
     const gridImportForBatteryKwh = gridBatteryChargeKwh;
@@ -59,23 +69,36 @@ function computeNormalizedGridFlows(
 
     let solarExportKwh = 0;
     let curtailedSolarKwh = 0;
+    let windExportKwh = 0;
+    let curtailedWindKwh = 0;
 
-    if (allowSolarExport) {
+    if (allowExport) {
       solarExportKwh = remainingSurplusSolarKwh;
       curtailedSolarKwh = 0;
+      windExportKwh = remainingSurplusWindKwh;
+      curtailedWindKwh = 0;
     } else {
       solarExportKwh = 0;
       curtailedSolarKwh = remainingSurplusSolarKwh;
+      windExportKwh = 0;
+      curtailedWindKwh = remainingSurplusWindKwh;
     }
 
+    const renewableExportKwh = solarExportKwh + windExportKwh;
+    const curtailedRenewableKwh = curtailedSolarKwh + curtailedWindKwh;
+
     const batteryExportKwh = item.batteryExportKwh;
-    const totalGridExportKwhInterval = solarExportKwh + batteryExportKwh;
+    const totalGridExportKwhInterval = renewableExportKwh + batteryExportKwh;
 
     totalGridImportForHomeKwh += gridImportForHomeKwh;
     totalGridImportForBatteryKwh += gridImportForBatteryKwh;
     totalGridImportKwh += intervalTotalGridImportKwh;
     totalSolarExportKwh += solarExportKwh;
+    totalWindExportKwh += windExportKwh;
+    totalRenewableExportKwh += renewableExportKwh;
     totalCurtailedSolarKwh += curtailedSolarKwh;
+    totalCurtailedWindKwh += curtailedWindKwh;
+    totalCurtailedRenewableKwh += curtailedRenewableKwh;
     totalBatteryExportKwh += batteryExportKwh;
     totalGridExportKwh += totalGridExportKwhInterval;
 
@@ -88,13 +111,19 @@ function computeNormalizedGridFlows(
       residualHomeLoadKwh,
       gridBatteryChargeKwh,
       remainingSurplusSolarKwh,
+      remainingSurplusWindKwh,
+      remainingSurplusRenewableKwh,
 
       gridImportForHomeKwh,
       gridImportForBatteryKwh,
       totalGridImportKwh: intervalTotalGridImportKwh,
 
       solarExportKwh,
+      windExportKwh,
+      renewableExportKwh,
       curtailedSolarKwh,
+      curtailedWindKwh,
+      curtailedRenewableKwh,
       batteryExportKwh,
       totalGridExportKwh: totalGridExportKwhInterval,
     };
@@ -106,7 +135,11 @@ function computeNormalizedGridFlows(
     totalGridImportForBatteryKwh,
     totalGridImportKwh,
     totalSolarExportKwh,
+    totalWindExportKwh,
+    totalRenewableExportKwh,
     totalCurtailedSolarKwh,
+    totalCurtailedWindKwh,
+    totalCurtailedRenewableKwh,
     totalBatteryExportKwh,
     totalGridExportKwh,
   };
@@ -120,15 +153,24 @@ function computeNormalizedGridFlows(
  */
 export function calculateGridFlows(
   intervals: IntegratedBatteryFlowInterval[],
-  allowSolarExport: boolean
+  allowSolarExport: boolean,
+  allowRenewableExport?: boolean
 ): GridFlowResult {
   if (!Array.isArray(intervals) || intervals.length === 0) {
     throw new Error('intervals must be a non-empty array.');
   }
 
-  if (typeof allowSolarExport !== 'boolean') {
+  if (
+    typeof allowSolarExport !== 'boolean' &&
+    typeof allowRenewableExport !== 'boolean'
+  ) {
     throw new Error('allowSolarExport must be a boolean.');
   }
+
+  const effectiveAllowExport =
+    allowRenewableExport !== undefined
+      ? allowRenewableExport
+      : allowSolarExport;
 
   const items: NormalizedGridFlowItem[] = new Array(intervals.length);
 
@@ -206,11 +248,13 @@ export function calculateGridFlows(
       residualHomeLoadAfterBatteryKwh: inv.residualHomeLoadAfterBatteryKwh,
       gridToBatteryAcKwh: inv.gridToBatteryAcKwh,
       remainingSurplusSolarKwh: inv.remainingSurplusSolarKwh,
+      remainingSurplusWindKwh: inv.remainingSurplusWindKwh ?? 0,
+      remainingSurplusRenewableKwh: inv.remainingSurplusRenewableKwh,
       batteryExportKwh: 0,
     };
   }
 
-  return computeNormalizedGridFlows(items, allowSolarExport);
+  return computeNormalizedGridFlows(items, effectiveAllowExport);
 }
 
 /**
@@ -221,15 +265,24 @@ export function calculateGridFlows(
  */
 export function calculateExportAwareGridFlows(
   intervals: ExportAwareBatteryFlowInterval[],
-  allowSolarExport: boolean
+  allowSolarExport: boolean,
+  allowRenewableExport?: boolean
 ): GridFlowResult {
   if (!Array.isArray(intervals) || intervals.length === 0) {
     throw new Error('intervals must be a non-empty array.');
   }
 
-  if (typeof allowSolarExport !== 'boolean') {
+  if (
+    typeof allowSolarExport !== 'boolean' &&
+    typeof allowRenewableExport !== 'boolean'
+  ) {
     throw new Error('allowSolarExport must be a boolean.');
   }
+
+  const effectiveAllowExport =
+    allowRenewableExport !== undefined
+      ? allowRenewableExport
+      : allowSolarExport;
 
   const items: NormalizedGridFlowItem[] = new Array(intervals.length);
 
@@ -355,9 +408,11 @@ export function calculateExportAwareGridFlows(
       residualHomeLoadAfterBatteryKwh: flow.residualHomeLoadAfterBatteryKwh,
       gridToBatteryAcKwh: flow.gridToBatteryAcKwh,
       remainingSurplusSolarKwh: flow.remainingSurplusSolarKwh,
+      remainingSurplusWindKwh: flow.remainingSurplusWindKwh ?? 0,
+      remainingSurplusRenewableKwh: flow.remainingSurplusRenewableKwh,
       batteryExportKwh: exportResult.batteryExportAcKwh,
     };
   }
 
-  return computeNormalizedGridFlows(items, allowSolarExport);
+  return computeNormalizedGridFlows(items, effectiveAllowExport);
 }

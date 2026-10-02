@@ -539,7 +539,7 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
       expect(result.annualSummary.intervalResults).toHaveLength(24);
     });
 
-    it('13. enabled wind/generator continues to reject rather than silently falling back', () => {
+    it('13. enabled wind routes generation-aware while generator and interval_file reject', () => {
       const dataPoints = createHourlyDataPoints(24);
       const schedule = createScheduleMatrix();
       const battery = createTestBattery();
@@ -553,6 +553,45 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
             name: 'Wind Turbine',
             enabled: true,
             ratedPowerKw: 5,
+            hubHeightM: 20,
+            annualAverageWindSpeedMps: 7.0,
+            cutInWindSpeedMps: 3.0,
+            ratedWindSpeedMps: 11.0,
+            cutOutWindSpeedMps: 25.0,
+            resourceMode: 'annual_average',
+            powerCurve: [
+              { windSpeedMps: 0, outputKw: 0 },
+              { windSpeedMps: 3, outputKw: 0 },
+              { windSpeedMps: 7, outputKw: 2 },
+              { windSpeedMps: 11, outputKw: 5 },
+              { windSpeedMps: 25, outputKw: 5 },
+            ],
+          },
+        ],
+      };
+
+      const windResult = runUnifiedSimulation({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: schedule,
+        batteryProfile: battery,
+        generationConfig: windConfig,
+        allowSolarExport: false,
+      });
+
+      expect(windResult.mode).toBe('generation-aware');
+      expect(windResult.annualSummary).toBeDefined();
+      expect(windResult.generationAwareResult?.totalWindGenerationKwh).toBeGreaterThan(0);
+
+      // Enabled wind interval_file mode rejects
+      const windIntervalFileConfig: GenerationConfig = {
+        site: baseSite,
+        assets: [
+          {
+            ...(windConfig.assets[0] as WindGenerationAsset),
+            id: 'wind-interval-file',
+            resourceMode: 'interval_file',
           },
         ],
       };
@@ -564,10 +603,10 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
           tiers: defaultTiers,
           scheduleMatrix: schedule,
           batteryProfile: battery,
-          generationConfig: windConfig,
+          generationConfig: windIntervalFileConfig,
           allowSolarExport: false,
         })
-      ).toThrow(/Unsupported generation asset type: "wind"/);
+      ).toThrow(/interval_file/i);
 
       const genConfig: GenerationConfig = {
         site: baseSite,

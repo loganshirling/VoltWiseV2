@@ -711,6 +711,57 @@ export interface SolarLoadFlowSummary {
 }
 
 // ============================================================================
+// Renewable-to-Load Energy Flow Contracts (Milestone G5C)
+// ============================================================================
+
+export interface RenewableLoadFlowInterval {
+  sourceIndex: number;
+  sourceTimestamp: string;
+  timestampUtc: string;
+
+  homeLoadKwh: number;
+
+  solarGenerationKwh: number;
+  windGenerationKwh: number;
+  totalRenewableGenerationKwh: number;
+
+  solarDirectToLoadKwh: number;
+  windDirectToLoadKwh: number;
+  totalRenewableDirectToLoadKwh: number;
+
+  residualHomeLoadKwh: number;
+
+  surplusSolarKwh: number;
+  surplusWindKwh: number;
+  totalRenewableSurplusKwh: number;
+}
+
+export interface RenewableLoadFlowSummary {
+  intervalCount: number;
+
+  totalHomeLoadKwh: number;
+  totalSolarGenerationKwh: number;
+  totalWindGenerationKwh: number;
+  totalRenewableGenerationKwh: number;
+
+  totalSolarDirectToLoadKwh: number;
+  totalWindDirectToLoadKwh: number;
+  totalRenewableDirectToLoadKwh: number;
+
+  totalResidualHomeLoadKwh: number;
+  totalSurplusSolarKwh: number;
+  totalSurplusWindKwh: number;
+  totalRenewableSurplusKwh: number;
+
+  solarSelfConsumptionPercent: number;
+  windSelfConsumptionPercent: number;
+  renewableSelfConsumptionPercent: number;
+  solarLoadCoveragePercent: number;
+  windLoadCoveragePercent: number;
+  renewableLoadCoveragePercent: number;
+}
+
+// ============================================================================
 // Surplus Solar to Battery Charging Contracts (Milestone G3B)
 // ============================================================================
 
@@ -891,13 +942,22 @@ export interface IntegratedBatteryFlowInterval {
   solarGenerationKwh: number;
   solarDirectToLoadKwh: number;
 
+  windGenerationKwh?: number;
+  totalRenewableGenerationKwh?: number;
+  windDirectToLoadKwh?: number;
+  totalRenewableDirectToLoadKwh?: number;
+
   residualHomeLoadBeforeBatteryKwh: number;
   surplusSolarBeforeBatteryKwh: number;
+  surplusWindBeforeBatteryKwh?: number;
+  totalRenewableSurplusBeforeBatteryKwh?: number;
 
   gridChargeAllowed: boolean;
   dischargeAllowed: boolean;
 
   solarToBatteryAcKwh: number;
+  windToBatteryAcKwh?: number;
+  totalRenewableToBatteryAcKwh?: number;
   renewableEnergyStoredKwh: number;
 
   requestedGridChargeAcKwh: number;
@@ -914,6 +974,8 @@ export interface IntegratedBatteryFlowInterval {
 
   residualHomeLoadAfterBatteryKwh: number;
   remainingSurplusSolarKwh: number;
+  remainingSurplusWindKwh?: number;
+  remainingSurplusRenewableKwh?: number;
 
   batterySocBeforeKwh: number;
   batterySocAfterKwh: number;
@@ -930,6 +992,15 @@ export interface IntegratedBatteryFlowResult {
 
   totalSolarToBatteryAcKwh: number;
   totalRenewableEnergyStoredKwh: number;
+
+  totalWindGenerationKwh?: number;
+  totalRenewableGenerationKwh?: number;
+  totalWindDirectToLoadKwh?: number;
+  totalRenewableDirectToLoadKwh?: number;
+  totalWindToBatteryAcKwh?: number;
+  totalRenewableToBatteryAcKwh?: number;
+  totalRemainingSurplusWindKwh?: number;
+  totalRemainingSurplusRenewableKwh?: number;
 
   totalGridToBatteryAcKwh: number;
   totalGridEnergyStoredKwh: number;
@@ -954,13 +1025,19 @@ export interface GridFlowInterval {
   residualHomeLoadKwh: number;
   gridBatteryChargeKwh: number;
   remainingSurplusSolarKwh: number;
+  remainingSurplusWindKwh?: number;
+  remainingSurplusRenewableKwh?: number;
 
   gridImportForHomeKwh: number;
   gridImportForBatteryKwh: number;
   totalGridImportKwh: number;
 
   solarExportKwh: number;
+  windExportKwh?: number;
+  renewableExportKwh?: number;
   curtailedSolarKwh: number;
+  curtailedWindKwh?: number;
+  curtailedRenewableKwh?: number;
   batteryExportKwh: number;
   totalGridExportKwh: number;
 }
@@ -973,7 +1050,11 @@ export interface GridFlowResult {
   totalGridImportKwh: number;
 
   totalSolarExportKwh: number;
+  totalWindExportKwh?: number;
+  totalRenewableExportKwh?: number;
   totalCurtailedSolarKwh: number;
+  totalCurtailedWindKwh?: number;
+  totalCurtailedRenewableKwh?: number;
   totalBatteryExportKwh: number;
   totalGridExportKwh: number;
 }
@@ -1003,6 +1084,8 @@ export interface TariffCostInterval {
   totalGridImportKwh: number;
 
   solarExportKwh: number;
+  windExportKwh?: number;
+  renewableExportKwh?: number;
   batteryExportKwh: number;
   totalGridExportKwh: number;
 
@@ -1013,6 +1096,8 @@ export interface TariffCostInterval {
   totalGridImportCost: number;
 
   solarExportCredit: number;
+  windExportCredit?: number;
+  renewableExportCredit?: number;
   batteryExportCredit: number;
   gridExportCredit: number;
 
@@ -1030,10 +1115,14 @@ export interface TariffCostResult {
   totalGridImportCost: number;
 
   solarExportCredit: number;
+  windExportCredit?: number;
+  renewableExportCredit?: number;
   batteryExportCredit: number;
   gridExportCredit: number;
 
   totalSolarExportCredit?: number;
+  totalWindExportCredit?: number;
+  totalRenewableExportCredit?: number;
   totalBatteryExportCredit?: number;
   totalGridExportCredit?: number;
 

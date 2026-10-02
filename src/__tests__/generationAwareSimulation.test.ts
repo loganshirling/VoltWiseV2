@@ -588,23 +588,61 @@ describe('G3Q Milestone — Authoritative Solar Generation Simulation Pipeline',
   // --------------------------------------------------------------------------
   // 11. enabled wind asset rejects as unsupported
   // --------------------------------------------------------------------------
-  it('11. enabled wind asset rejects as unsupported', () => {
+  // 11. enabled wind asset runs through full pipeline and interval_file rejects
+  // --------------------------------------------------------------------------
+  it('11. enabled wind asset runs through full pipeline and interval_file rejects', () => {
     const windAsset: WindGenerationAsset = {
       ...DEFAULT_WIND_ASSET,
       id: 'wind-1',
       enabled: true,
+      ratedPowerKw: 5.0,
+      hubHeightM: 20,
+      annualAverageWindSpeedMps: 7.0,
+      cutInWindSpeedMps: 3.0,
+      ratedWindSpeedMps: 11.0,
+      cutOutWindSpeedMps: 25.0,
+      resourceMode: 'annual_average',
+      powerCurve: [
+        { windSpeedMps: 0, outputKw: 0 },
+        { windSpeedMps: 3, outputKw: 0 },
+        { windSpeedMps: 7, outputKw: 2 },
+        { windSpeedMps: 11, outputKw: 5 },
+        { windSpeedMps: 25, outputKw: 5 },
+      ],
     };
 
+    const result = runGenerationAwareSimulation(
+      buildSimulationParams({
+        generationConfig: {
+          site: baseSite,
+          assets: [windAsset],
+        },
+      })
+    );
+
+    expect(result.alignedTimestamps).toHaveLength(24);
+    expect(result.windFleetProfile).toHaveLength(24);
+    expect(result.renewableLoadFlow).toHaveLength(24);
+    expect(result.totalWindGenerationKwh).toBeGreaterThan(0);
+    expect(result.totalSolarGenerationKwh).toBe(0);
+    expect(result.totalRenewableGenerationKwh).toBe(result.totalWindGenerationKwh);
+
+    // Rejection of enabled interval_file mode
+    const intervalFileAsset: WindGenerationAsset = {
+      ...windAsset,
+      id: 'wind-interval-file',
+      resourceMode: 'interval_file',
+    };
     expect(() =>
       runGenerationAwareSimulation(
         buildSimulationParams({
           generationConfig: {
             site: baseSite,
-            assets: [windAsset],
+            assets: [intervalFileAsset],
           },
         })
       )
-    ).toThrow(/unsupported.*wind/i);
+    ).toThrow(/interval_file/i);
   });
 
   // --------------------------------------------------------------------------
@@ -831,5 +869,375 @@ describe('G3Q Milestone — Authoritative Solar Generation Simulation Pipeline',
         allowSolarExport: 'yes' as unknown as boolean,
       })
     ).toThrow(/allowSolarExport must be a boolean/i);
+  });
+
+  // --------------------------------------------------------------------------
+  // G5C — Source-Aware Renewable Flow & Production Integration Suite
+  // --------------------------------------------------------------------------
+  describe('G5C — Source-Aware Renewable Simulation & Production Integration', () => {
+    function createValidWindAsset(
+      id = 'wind-1',
+      overrides: Partial<WindGenerationAsset> = {}
+    ): WindGenerationAsset {
+      return {
+        ...DEFAULT_WIND_ASSET,
+        id,
+        name: 'Test Wind Turbine',
+        enabled: true,
+        ratedPowerKw: 5.0,
+        hubHeightM: 20,
+        annualAverageWindSpeedMps: 7.5,
+        cutInWindSpeedMps: 3.0,
+        ratedWindSpeedMps: 11.0,
+        cutOutWindSpeedMps: 25.0,
+        resourceMode: 'annual_average',
+        powerCurve: [
+          { windSpeedMps: 0, outputKw: 0 },
+          { windSpeedMps: 3, outputKw: 0 },
+          { windSpeedMps: 6, outputKw: 1.5 },
+          { windSpeedMps: 8, outputKw: 3.0 },
+          { windSpeedMps: 11, outputKw: 5.0 },
+          { windSpeedMps: 25, outputKw: 5.0 },
+        ],
+        ...overrides,
+      };
+    }
+
+    it('13. wind-only surplus charges battery into renewableChargedSocKwh', () => {
+      // 0.1 kWh load with high wind generation so surplus is large
+      const windAsset = createValidWindAsset('wind-1');
+      const params = buildSimulationParams({
+        dataPoints: createDataPoints(24, 0.1),
+        generationConfig: {
+          site: baseSite,
+          assets: [windAsset],
+        },
+        batteryProfile: createTestBattery({
+          totalCapacityKwh: 15,
+          maxContinuousChargeKw: 5,
+        }),
+      });
+
+      const result = runGenerationAwareSimulation(params);
+
+      expect(result.totalWindGenerationKwh).toBeGreaterThan(0);
+      expect(result.totalWindToBatteryKwh).toBeGreaterThan(0);
+      expect(result.totalSolarToBatteryKwh).toBe(0);
+      expect(result.totalRenewableToBatteryKwh).toBe(result.totalWindToBatteryKwh);
+
+      // Verify battery stored energy entered only renewableChargedSocKwh
+      const finalState = result.exportAwareBatteryFlow.finalBatteryState;
+      expect(finalState.renewableChargedSocKwh).toBeGreaterThan(0);
+      expect(finalState.gridChargedSocKwh).toBe(0);
+      expect(finalState.generatorChargedSocKwh).toBe(0);
+    });
+
+    it('14. mixed solar + wind surplus charges battery proportionally', () => {
+      const solarAsset = createClearSkyAsset('solar-1');
+      const windAsset = createValidWindAsset('wind-1');
+
+      const params = buildSimulationParams({
+        dataPoints: createDataPoints(24, 0.2),
+        generationConfig: {
+          site: baseSite,
+          assets: [solarAsset, windAsset],
+        },
+        batteryProfile: createTestBattery({
+          totalCapacityKwh: 20,
+          maxContinuousChargeKw: 4, // constrained charge rate
+        }),
+      });
+
+      const result = runGenerationAwareSimulation(params);
+
+      expect(result.totalSolarGenerationKwh).toBeGreaterThan(0);
+      expect(result.totalWindGenerationKwh).toBeGreaterThan(0);
+      expect(result.totalSolarToBatteryKwh).toBeGreaterThan(0);
+      expect(result.totalWindToBatteryKwh).toBeGreaterThan(0);
+      expect(result.totalRenewableToBatteryKwh).toBeCloseTo(
+        result.totalSolarToBatteryKwh + result.totalWindToBatteryKwh,
+        8
+      );
+
+      // Verify for intervals where both sources have surplus and capacity is constrained,
+      // accepted charge is allocated proportionally to their pre-battery surplus
+      for (const inv of result.exportAwareBatteryFlow.intervals) {
+        const flow = inv.preExportFlow;
+        const totalSurplus = flow.totalRenewableSurplusBeforeBatteryKwh ?? 0;
+        const solarSurplus = flow.surplusSolarBeforeBatteryKwh;
+        const windSurplus = flow.surplusWindBeforeBatteryKwh ?? 0;
+        const totalToBattery = flow.totalRenewableToBatteryAcKwh ?? 0;
+
+        if (totalSurplus > 0 && totalToBattery > 0 && solarSurplus > 0 && windSurplus > 0) {
+          const expectedSolarCharge = totalToBattery * (solarSurplus / totalSurplus);
+          const expectedWindCharge = totalToBattery * (windSurplus / totalSurplus);
+          expect(flow.solarToBatteryAcKwh).toBeCloseTo(expectedSolarCharge, 8);
+          expect(flow.windToBatteryAcKwh ?? 0).toBeCloseTo(expectedWindCharge, 8);
+        }
+      }
+    });
+
+    it('17. asset ordering (solar first vs wind first) does not affect totals', () => {
+      const solarAsset = createClearSkyAsset('solar-1');
+      const windAsset = createValidWindAsset('wind-1');
+
+      const paramsSolarFirst = buildSimulationParams({
+        dataPoints: createDataPoints(24, 0.5),
+        generationConfig: {
+          site: baseSite,
+          assets: [solarAsset, windAsset],
+        },
+      });
+
+      const paramsWindFirst = buildSimulationParams({
+        dataPoints: createDataPoints(24, 0.5),
+        generationConfig: {
+          site: baseSite,
+          assets: [windAsset, solarAsset],
+        },
+      });
+
+      const res1 = runGenerationAwareSimulation(paramsSolarFirst);
+      const res2 = runGenerationAwareSimulation(paramsWindFirst);
+
+      expect(res1.totalSolarGenerationKwh).toBeCloseTo(res2.totalSolarGenerationKwh, 10);
+      expect(res1.totalWindGenerationKwh).toBeCloseTo(res2.totalWindGenerationKwh, 10);
+      expect(res1.totalRenewableGenerationKwh).toBeCloseTo(res2.totalRenewableGenerationKwh, 10);
+      expect(res1.totalSolarDirectToLoadKwh).toBeCloseTo(res2.totalSolarDirectToLoadKwh, 10);
+      expect(res1.totalWindDirectToLoadKwh).toBeCloseTo(res2.totalWindDirectToLoadKwh, 10);
+      expect(res1.totalSolarToBatteryKwh).toBeCloseTo(res2.totalSolarToBatteryKwh, 10);
+      expect(res1.totalWindToBatteryKwh).toBeCloseTo(res2.totalWindToBatteryKwh, 10);
+      expect(res1.totalGridImportKwh).toBeCloseTo(res2.totalGridImportKwh, 10);
+      expect(res1.totalGridExportKwh).toBeCloseTo(res2.totalGridExportKwh, 10);
+      expect(res1.simulatedCost).toBeCloseTo(res2.simulatedCost, 10);
+    });
+
+    it('21-27. export vs curtailment and grid export reconciliation', () => {
+      const solarAsset = createClearSkyAsset('solar-1');
+      const windAsset = createValidWindAsset('wind-1');
+
+      // 21 & 23: Export enabled
+      const paramsExport = buildSimulationParams({
+        dataPoints: createDataPoints(24, 0.2),
+        allowSolarExport: true,
+        generationConfig: {
+          site: baseSite,
+          assets: [solarAsset, windAsset],
+        },
+      });
+      const resExport = runGenerationAwareSimulation(paramsExport);
+
+      expect(resExport.totalSolarExportKwh).toBeGreaterThan(0);
+      expect(resExport.totalWindExportKwh).toBeGreaterThan(0);
+      expect(resExport.totalSolarCurtailedKwh).toBe(0);
+      expect(resExport.totalWindCurtailedKwh).toBe(0);
+      expect(resExport.totalRenewableExportKwh).toBeCloseTo(
+        resExport.totalSolarExportKwh + resExport.totalWindExportKwh,
+        8
+      );
+      expect(resExport.totalGridExportKwh).toBeCloseTo(
+        resExport.totalRenewableExportKwh + resExport.totalBatteryExportKwh,
+        8
+      );
+
+      // 22 & 24: Curtailment enabled (export disabled)
+      const paramsCurtail = buildSimulationParams({
+        dataPoints: createDataPoints(24, 0.2),
+        allowSolarExport: false,
+        generationConfig: {
+          site: baseSite,
+          assets: [solarAsset, windAsset],
+        },
+      });
+      const resCurtail = runGenerationAwareSimulation(paramsCurtail);
+
+      expect(resCurtail.totalSolarExportKwh).toBe(0);
+      expect(resCurtail.totalWindExportKwh).toBe(0);
+      expect(resCurtail.totalRenewableExportKwh).toBe(0);
+      expect(resCurtail.totalSolarCurtailedKwh).toBeGreaterThan(0);
+      expect(resCurtail.totalWindCurtailedKwh).toBeGreaterThan(0);
+      expect(resCurtail.totalRenewableCurtailedKwh).toBeCloseTo(
+        resCurtail.totalSolarCurtailedKwh + resCurtail.totalWindCurtailedKwh,
+        8
+      );
+    });
+
+    it('28-32. tariff accounting handles wind export sell rate and reconciles credits', () => {
+      const windAsset = createValidWindAsset('wind-1');
+      const params = buildSimulationParams({
+        dataPoints: createDataPoints(24, 0.1),
+        allowSolarExport: true,
+        generationConfig: {
+          site: baseSite,
+          assets: [windAsset],
+        },
+      });
+      const result = runGenerationAwareSimulation(params);
+
+      // Check tariff costs credit
+      expect(result.tariffCosts.totalWindExportCredit).toBeGreaterThan(0);
+      expect(result.tariffCosts.totalSolarExportCredit).toBe(0);
+      expect(result.tariffCosts.totalGridExportCredit).toBeCloseTo(
+        (result.tariffCosts.totalWindExportCredit ?? 0) +
+          (result.tariffCosts.totalBatteryExportCredit ?? 0),
+        8
+      );
+
+      // For every interval, gridExportCredit = solarExportCredit + windExportCredit + batteryExportCredit
+      for (const tc of result.tariffCosts.intervals) {
+        const expectedGridCredit =
+          tc.solarExportCredit + (tc.windExportCredit ?? 0) + tc.batteryExportCredit;
+        expect(tc.gridExportCredit).toBeCloseTo(expectedGridCredit, 8);
+      }
+    });
+
+    it('source reconciliation: energy conservation holds exactly at every interval and in total', () => {
+      const solarAsset = createClearSkyAsset('solar-1');
+      const windAsset = createValidWindAsset('wind-1');
+      const params = buildSimulationParams({
+        dataPoints: createDataPoints(24, 0.5),
+        allowSolarExport: true,
+        generationConfig: {
+          site: baseSite,
+          assets: [solarAsset, windAsset],
+        },
+      });
+      const result = runGenerationAwareSimulation(params);
+
+      // Total solar reconciliation: solarGen = solarDirect + solarToBattery + solarExport + solarCurtailed
+      expect(result.totalSolarGenerationKwh).toBeCloseTo(
+        result.totalSolarDirectToLoadKwh +
+          result.totalSolarToBatteryKwh +
+          result.totalSolarExportKwh +
+          result.totalSolarCurtailedKwh,
+        8
+      );
+
+      // Total wind reconciliation: windGen = windDirect + windToBattery + windExport + windCurtailed
+      expect(result.totalWindGenerationKwh).toBeCloseTo(
+        result.totalWindDirectToLoadKwh +
+          result.totalWindToBatteryKwh +
+          result.totalWindExportKwh +
+          result.totalWindCurtailedKwh,
+        8
+      );
+
+      // Total renewable reconciliation
+      expect(result.totalRenewableGenerationKwh).toBeCloseTo(
+        result.totalSolarGenerationKwh + result.totalWindGenerationKwh,
+        8
+      );
+      expect(result.totalRenewableDirectToLoadKwh).toBeCloseTo(
+        result.totalSolarDirectToLoadKwh + result.totalWindDirectToLoadKwh,
+        8
+      );
+      expect(result.totalRenewableToBatteryKwh).toBeCloseTo(
+        result.totalSolarToBatteryKwh + result.totalWindToBatteryKwh,
+        8
+      );
+      expect(result.totalRenewableExportKwh).toBeCloseTo(
+        result.totalSolarExportKwh + result.totalWindExportKwh,
+        8
+      );
+      expect(result.totalRenewableCurtailedKwh).toBeCloseTo(
+        result.totalSolarCurtailedKwh + result.totalWindCurtailedKwh,
+        8
+      );
+
+      // Interval-by-interval reconciliation
+      for (let i = 0; i < 24; i++) {
+        const gf = result.gridFlows.intervals[i];
+        const bf = result.exportAwareBatteryFlow.intervals[i].preExportFlow;
+        const rf = result.renewableLoadFlow[i];
+
+        // Solar interval reconciliation
+        const solarBal =
+          rf.solarDirectToLoadKwh +
+          bf.solarToBatteryAcKwh +
+          gf.solarExportKwh +
+          gf.curtailedSolarKwh;
+        expect(solarBal).toBeCloseTo(rf.solarGenerationKwh, 8);
+
+        // Wind interval reconciliation
+        const windBal =
+          rf.windDirectToLoadKwh +
+          (bf.windToBatteryAcKwh ?? 0) +
+          (gf.windExportKwh ?? 0) +
+          (gf.curtailedWindKwh ?? 0);
+        expect(windBal).toBeCloseTo(rf.windGenerationKwh, 8);
+      }
+    });
+
+    it('42-53. solar-only G4 numerical parity fixture', () => {
+      // Solar-only project must produce exact numerical values matching G4 expectations
+      const solarAsset = createClearSkyAsset('solar-1');
+      const params = buildSimulationParams({
+        dataPoints: createDataPoints(24, 1.0),
+        allowSolarExport: true,
+        generationConfig: {
+          site: baseSite,
+          assets: [solarAsset],
+        },
+      });
+      const result = runGenerationAwareSimulation(params);
+
+      // Verify wind metrics are zero
+      expect(result.totalWindGenerationKwh).toBe(0);
+      expect(result.totalWindDirectToLoadKwh).toBe(0);
+      expect(result.totalWindToBatteryKwh).toBe(0);
+      expect(result.totalWindExportKwh).toBe(0);
+      expect(result.totalWindCurtailedKwh).toBe(0);
+
+      // Verify solar metrics equal renewable metrics
+      expect(result.totalRenewableGenerationKwh).toBe(result.totalSolarGenerationKwh);
+      expect(result.totalRenewableDirectToLoadKwh).toBe(result.totalSolarDirectToLoadKwh);
+      expect(result.totalRenewableToBatteryKwh).toBe(result.totalSolarToBatteryKwh);
+      expect(result.totalRenewableExportKwh).toBe(result.totalSolarExportKwh);
+      expect(result.totalRenewableCurtailedKwh).toBe(result.totalSolarCurtailedKwh);
+
+      // Financial sanity
+      expect(result.netSavings).toBeCloseTo(result.baselineCost - result.simulatedCost, 6);
+    });
+
+    it('sub-hourly wind-only production simulation (15-min intervals)', () => {
+      const count = 96; // 24 hours of 15-minute intervals
+      const dp: IntervalDataPoint[] = [];
+      const baseDate = new Date('2025-06-15T00:00:00Z');
+
+      for (let i = 0; i < count; i++) {
+        const d = new Date(baseDate.getTime() + i * 15 * 60 * 1000);
+        dp.push({
+          timestamp: d.toISOString().replace('T', ' ').slice(0, 16),
+          date: d,
+          hour: d.getUTCHours(),
+          dayOfWeek: d.getUTCDay(),
+          month: d.getUTCMonth(),
+          usageKwh: 0.25,
+        });
+      }
+
+      const windAsset = createValidWindAsset('wind-1');
+      const params: GenerationAwareSimulationParams = {
+        dataPoints: dp,
+        intervalHours: 0.25,
+        generationConfig: {
+          site: baseSite,
+          assets: [windAsset],
+        },
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        allowSolarExport: true,
+        initialBatteryState: { ...zeroBatteryState },
+        initialCostBasisState: { ...zeroCostBasisState },
+      };
+
+      const result = runGenerationAwareSimulation(params);
+      expect(result.alignedTimestamps).toHaveLength(96);
+      expect(result.gridFlows.intervals).toHaveLength(96);
+      expect(result.tariffCosts.intervals).toHaveLength(96);
+      expect(result.totalWindGenerationKwh).toBeGreaterThan(0);
+      expect(result.totalHomeLoadKwh).toBe(24.0); // 96 * 0.25
+    });
   });
 });
