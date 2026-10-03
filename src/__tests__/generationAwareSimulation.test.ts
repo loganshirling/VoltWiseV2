@@ -646,25 +646,34 @@ describe('G3Q Milestone — Authoritative Solar Generation Simulation Pipeline',
   });
 
   // --------------------------------------------------------------------------
-  // 12. enabled generator rejects as unsupported
+  // 12. enabled generator executes through generation-aware pipeline
   // --------------------------------------------------------------------------
-  it('12. enabled generator rejects as unsupported', () => {
+  it('12. enabled generator executes through generation-aware pipeline', () => {
     const generatorAsset: GeneratorGenerationAsset = {
       ...DEFAULT_GENERATOR_ASSET,
       id: 'gen-1',
       enabled: true,
+      ratedContinuousKw: 10,
+      fuelPricePerUnit: 3.5,
+      fuelCurve: [
+        { loadPercent: 0, fuelUnitsPerHour: 0.5 },
+        { loadPercent: 100, fuelUnitsPerHour: 2.5 },
+      ],
+      dispatchMode: 'scheduled',
+      scheduledHours: Array.from({ length: 7 }, () => Array(24).fill(true)),
     };
 
-    expect(() =>
-      runGenerationAwareSimulation(
-        buildSimulationParams({
-          generationConfig: {
-            site: baseSite,
-            assets: [generatorAsset],
-          },
-        })
-      )
-    ).toThrow(/unsupported.*generator/i);
+    const result = runGenerationAwareSimulation(
+      buildSimulationParams({
+        generationConfig: {
+          site: baseSite,
+          assets: [generatorAsset],
+        },
+      })
+    );
+
+    expect(result).toBeDefined();
+    expect(result.generatorGeneratedKwh).toBeGreaterThan(0);
   });
 
   // --------------------------------------------------------------------------

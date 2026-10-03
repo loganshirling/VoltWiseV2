@@ -46,6 +46,7 @@ interface NormalizedTariffCostInput {
   solarExportKwh: number;
   windExportKwh?: number;
   renewableExportKwh?: number;
+  generatorExportKwh?: number;
   batteryExportKwh: number;
   totalGridExportKwh: number;
 }
@@ -64,6 +65,7 @@ function computeNormalizedTariffCosts(
   let totalWindExportCredit = 0;
   let totalRenewableExportCredit = 0;
   let totalBatteryExportCredit = 0;
+  let totalGeneratorExportCredit = 0;
   let totalGridExportCredit = 0;
   let totalSimulatedCost = 0;
   let totalNetSavings = 0;
@@ -88,7 +90,10 @@ function computeNormalizedTariffCosts(
     const windExportCredit = windExportKwh * item.sellRate;
     const renewableExportCredit = solarExportCredit + windExportCredit;
     const batteryExportCredit = item.batteryExportKwh * item.sellRate;
-    const gridExportCredit = renewableExportCredit + batteryExportCredit;
+    const generatorExportKwh = item.generatorExportKwh ?? 0;
+    const generatorExportCredit = generatorExportKwh * item.sellRate;
+    const gridExportCredit =
+      renewableExportCredit + batteryExportCredit + generatorExportCredit;
 
     const simulatedCost = totalGridImportCostInterval - gridExportCredit;
     const netSavings = baselineCost - simulatedCost;
@@ -101,6 +106,7 @@ function computeNormalizedTariffCosts(
     totalWindExportCredit += windExportCredit;
     totalRenewableExportCredit += renewableExportCredit;
     totalBatteryExportCredit += batteryExportCredit;
+    totalGeneratorExportCredit += generatorExportCredit;
     totalGridExportCredit += gridExportCredit;
     totalSimulatedCost += simulatedCost;
     totalNetSavings += netSavings;
@@ -128,6 +134,7 @@ function computeNormalizedTariffCosts(
       solarExportKwh: item.solarExportKwh,
       windExportKwh,
       renewableExportKwh,
+      generatorExportKwh,
       batteryExportKwh: item.batteryExportKwh,
       totalGridExportKwh: item.totalGridExportKwh,
 
@@ -140,6 +147,7 @@ function computeNormalizedTariffCosts(
       solarExportCredit,
       windExportCredit,
       renewableExportCredit,
+      generatorExportCredit,
       batteryExportCredit,
       gridExportCredit,
 
@@ -162,6 +170,7 @@ function computeNormalizedTariffCosts(
     totalSolarExportCredit,
     totalWindExportCredit,
     totalRenewableExportCredit,
+    totalGeneratorExportCredit,
     totalBatteryExportCredit,
     totalGridExportCredit,
     simulatedCost: totalSimulatedCost,
@@ -345,6 +354,7 @@ export function calculateTariffCosts(
       solarExportKwh,
       windExportKwh: gf.windExportKwh ?? 0,
       renewableExportKwh: gf.renewableExportKwh,
+      generatorExportKwh: gf.generatorExportKwh ?? 0,
       batteryExportKwh,
       totalGridExportKwh,
     };
@@ -589,6 +599,7 @@ export function calculateExportAwareTariffCosts(
       solarExportKwh,
       windExportKwh: gf.windExportKwh ?? 0,
       renewableExportKwh: gf.renewableExportKwh,
+      generatorExportKwh: gf.generatorExportKwh ?? 0,
       batteryExportKwh,
       totalGridExportKwh,
     };

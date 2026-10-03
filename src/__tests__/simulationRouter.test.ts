@@ -617,21 +617,29 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
             name: 'Backup Generator',
             enabled: true,
             ratedContinuousKw: 10,
+            fuelPricePerUnit: 3.5,
+            fuelCurve: [
+              { loadPercent: 0, fuelUnitsPerHour: 0.5 },
+              { loadPercent: 100, fuelUnitsPerHour: 2.5 },
+            ],
+            dispatchMode: 'scheduled',
+            scheduledHours: Array.from({ length: 7 }, () => Array(24).fill(true)),
           },
         ],
       };
 
-      expect(() =>
-        runUnifiedSimulation({
-          dataPoints,
-          intervalHours: 1,
-          tiers: defaultTiers,
-          scheduleMatrix: schedule,
-          batteryProfile: battery,
-          generationConfig: genConfig,
-          allowSolarExport: false,
-        })
-      ).toThrow(/Unsupported generation asset type: "generator"/);
+      const genResult = runUnifiedSimulation({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: schedule,
+        batteryProfile: battery,
+        generationConfig: genConfig,
+        allowSolarExport: false,
+      });
+
+      expect(genResult.mode).toBe('generation-aware');
+      expect(genResult.annualSummary).toBeDefined();
     });
 
     it('14. generation branch starts at exactly 50% synthetic usable SOC', () => {

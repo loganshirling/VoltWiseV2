@@ -165,6 +165,9 @@ export interface IntervalSimulationResult {
   baselineCost: number;
   simulatedCost: number;
   netSavings: number;
+
+  generatorGeneratedKwh?: number;
+  generatorOperatingCostUsd?: number;
 }
 
 export interface AnnualSimulationSummary {
@@ -182,6 +185,11 @@ export interface AnnualSimulationSummary {
   annualBatteryDischargedKwh: number;
   equivalentFullCycles: number;
   maxPeakDemandKw: number;
+  
+  generatorGeneratedKwh?: number;
+  generatorOperatingCostUsd?: number;
+  netOperationalSavingsUsd?: number;
+  modeledTotalOperatingEnergyCostUsd?: number;
   
   // Period & Dataset eligibility flags
   isSuitableForAnnualProjection?: boolean;
@@ -519,6 +527,32 @@ export type GenerationAsset =
 export interface GenerationConfig {
   site: GenerationSite;
   assets: GenerationAsset[];
+}
+
+export interface GeneratorAssetAnnualSummary {
+  assetId: string;
+  assetName: string;
+  dispatchMode: GeneratorDispatchMode;
+
+  generatedKwh: number;
+  directToLoadKwh: number;
+  toBatteryAcKwh: number;
+  directExportKwh: number;
+  curtailedKwh: number;
+
+  runtimeHours: number;
+  startCount: number;
+
+  runningFuelUnits: number;
+  startupFuelUnits: number;
+  totalFuelUnits: number;
+  fuelUnit: GeneratorFuelUnit;
+  fuelType: GeneratorFuelType;
+  customFuelUnitLabel?: string;
+
+  fuelCostUsd: number;
+  variableMaintenanceCostUsd: number;
+  operatingCostUsd: number;
 }
 
 // ============================================================================
@@ -961,6 +995,9 @@ export interface IntegratedBatteryFlowInterval {
   totalRenewableToBatteryAcKwh?: number;
   renewableEnergyStoredKwh: number;
 
+  generatorToBatteryAcKwh?: number;
+  generatorEnergyStoredKwh?: number;
+
   requestedGridChargeAcKwh: number;
   gridToBatteryAcKwh: number;
   gridEnergyStoredKwh: number;
@@ -1039,6 +1076,8 @@ export interface GridFlowInterval {
   curtailedSolarKwh: number;
   curtailedWindKwh?: number;
   curtailedRenewableKwh?: number;
+  curtailedGeneratorKwh?: number;
+  generatorExportKwh?: number;
   batteryExportKwh: number;
   totalGridExportKwh: number;
 }
@@ -1053,9 +1092,11 @@ export interface GridFlowResult {
   totalSolarExportKwh: number;
   totalWindExportKwh?: number;
   totalRenewableExportKwh?: number;
+  totalGeneratorExportKwh?: number;
   totalCurtailedSolarKwh: number;
   totalCurtailedWindKwh?: number;
   totalCurtailedRenewableKwh?: number;
+  totalCurtailedGeneratorKwh?: number;
   totalBatteryExportKwh: number;
   totalGridExportKwh: number;
 }
@@ -1087,6 +1128,7 @@ export interface TariffCostInterval {
   solarExportKwh: number;
   windExportKwh?: number;
   renewableExportKwh?: number;
+  generatorExportKwh?: number;
   batteryExportKwh: number;
   totalGridExportKwh: number;
 
@@ -1099,6 +1141,7 @@ export interface TariffCostInterval {
   solarExportCredit: number;
   windExportCredit?: number;
   renewableExportCredit?: number;
+  generatorExportCredit?: number;
   batteryExportCredit: number;
   gridExportCredit: number;
 
@@ -1118,12 +1161,14 @@ export interface TariffCostResult {
   solarExportCredit: number;
   windExportCredit?: number;
   renewableExportCredit?: number;
+  generatorExportCredit?: number;
   batteryExportCredit: number;
   gridExportCredit: number;
 
   totalSolarExportCredit?: number;
   totalWindExportCredit?: number;
   totalRenewableExportCredit?: number;
+  totalGeneratorExportCredit?: number;
   totalBatteryExportCredit?: number;
   totalGridExportCredit?: number;
 

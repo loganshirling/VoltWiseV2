@@ -28,6 +28,8 @@ interface NormalizedGridFlowItem {
   remainingSurplusWindKwh?: number;
   remainingSurplusRenewableKwh?: number;
   batteryExportKwh: number;
+  generatorExportKwh?: number;
+  curtailedGeneratorKwh?: number;
 }
 
 /**
@@ -47,6 +49,8 @@ function computeNormalizedGridFlows(
   let totalCurtailedWindKwh = 0;
   let totalCurtailedRenewableKwh = 0;
   let totalBatteryExportKwh = 0;
+  let totalGeneratorExportKwh = 0;
+  let totalCurtailedGeneratorKwh = 0;
   let totalGridExportKwh = 0;
 
   const resultIntervals: GridFlowInterval[] = new Array(items.length);
@@ -88,7 +92,10 @@ function computeNormalizedGridFlows(
     const curtailedRenewableKwh = curtailedSolarKwh + curtailedWindKwh;
 
     const batteryExportKwh = item.batteryExportKwh;
-    const totalGridExportKwhInterval = renewableExportKwh + batteryExportKwh;
+    const generatorExportKwh = item.generatorExportKwh ?? 0;
+    const curtailedGeneratorKwh = item.curtailedGeneratorKwh ?? 0;
+    const totalGridExportKwhInterval =
+      renewableExportKwh + batteryExportKwh + generatorExportKwh;
 
     totalGridImportForHomeKwh += gridImportForHomeKwh;
     totalGridImportForBatteryKwh += gridImportForBatteryKwh;
@@ -100,6 +107,8 @@ function computeNormalizedGridFlows(
     totalCurtailedWindKwh += curtailedWindKwh;
     totalCurtailedRenewableKwh += curtailedRenewableKwh;
     totalBatteryExportKwh += batteryExportKwh;
+    totalGeneratorExportKwh += generatorExportKwh;
+    totalCurtailedGeneratorKwh += curtailedGeneratorKwh;
     totalGridExportKwh += totalGridExportKwhInterval;
 
     resultIntervals[i] = {
@@ -121,9 +130,11 @@ function computeNormalizedGridFlows(
       solarExportKwh,
       windExportKwh,
       renewableExportKwh,
+      generatorExportKwh,
       curtailedSolarKwh,
       curtailedWindKwh,
       curtailedRenewableKwh,
+      curtailedGeneratorKwh,
       batteryExportKwh,
       totalGridExportKwh: totalGridExportKwhInterval,
     };
@@ -137,9 +148,11 @@ function computeNormalizedGridFlows(
     totalSolarExportKwh,
     totalWindExportKwh,
     totalRenewableExportKwh,
+    totalGeneratorExportKwh,
     totalCurtailedSolarKwh,
     totalCurtailedWindKwh,
     totalCurtailedRenewableKwh,
+    totalCurtailedGeneratorKwh,
     totalBatteryExportKwh,
     totalGridExportKwh,
   };
@@ -411,6 +424,8 @@ export function calculateExportAwareGridFlows(
       remainingSurplusWindKwh: flow.remainingSurplusWindKwh ?? 0,
       remainingSurplusRenewableKwh: flow.remainingSurplusRenewableKwh,
       batteryExportKwh: exportResult.batteryExportAcKwh,
+      generatorExportKwh: (inv as any).generatorExportKwh,
+      curtailedGeneratorKwh: (inv as any).curtailedGeneratorKwh,
     };
   }
 

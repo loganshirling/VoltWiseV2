@@ -157,9 +157,10 @@ export function runUnifiedSimulation(
       maxPeakKw = currentKw;
     }
 
-    // Battery charge = renewable stored + grid stored
+    // Battery charge = renewable stored + generator stored + grid stored
     const batteryChargeKwh =
       preExportFlow.renewableEnergyStoredKwh +
+      (preExportFlow.generatorEnergyStoredKwh ?? 0) +
       preExportFlow.gridEnergyStoredKwh;
 
     // Battery discharge = delivered to home load + battery export to grid (never solar export)
@@ -180,6 +181,8 @@ export function runUnifiedSimulation(
     const socPercent =
       usableCapacityKwh > 0 ? (currentSocKwh / usableCapacityKwh) * 100 : 0;
 
+    const genRecord = generationAwareResult.generatorFleetRecords?.[i];
+
     intervalResults[i] = {
       timestamp: pt.timestamp,
       hour: pol.hour,
@@ -199,6 +202,16 @@ export function runUnifiedSimulation(
       baselineCost: tariffCost.baselineCost,
       simulatedCost: tariffCost.simulatedCost,
       netSavings: tariffCost.netSavings,
+      generatorGeneratedKwh: genRecord
+        ? Math.round(genRecord.totalGeneratedKwh * 100) / 100
+        : undefined,
+      generatorOperatingCostUsd: genRecord
+        ? Math.round(
+            (genRecord.totalFuelCostUsd +
+              genRecord.totalVariableMaintenanceCostUsd) *
+              100
+          ) / 100
+        : undefined,
     };
   }
 
@@ -244,6 +257,11 @@ export function runUnifiedSimulation(
       Math.round(totalBatteryDischarged * 10) / 10,
     equivalentFullCycles: Math.round(equivalentFullCycles),
     maxPeakDemandKw: Math.round(maxPeakKw * 100) / 100,
+    generatorGeneratedKwh: generationAwareResult.generatorGeneratedKwh,
+    generatorOperatingCostUsd: generationAwareResult.generatorOperatingCostUsd,
+    netOperationalSavingsUsd: generationAwareResult.netOperationalSavingsUsd,
+    modeledTotalOperatingEnergyCostUsd:
+      generationAwareResult.modeledTotalOperatingEnergyCostUsd,
     intervalResults,
   };
 

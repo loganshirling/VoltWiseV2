@@ -27,6 +27,8 @@ import {
   BatterySocProvenanceState,
   ExportAwareBatteryFlowResult,
   GenerationConfig,
+  GeneratorAssetAnnualSummary,
+  GeneratorGenerationAsset,
   GridFlowResult,
   GridSocCostBasisState,
   IntervalDataPoint,
@@ -57,6 +59,9 @@ import { resolveTariffRates } from './tariffRateResolver';
 import { routeExportAwareBatteryFlow } from './exportAwareBatteryFlow';
 import { calculateExportAwareGridFlows } from './gridFlowAccounting';
 import { calculateExportAwareTariffCosts } from './tariffCostAccounting';
+import { validateGeneratorAsset } from './generatorModel';
+import { GeneratorFleetDispatchRecord } from './generatorDispatch';
+import { simulateGeneratorAwareOperationalFlow } from './generatorAwareFlow';
 
 export interface GenerationAwareSimulationParams {
   dataPoints: IntervalDataPoint[];
@@ -113,6 +118,35 @@ export interface GenerationAwareSimulationResult {
   baselineCost: number;
   simulatedCost: number;
   netSavings: number;
+
+  generatorGeneratedKwh?: number;
+  generatorDirectToLoadKwh?: number;
+  generatorToBatteryKwh?: number;
+  generatorExportKwh?: number;
+  generatorCurtailedKwh?: number;
+
+  totalGeneratorGenerationKwh?: number;
+  totalGeneratorDirectToLoadKwh?: number;
+  totalGeneratorToBatteryKwh?: number;
+  totalGeneratorExportKwh?: number;
+  totalGeneratorCurtailedKwh?: number;
+
+  totalOnsiteGenerationKwh?: number;
+
+  generatorRuntimeHours?: number;
+  generatorStarts?: number;
+
+  generatorFuelCostUsd?: number;
+  generatorVariableMaintenanceCostUsd?: number;
+  generatorOperatingCostUsd?: number;
+
+  modeledUtilityCostUsd?: number;
+  utilityElectricitySavingsUsd?: number;
+  netOperationalSavingsUsd?: number;
+  modeledTotalOperatingEnergyCostUsd?: number;
+
+  generatorAssetSummaries?: GeneratorAssetAnnualSummary[];
+  generatorFleetRecords?: GeneratorFleetDispatchRecord[];
 }
 
 /**
@@ -139,6 +173,8 @@ export function runGenerationAwareSimulation(
     initialBatteryState,
     initialCostBasisState,
   } = params;
+
+  const count = dataPoints?.length ?? 0;
 
   // 1. Validate top-level pipeline configurations
   if (!generationConfig || typeof generationConfig !== 'object') {
@@ -185,6 +221,7 @@ export function runGenerationAwareSimulation(
 
   const enabledSolarAssets: SolarGenerationAsset[] = [];
   const enabledWindAssets: WindGenerationAsset[] = [];
+  const enabledGeneratorAssets: GeneratorGenerationAsset[] = [];
 
   for (const asset of assets) {
     if (!asset || typeof asset !== 'object') {
@@ -201,12 +238,11 @@ export function runGenerationAwareSimulation(
     } else if (asset.type === 'wind') {
       enabledWindAssets.push(asset);
     } else if (asset.type === 'generator') {
-      throw new Error(
-        `Unsupported generation asset type: "generator" for asset "${asset.name ?? asset.id}". Generator assets are not currently supported in this simulation pipeline.`
-      );
+      validateGeneratorAsset(asset);
+      enabledGeneratorAssets.push(asset);
     } else {
       throw new Error(
-        `Unsupported generation asset type: "${(asset as any).type}" for asset "${(asset as any).name ?? (asset as any).id}". Only solar and wind assets are currently supported in this simulation pipeline.`
+        `Unsupported generation asset type: "${(asset as any).type}" for asset "${(asset as any).name ?? (asset as any).id}". Only solar, wind, and generator assets are currently supported in this simulation pipeline.`
       );
     }
   }
@@ -263,6 +299,106 @@ export function runGenerationAwareSimulation(
     seasons
   );
 
+  // If one or more generator assets are enabled, route through G6C generator-aware operational flow
+  if (enabledGeneratorAssets.length > 0) {
+    const generatorFlowResult = simulateGeneratorAwareOperationalFlow({
+      dataPoints,
+      alignedTimestamps,
+      solarFleetProfile,
+      windFleetProfile,
+      renewableLoadFlow,
+      dispatchPolicy,
+      resolvedRates,
+      intervalHours,
+      batteryProfile,
+      generatorAssets: enabledGeneratorAssets,
+      timeZone: generationConfig.site.timeZone,
+      initialBatteryState,
+      initialCostBasisState,
+      allowRenewableExport: effectiveAllowRenewableExport,
+    });
+
+    return {
+      alignedTimestamps,
+      solarFleetProfile,
+      windFleetProfile,
+      renewableLoadFlow: generatorFlowResult.renewableLoadFlow,
+      solarLoadFlow: generatorFlowResult.solarLoadFlow,
+      dispatchPolicy,
+      resolvedRates,
+      exportAwareBatteryFlow: generatorFlowResult.exportAwareBatteryFlow,
+      gridFlows: generatorFlowResult.gridFlows,
+      tariffCosts: generatorFlowResult.tariffCosts,
+
+      totalIntervals: count,
+      totalHomeLoadKwh: generatorFlowResult.totalHomeLoadKwh,
+
+      totalSolarGenerationKwh: generatorFlowResult.totalSolarGenerationKwh,
+      totalSolarDirectToLoadKwh: generatorFlowResult.totalSolarDirectToLoadKwh,
+      totalSolarToBatteryKwh: generatorFlowResult.totalSolarToBatteryKwh,
+      totalSolarExportKwh: generatorFlowResult.totalSolarExportKwh,
+      totalSolarCurtailedKwh: generatorFlowResult.totalSolarCurtailedKwh,
+
+      totalWindGenerationKwh: generatorFlowResult.totalWindGenerationKwh,
+      totalWindDirectToLoadKwh: generatorFlowResult.totalWindDirectToLoadKwh,
+      totalWindToBatteryKwh: generatorFlowResult.totalWindToBatteryKwh,
+      totalWindExportKwh: generatorFlowResult.totalWindExportKwh,
+      totalWindCurtailedKwh: generatorFlowResult.totalWindCurtailedKwh,
+
+      totalRenewableGenerationKwh:
+        generatorFlowResult.totalRenewableGenerationKwh,
+      totalRenewableDirectToLoadKwh:
+        generatorFlowResult.totalRenewableDirectToLoadKwh,
+      totalRenewableToBatteryKwh: generatorFlowResult.totalRenewableToBatteryKwh,
+      totalRenewableExportKwh: generatorFlowResult.totalRenewableExportKwh,
+      totalRenewableCurtailedKwh:
+        generatorFlowResult.totalRenewableCurtailedKwh,
+
+      generatorGeneratedKwh: generatorFlowResult.generatorGeneratedKwh,
+      generatorDirectToLoadKwh: generatorFlowResult.generatorDirectToLoadKwh,
+      generatorToBatteryKwh: generatorFlowResult.generatorToBatteryKwh,
+      generatorExportKwh: generatorFlowResult.generatorExportKwh,
+      generatorCurtailedKwh: generatorFlowResult.generatorCurtailedKwh,
+
+      totalGeneratorGenerationKwh:
+        generatorFlowResult.totalGeneratorGenerationKwh,
+      totalGeneratorDirectToLoadKwh:
+        generatorFlowResult.totalGeneratorDirectToLoadKwh,
+      totalGeneratorToBatteryKwh:
+        generatorFlowResult.totalGeneratorToBatteryKwh,
+      totalGeneratorExportKwh: generatorFlowResult.totalGeneratorExportKwh,
+      totalGeneratorCurtailedKwh:
+        generatorFlowResult.totalGeneratorCurtailedKwh,
+
+      totalOnsiteGenerationKwh: generatorFlowResult.totalOnsiteGenerationKwh,
+
+      generatorRuntimeHours: generatorFlowResult.generatorRuntimeHours,
+      generatorStarts: generatorFlowResult.generatorStarts,
+
+      generatorFuelCostUsd: generatorFlowResult.generatorFuelCostUsd,
+      generatorVariableMaintenanceCostUsd:
+        generatorFlowResult.generatorVariableMaintenanceCostUsd,
+      generatorOperatingCostUsd: generatorFlowResult.generatorOperatingCostUsd,
+
+      generatorAssetSummaries: generatorFlowResult.generatorAssetSummaries,
+      generatorFleetRecords: generatorFlowResult.generatorFleetRecords,
+
+      totalGridImportKwh: generatorFlowResult.totalGridImportKwh,
+      totalBatteryExportKwh: generatorFlowResult.totalBatteryExportKwh,
+      totalGridExportKwh: generatorFlowResult.totalGridExportKwh,
+      baselineCost: generatorFlowResult.baselineCost,
+      simulatedCost: generatorFlowResult.simulatedCost,
+      netSavings: generatorFlowResult.netSavings,
+
+      modeledUtilityCostUsd: generatorFlowResult.modeledUtilityCostUsd,
+      utilityElectricitySavingsUsd:
+        generatorFlowResult.utilityElectricitySavingsUsd,
+      netOperationalSavingsUsd: generatorFlowResult.netOperationalSavingsUsd,
+      modeledTotalOperatingEnergyCostUsd:
+        generatorFlowResult.modeledTotalOperatingEnergyCostUsd,
+    };
+  }
+
   // 8. Stage 8: Route export-aware battery flow (source-aware renewable charging)
   const exportAwareBatteryFlow = routeExportAwareBatteryFlow(
     renewableLoadFlow,
@@ -288,7 +424,6 @@ export function runGenerationAwareSimulation(
   );
 
   // 11. Pipeline completion invariants
-  const count = dataPoints.length;
   if (gridFlows.intervals.length !== count) {
     throw new Error(
       `Completion invariant violated: gridFlows.intervals length (${gridFlows.intervals.length}) !== dataPoints length (${count}).`
@@ -390,6 +525,28 @@ export function runGenerationAwareSimulation(
     totalRenewableToBatteryKwh,
     totalRenewableExportKwh,
     totalRenewableCurtailedKwh,
+
+    totalOnsiteGenerationKwh: renewableSummary.totalRenewableGenerationKwh,
+    generatorGeneratedKwh: 0,
+    generatorDirectToLoadKwh: 0,
+    generatorToBatteryKwh: 0,
+    generatorExportKwh: 0,
+    generatorCurtailedKwh: 0,
+    totalGeneratorGenerationKwh: 0,
+    totalGeneratorDirectToLoadKwh: 0,
+    totalGeneratorToBatteryKwh: 0,
+    totalGeneratorExportKwh: 0,
+    totalGeneratorCurtailedKwh: 0,
+    generatorRuntimeHours: 0,
+    generatorStarts: 0,
+    generatorFuelCostUsd: 0,
+    generatorVariableMaintenanceCostUsd: 0,
+    generatorOperatingCostUsd: 0,
+    modeledUtilityCostUsd: tariffCosts.simulatedCost,
+    utilityElectricitySavingsUsd: tariffCosts.netSavings,
+    netOperationalSavingsUsd: tariffCosts.netSavings,
+    modeledTotalOperatingEnergyCostUsd: tariffCosts.simulatedCost,
+    generatorAssetSummaries: [],
 
     totalGridImportKwh: gridFlows.totalGridImportKwh,
     totalBatteryExportKwh: gridFlows.totalBatteryExportKwh,

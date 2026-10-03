@@ -37,6 +37,22 @@ export interface GenerationOperationalDisplayMetrics {
   renewableExportKwh: number;
   renewableCurtailedKwh: number;
 
+  // Authoritative generator operational flows (kWh)
+  generatorGeneratedKwh?: number;
+  generatorDirectToLoadKwh?: number;
+  generatorToBatteryKwh?: number;
+  generatorExportKwh?: number;
+  generatorCurtailedKwh?: number;
+
+  // Authoritative generator economics (USD)
+  generatorFuelCostUsd?: number;
+  generatorVariableMaintenanceCostUsd?: number;
+  generatorOperatingCostUsd?: number;
+  netOperationalSavingsUsd?: number;
+  modeledTotalOperatingEnergyCostUsd?: number;
+
+  totalOnsiteGenerationKwh?: number;
+
   gridImportKwh: number;
   gridExportKwh: number;
   batteryExportKwh: number;
@@ -179,6 +195,20 @@ export function deriveGenerationOperationalDisplayMetrics(
     renewableToBatteryAcKwh: renewableToBatteryAc,
     renewableExportKwh: renewableExport,
     renewableCurtailedKwh: renewableCurtailed,
+
+    generatorGeneratedKwh: result.generatorGeneratedKwh,
+    generatorDirectToLoadKwh: result.generatorDirectToLoadKwh,
+    generatorToBatteryKwh: result.generatorToBatteryKwh,
+    generatorExportKwh: result.generatorExportKwh,
+    generatorCurtailedKwh: result.generatorCurtailedKwh,
+
+    generatorFuelCostUsd: result.generatorFuelCostUsd,
+    generatorVariableMaintenanceCostUsd: result.generatorVariableMaintenanceCostUsd,
+    generatorOperatingCostUsd: result.generatorOperatingCostUsd,
+    netOperationalSavingsUsd: result.netOperationalSavingsUsd,
+    modeledTotalOperatingEnergyCostUsd: result.modeledTotalOperatingEnergyCostUsd,
+
+    totalOnsiteGenerationKwh: result.totalOnsiteGenerationKwh,
 
     gridImportKwh: result.totalGridImportKwh,
     gridExportKwh: result.totalGridExportKwh,
