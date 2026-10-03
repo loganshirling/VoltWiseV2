@@ -407,22 +407,30 @@ export function dispatchGeneratorInterval(
         continue;
       }
 
-      let candidateBenefitUsd = energyServingHomeKwh * buyRate;
+      const directLoadBenefitUsd = energyServingHomeKwh * buyRate;
 
       // Unavoidable surplus export credit if permitted and present
       const unavoidableSurplusKwh = Math.max(
         0,
         candidateEnergyKwh - energyServingHomeKwh
       );
-      if (candidate.allowGridExport && unavoidableSurplusKwh > 0) {
-        candidateBenefitUsd += unavoidableSurplusKwh * sellRate;
-      }
+      const exportCreditUsd =
+        candidate.allowGridExport && unavoidableSurplusKwh > 0
+          ? unavoidableSurplusKwh * sellRate
+          : 0;
 
-      economicBenefitMap.set(candidate.id, candidateBenefitUsd);
+      const totalCandidateBenefitUsd = directLoadBenefitUsd + exportCreditUsd;
+      economicBenefitMap.set(candidate.id, totalCandidateBenefitUsd);
 
-      // Strict economic start rule: candidateBenefitUsd > candidateOperatingCostUsd
-      const isAccepted =
-        candidateBenefitUsd > candidateOperating.operatingCostUsd;
+      // Strict economic commitment rule:
+      // - If previously OFF: startup must be justified by direct-to-load avoided import benefit alone;
+      //   export revenue must NEVER be the reason an OFF economic generator starts.
+      // - If already RUNNING: continuation allows permitted unavoidable export credit in interval economics.
+      // In both cases, strict inequality (benefit > operatingCost) is required (equality remains OFF).
+      const isAccepted = wasRunning
+        ? totalCandidateBenefitUsd > candidateOperating.operatingCostUsd
+        : directLoadBenefitUsd > candidateOperating.operatingCostUsd;
+
       economicAcceptedMap.set(candidate.id, isAccepted);
 
       if (isAccepted) {

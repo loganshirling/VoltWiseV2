@@ -597,13 +597,13 @@ describe('G6B Generator Dispatch Policy', () => {
   });
 
   describe('Export Economics Boundary', () => {
-    it('never starts a generator when counterfactual home grid import is zero even with huge export compensation', () => {
+    it('never starts a generator when counterfactual home grid import is zero even with huge export compensation (Case D)', () => {
       const econGen = createSampleGenerator({
         dispatchMode: 'economic',
         allowGridExport: true,
       });
 
-      const result = dispatchGeneratorInterval({
+      const resultZero = dispatchGeneratorInterval({
         assets: [econGen],
         timeZone: 'UTC',
         instantUtc: new Date(Date.UTC(2026, 5, 15, 12, 0, 0)),
@@ -612,8 +612,22 @@ describe('G6B Generator Dispatch Policy', () => {
         sellRate: 100.0, // $100/kWh export rate!
       });
 
-      expect(result.totalOutputKw).toBe(0);
-      expect(result.intervals[0].running).toBe(false);
+      expect(resultZero.totalOutputKw).toBe(0);
+      expect(resultZero.intervals[0].running).toBe(false);
+      expect(resultZero.intervals[0].startedThisInterval).toBe(false);
+
+      const resultNeg = dispatchGeneratorInterval({
+        assets: [econGen],
+        timeZone: 'UTC',
+        instantUtc: new Date(Date.UTC(2026, 5, 15, 12, 0, 0)),
+        counterfactualGridImportForHomeKwh: -3.0,
+        buyRate: 0.20,
+        sellRate: 100.0,
+      });
+
+      expect(resultNeg.totalOutputKw).toBe(0);
+      expect(resultNeg.intervals[0].running).toBe(false);
+      expect(resultNeg.intervals[0].startedThisInterval).toBe(false);
     });
 
     it('does not deliberately increase output to obtain export revenue', () => {
@@ -639,6 +653,181 @@ describe('G6B Generator Dispatch Policy', () => {
 
       expect(result.intervals[0].outputKw).toBe(4.0);
       expect(result.intervals[0].unavoidableSurplusKwh).toBe(0);
+    });
+
+    it('Case A: export revenue tipping factor must NOT cause an OFF generator to start', () => {
+      // Counterfactual grid import for home = 2.0 kWh (> 0)
+      // Generator: rated 10 kW, 50% min stable load = 5 kW (5.0 kWh/hr min)
+      // Candidate output = 5 kW.
+      // Operating cost for OFF unit:
+      //   50% fuel = 1.0 therm/h * $2/therm = $2.00
+      //   variable maint = $0.50
+      //   startup fuel = 0.25 therm * $2/therm = $0.50
+      //   total operating cost = $3.00
+      // Direct load benefit: 2.0 kWh * $1.00/kWh buyRate = $2.00
+      // Direct load benefit ($2.00) < candidate operating cost ($3.00)
+      // Unavoidable surplus: 5.0 - 2.0 = 3.0 kWh
+      // With allowGridExport = true and high sellRate = $3.00/kWh:
+      //   export credit = 3.0 kWh * $3.00/kWh = $9.00
+      //   directLoadBenefit ($2.00) + exportCredit ($9.00) = $11.00 > operatingCost ($3.00)
+      // CRITICAL REQUIREMENT: Generator must remain OFF because directLoadBenefit <= operatingCost.
+      const econGen = createSampleGenerator({
+        dispatchMode: 'economic',
+        ratedContinuousKw: 10,
+        minimumStableLoadPercent: 50,
+        allowGridExport: true,
+        fuelPricePerUnit: 2.0,
+        variableMaintenanceCostPerHourUsd: 0.50,
+        startupFuelUnits: 0.25,
+        fuelCurve: [
+          { loadPercent: 50, fuelUnitsPerHour: 1.0 },
+          { loadPercent: 100, fuelUnitsPerHour: 2.0 },
+        ],
+      });
+
+      const result = dispatchGeneratorInterval({
+        assets: [econGen],
+        priorStates: [{ assetId: econGen.id, running: false }],
+        intervalHours: 1.0,
+        timeZone: 'UTC',
+        instantUtc: new Date(Date.UTC(2026, 5, 15, 12, 0, 0)),
+        counterfactualGridImportForHomeKwh: 2.0,
+        buyRate: 1.00,
+        sellRate: 3.00,
+      });
+
+      expect(result.totalOutputKw).toBe(0);
+      expect(result.totalGeneratedKwh).toBe(0);
+      expect(result.intervals[0].running).toBe(false);
+      expect(result.intervals[0].startedThisInterval).toBe(false);
+      expect(result.intervals[0].outputKw).toBe(0);
+      expect(result.intervals[0].generatedKwh).toBe(0);
+      expect(result.intervals[0].directLoadTargetKwh).toBe(0);
+      expect(result.intervals[0].unavoidableSurplusKwh).toBe(0);
+      expect(result.intervals[0].economicAccepted).toBe(false);
+    });
+
+    it('Case B: genuinely economic direct-to-load generator starts and reports permitted unavoidable export', () => {
+      // Same generator (operating cost = $3.00 for OFF unit at 5 kW min stable output)
+      // Counterfactual import = 2.0 kWh
+      // buyRate = $2.00/kWh -> direct load benefit = 2.0 * $2.00 = $4.00 > $3.00 operating cost
+      // It is economic on direct load alone!
+      // Unavoidable surplus = 3.0 kWh
+      // sellRate = $0.50/kWh -> export credit = $1.50
+      const econGen = createSampleGenerator({
+        dispatchMode: 'economic',
+        ratedContinuousKw: 10,
+        minimumStableLoadPercent: 50,
+        allowGridExport: true,
+        fuelPricePerUnit: 2.0,
+        variableMaintenanceCostPerHourUsd: 0.50,
+        startupFuelUnits: 0.25,
+        fuelCurve: [
+          { loadPercent: 50, fuelUnitsPerHour: 1.0 },
+          { loadPercent: 100, fuelUnitsPerHour: 2.0 },
+        ],
+      });
+
+      const result = dispatchGeneratorInterval({
+        assets: [econGen],
+        priorStates: [{ assetId: econGen.id, running: false }],
+        intervalHours: 1.0,
+        timeZone: 'UTC',
+        instantUtc: new Date(Date.UTC(2026, 5, 15, 12, 0, 0)),
+        counterfactualGridImportForHomeKwh: 2.0,
+        buyRate: 2.00,
+        sellRate: 0.50,
+      });
+
+      expect(result.totalOutputKw).toBe(5.0);
+      expect(result.totalGeneratedKwh).toBe(5.0);
+      expect(result.intervals[0].running).toBe(true);
+      expect(result.intervals[0].startedThisInterval).toBe(true);
+      expect(result.intervals[0].outputKw).toBe(5.0);
+      expect(result.intervals[0].generatedKwh).toBe(5.0);
+      expect(result.intervals[0].directLoadTargetKwh).toBe(2.0);
+      expect(result.intervals[0].unavoidableSurplusKwh).toBe(3.0);
+      expect(result.intervals[0].economicAccepted).toBe(true);
+      expect(result.totalUnavoidableSurplusKwh).toBe(3.0);
+    });
+
+    it('Case C: exact equality of direct load benefit and operating cost remains OFF even with high export credit', () => {
+      // Same generator (operating cost = $3.00 for OFF unit at 5 kW min stable output)
+      // Counterfactual import = 2.0 kWh
+      // buyRate = $1.50/kWh -> direct load benefit = 2.0 * $1.50 = $3.00 === $3.00 operating cost
+      // Strict inequality requires benefit > cost; tie must remain OFF.
+      // sellRate = $5.00/kWh -> export credit = 3.0 * $5.00 = $15.00
+      // Combined benefit = $18.00 > $3.00, but export cannot cause startup and equality is rejected.
+      const econGen = createSampleGenerator({
+        dispatchMode: 'economic',
+        ratedContinuousKw: 10,
+        minimumStableLoadPercent: 50,
+        allowGridExport: true,
+        fuelPricePerUnit: 2.0,
+        variableMaintenanceCostPerHourUsd: 0.50,
+        startupFuelUnits: 0.25,
+        fuelCurve: [
+          { loadPercent: 50, fuelUnitsPerHour: 1.0 },
+          { loadPercent: 100, fuelUnitsPerHour: 2.0 },
+        ],
+      });
+
+      const result = dispatchGeneratorInterval({
+        assets: [econGen],
+        priorStates: [{ assetId: econGen.id, running: false }],
+        intervalHours: 1.0,
+        timeZone: 'UTC',
+        instantUtc: new Date(Date.UTC(2026, 5, 15, 12, 0, 0)),
+        counterfactualGridImportForHomeKwh: 2.0,
+        buyRate: 1.50,
+        sellRate: 5.00,
+      });
+
+      expect(result.totalOutputKw).toBe(0);
+      expect(result.intervals[0].running).toBe(false);
+      expect(result.intervals[0].startedThisInterval).toBe(false);
+      expect(result.intervals[0].outputKw).toBe(0);
+      expect(result.intervals[0].economicAccepted).toBe(false);
+    });
+
+    it('contrasts OFF startup gate with continuation of already-running units', () => {
+      // Same generator, but prior state is RUNNING.
+      // Operating cost for running unit (no startup fuel):
+      //   50% fuel = $2.00, maint = $0.50 -> running operating cost = $2.50
+      // counterfactualGridImport = 2.0 kWh, buyRate = $1.00/kWh -> directLoadBenefit = $2.00 (< $2.50)
+      // unavoidableSurplus = 3.0 kWh, sellRate = $1.00/kWh -> exportCredit = $3.00
+      // combined benefit = $5.00 > $2.50
+      // Since it was ALREADY running (wasRunning = true), continuation evaluates combined economics:
+      // It continues running without starting!
+      const econGen = createSampleGenerator({
+        dispatchMode: 'economic',
+        ratedContinuousKw: 10,
+        minimumStableLoadPercent: 50,
+        allowGridExport: true,
+        fuelPricePerUnit: 2.0,
+        variableMaintenanceCostPerHourUsd: 0.50,
+        startupFuelUnits: 0.25,
+        fuelCurve: [
+          { loadPercent: 50, fuelUnitsPerHour: 1.0 },
+          { loadPercent: 100, fuelUnitsPerHour: 2.0 },
+        ],
+      });
+
+      const result = dispatchGeneratorInterval({
+        assets: [econGen],
+        priorStates: [{ assetId: econGen.id, running: true }],
+        intervalHours: 1.0,
+        timeZone: 'UTC',
+        instantUtc: new Date(Date.UTC(2026, 5, 15, 12, 0, 0)),
+        counterfactualGridImportForHomeKwh: 2.0,
+        buyRate: 1.00,
+        sellRate: 1.00,
+      });
+
+      expect(result.totalOutputKw).toBe(5.0);
+      expect(result.intervals[0].running).toBe(true);
+      expect(result.intervals[0].startedThisInterval).toBe(false);
+      expect(result.intervals[0].economicAccepted).toBe(true);
     });
   });
 
