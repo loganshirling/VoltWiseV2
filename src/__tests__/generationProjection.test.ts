@@ -767,18 +767,18 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
         })
       ).toThrow(/Wind assets with resourceMode "interval_file" are unsupported/i);
 
-      const genConfig: GenerationConfig = {
+      const hydroConfig: GenerationConfig = {
         site: baseSite,
         assets: [
           createClearSkyAsset('s1'),
           {
-            id: 'gen-1',
-            name: 'Diesel Gen',
-            type: 'generator',
+            id: 'hydro-1',
+            name: 'Hydro Unit',
+            type: 'hydro' as any,
             enabled: true,
             installedCostUsd: 5000,
             annualMaintenanceCostUsd: 100,
-          } as GeneratorGenerationAsset,
+          } as any,
         ],
       };
 
@@ -789,11 +789,11 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
           tiers: defaultTiers,
           scheduleMatrix: createScheduleMatrix(),
           batteryProfile: createTestBattery(),
-          generationConfig: genConfig,
+          generationConfig: hydroConfig,
           allowSolarExport: true,
           allowIncompleteYearForTesting: true,
         })
-      ).toThrow(/Unsupported generation asset type: "generator"/i);
+      ).toThrow(/Unsupported generation asset type: "hydro"/i);
     });
 
     it('29. Rejects partial-period datasets when suitability check is not bypassed', () => {

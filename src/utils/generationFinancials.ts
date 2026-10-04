@@ -436,14 +436,42 @@ export function calculateGenerationAwareFinancials(
   let totalLoanPaymentsInHorizon = 0;
   let totalReplacementInHorizon = 0;
   let totalMaintenanceInHorizon = 0;
+  let totalGeneratorFuelInHorizon = 0;
+  let totalGeneratorVariableMaintenanceInHorizon = 0;
+  let totalGeneratorOperatingCostInHorizon = 0;
+  let totalNetOperationalSavingsInHorizon = 0;
 
   for (let y = 1; y <= horizonYears; y++) {
     const yearData = years[y - 1];
 
     // G4B electricity savings are authoritative
-    const electricitySavingsUsd = yearData.electricitySavingsUsd;
-    const modeledProjectElectricityCostUsd = yearData.simulatedElectricityCostUsd;
     const baselineElectricityCostUsd = yearData.baselineElectricityCostUsd;
+    const modeledProjectElectricityCostUsd = yearData.simulatedElectricityCostUsd;
+    const electricitySavingsUsd = yearData.electricitySavingsUsd;
+
+    // For generator-enabled projects, operational savings deduct fuel and variable maintenance.
+    // When no generator is present, netOperationalSavingsUsd is identical to electricitySavingsUsd.
+    const operationalSavingsUsd =
+      yearData.netOperationalSavingsUsd !== undefined
+        ? yearData.netOperationalSavingsUsd
+        : yearData.electricitySavingsUsd;
+
+    const utilityElectricitySavingsUsd =
+      yearData.utilityElectricitySavingsUsd !== undefined
+        ? yearData.utilityElectricitySavingsUsd
+        : electricitySavingsUsd;
+
+    const generatorOperatingCostUsd = yearData.generatorOperatingCostUsd ?? 0;
+    const generatorFuelCostUsd = yearData.generatorFuelCostUsd ?? 0;
+    const generatorVariableMaintenanceCostUsd =
+      yearData.generatorVariableMaintenanceCostUsd ?? 0;
+    const modeledTotalOperatingEnergyCostUsd =
+      yearData.modeledTotalOperatingEnergyCostUsd ?? modeledProjectElectricityCostUsd;
+
+    totalGeneratorFuelInHorizon += generatorFuelCostUsd;
+    totalGeneratorVariableMaintenanceInHorizon += generatorVariableMaintenanceCostUsd;
+    totalGeneratorOperatingCostInHorizon += generatorOperatingCostUsd;
+    totalNetOperationalSavingsInHorizon += operationalSavingsUsd;
 
     const generationMaintenanceUsd = annualGenerationMaintenanceUsd;
     totalMaintenanceInHorizon += generationMaintenanceUsd;
@@ -462,7 +490,7 @@ export function calculateGenerationAwareFinancials(
       y === taxCreditRealizationYear ? deferredFederalTaxCreditUsd : 0;
 
     const netProjectCashFlowUsd = Math.round(
-      (electricitySavingsUsd -
+      (operationalSavingsUsd -
         generationMaintenanceUsd -
         replacementExpenseUsd -
         annualLoanPaymentUsd +
@@ -494,6 +522,12 @@ export function calculateGenerationAwareFinancials(
       baselineElectricityCostUsd,
       modeledProjectElectricityCostUsd,
       electricitySavingsUsd,
+      utilityElectricitySavingsUsd,
+      generatorOperatingCostUsd,
+      generatorFuelCostUsd,
+      generatorVariableMaintenanceCostUsd,
+      netOperationalSavingsUsd: operationalSavingsUsd,
+      modeledTotalOperatingEnergyCostUsd,
       generationMaintenanceUsd,
       replacementExpenseUsd,
       annualLoanPaymentUsd,
@@ -509,6 +543,7 @@ export function calculateGenerationAwareFinancials(
       solarGeneratedKwh: yearData.solarGeneratedKwh,
       windGeneratedKwh: yearData.windGeneratedKwh,
       renewableGeneratedKwh: yearData.renewableGeneratedKwh,
+      generatorGeneratedKwh: yearData.generatorGeneratedKwh ?? 0,
     });
   }
 
@@ -601,6 +636,14 @@ export function calculateGenerationAwareFinancials(
     annualGenerationMaintenanceUsd,
     year1ElectricitySavingsUsd: projections[0]?.electricitySavingsUsd ?? 0,
     year1NetProjectCashFlowUsd: projections[0]?.netProjectCashFlowUsd ?? 0,
+    year1UtilityElectricitySavingsUsd: projections[0]?.utilityElectricitySavingsUsd ?? 0,
+    year1NetOperationalSavingsUsd: projections[0]?.netOperationalSavingsUsd ?? 0,
+    year1GeneratorOperatingCostUsd: projections[0]?.generatorOperatingCostUsd ?? 0,
+    totalGeneratorFuelCostUsd: Math.round(totalGeneratorFuelInHorizon * 100) / 100,
+    totalGeneratorVariableMaintenanceCostUsd:
+      Math.round(totalGeneratorVariableMaintenanceInHorizon * 100) / 100,
+    totalGeneratorOperatingCostUsd: Math.round(totalGeneratorOperatingCostInHorizon * 100) / 100,
+    totalNetOperationalSavingsUsd: Math.round(totalNetOperationalSavingsInHorizon * 100) / 100,
     paybackYears: finalPaybackYears,
     paybackFormatted,
     npvUsd,
@@ -644,6 +687,21 @@ export function deriveGenerationHorizonFinancialSummary(
 
   const cumulativeElectricitySavings = Math.round(
     horizonProjections.reduce((sum, p) => sum + p.electricitySavingsUsd, 0) * 100
+  ) / 100;
+  const cumulativeNetOperationalSavings = Math.round(
+    horizonProjections.reduce(
+      (sum, p) => sum + (p.netOperationalSavingsUsd ?? p.electricitySavingsUsd),
+      0
+    ) * 100
+  ) / 100;
+  const cumulativeUtilityElectricitySavings = Math.round(
+    horizonProjections.reduce(
+      (sum, p) => sum + (p.utilityElectricitySavingsUsd ?? p.electricitySavingsUsd),
+      0
+    ) * 100
+  ) / 100;
+  const cumulativeGeneratorOperatingCost = Math.round(
+    horizonProjections.reduce((sum, p) => sum + (p.generatorOperatingCostUsd ?? 0), 0) * 100
   ) / 100;
   const totalGenerationMaintenance = Math.round(
     horizonProjections.reduce((sum, p) => sum + p.generationMaintenanceUsd, 0) * 100
@@ -707,6 +765,9 @@ export function deriveGenerationHorizonFinancialSummary(
     cumulativeCashFlow,
     netPresentValue,
     cumulativeElectricitySavings,
+    cumulativeNetOperationalSavings,
+    cumulativeUtilityElectricitySavings,
+    cumulativeGeneratorOperatingCost,
     totalGenerationMaintenance,
     totalReplacementExpense,
     totalLoanPayments,

@@ -542,6 +542,7 @@ export interface GeneratorAssetAnnualSummary {
 
   runtimeHours: number;
   startCount: number;
+  starts?: number;
 
   runningFuelUnits: number;
   startupFuelUnits: number;
@@ -1413,6 +1414,25 @@ export interface GenerationOperationalYear {
   renewableExportKwh: number;
   renewableCurtailedKwh: number;
 
+  // Generator annual metrics (Milestone G6D)
+  generatorGeneratedKwh?: number;
+  generatorDirectToLoadKwh?: number;
+  generatorToBatteryKwh?: number;
+  generatorExportKwh?: number;
+  generatorCurtailedKwh?: number;
+
+  generatorRuntimeHours?: number;
+  generatorStarts?: number;
+
+  generatorFuelCostUsd?: number;
+  generatorVariableMaintenanceCostUsd?: number;
+  generatorOperatingCostUsd?: number;
+
+  utilityElectricitySavingsUsd?: number;
+  netOperationalSavingsUsd?: number;
+  modeledTotalOperatingEnergyCostUsd?: number;
+  modeledUtilityCostUsd?: number;
+
   gridImportKwh: number;
   gridExportKwh: number;
   batteryExportKwh: number;
@@ -1424,6 +1444,7 @@ export interface GenerationOperationalYear {
   batteryUsableCapacityKwh: number;
 
   solarAssets: SolarAssetProjectionState[];
+  generatorAssets?: GeneratorAssetAnnualSummary[];
 }
 
 export interface GenerationOperationalProjection {
@@ -1445,6 +1466,14 @@ export interface GenerationProjectFinancialYear {
   modeledProjectElectricityCostUsd: number;
   electricitySavingsUsd: number;
 
+  // Generator & Net Operational Metrics (Milestone G6D)
+  utilityElectricitySavingsUsd?: number;
+  generatorOperatingCostUsd?: number;
+  generatorFuelCostUsd?: number;
+  generatorVariableMaintenanceCostUsd?: number;
+  netOperationalSavingsUsd?: number;
+  modeledTotalOperatingEnergyCostUsd?: number;
+
   generationMaintenanceUsd: number;
   replacementExpenseUsd: number;
   annualLoanPaymentUsd: number;
@@ -1458,13 +1487,14 @@ export interface GenerationProjectFinancialYear {
 
   opportunityCostValueUsd: number;
 
-  // Preserved asset health & physical metrics from G4B
+  // Preserved asset health & physical metrics from G4B / G5D / G6D
   batteryCapacityRetentionFactor?: number;
   batteryUsableCapacityKwh?: number;
   equivalentFullCycles?: number;
   solarGeneratedKwh?: number;
   windGeneratedKwh?: number;
   renewableGeneratedKwh?: number;
+  generatorGeneratedKwh?: number;
 }
 
 export interface GenerationFinancialAnalysis {
@@ -1495,6 +1525,14 @@ export interface GenerationFinancialAnalysis {
 
   year1ElectricitySavingsUsd: number;
   year1NetProjectCashFlowUsd: number;
+  year1UtilityElectricitySavingsUsd?: number;
+  year1NetOperationalSavingsUsd?: number;
+  year1GeneratorOperatingCostUsd?: number;
+
+  totalGeneratorFuelCostUsd?: number;
+  totalGeneratorVariableMaintenanceCostUsd?: number;
+  totalGeneratorOperatingCostUsd?: number;
+  totalNetOperationalSavingsUsd?: number;
 
   paybackYears: number | null;
   paybackFormatted: string;
@@ -1528,6 +1566,9 @@ export interface GenerationHorizonFinancialSummary {
   cumulativeCashFlow: number;
   netPresentValue: number;
   cumulativeElectricitySavings: number;
+  cumulativeNetOperationalSavings?: number;
+  cumulativeUtilityElectricitySavings?: number;
+  cumulativeGeneratorOperatingCost?: number;
   totalGenerationMaintenance: number;
   totalReplacementExpense: number;
   totalLoanPayments: number;

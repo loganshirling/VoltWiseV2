@@ -28,6 +28,8 @@ import {
   GenerationOperationalProjection,
   GenerationOperationalProjectionResult,
   GenerationOperationalYear,
+  GeneratorAssetAnnualSummary,
+  GeneratorGenerationAsset,
   IntervalDataPoint,
   MacroFinancials,
   RateTier,
@@ -130,8 +132,21 @@ export function deriveGenerationConfigForProjectionYear(
       } as WindGenerationAsset;
     }
 
-    // Preserve non-solar/non-wind assets if present (e.g. disabled generator)
-    return { ...asset };
+    if (asset.type === 'generator') {
+      const genAsset = asset as GeneratorGenerationAsset;
+      return {
+        ...genAsset,
+        fuelCurve: Array.isArray(genAsset.fuelCurve)
+          ? genAsset.fuelCurve.map((pt) => ({ ...pt }))
+          : [],
+        scheduledHours: Array.isArray(genAsset.scheduledHours)
+          ? genAsset.scheduledHours.map((row) => (Array.isArray(row) ? [...row] : []))
+          : [],
+      } as GeneratorGenerationAsset;
+    }
+
+    // Preserve any other assets if present
+    return { ...(asset as any) };
   });
 
   return {
@@ -298,21 +313,13 @@ export function calculateGenerationOperationalProjection(
     ? assets.filter((asset) => asset != null && asset.enabled === true)
     : [];
 
-  // Reject enabled generators explicitly
-  const enabledGenerators = enabledAssets.filter((a) => a.type === 'generator');
-  if (enabledGenerators.length > 0) {
-    throw new Error(
-      `Unsupported generation asset type: "generator". Only passive solar and wind assets are supported in this simulation pipeline.`
-    );
-  }
-
-  // Reject unsupported generation asset types (anything other than solar or wind)
+  // Reject unsupported generation asset types (anything other than solar, wind, or generator)
   const unsupportedAssets = enabledAssets.filter(
-    (a) => a.type !== 'solar' && a.type !== 'wind'
+    (a: any) => a.type !== 'solar' && a.type !== 'wind' && a.type !== 'generator'
   );
   if (unsupportedAssets.length > 0) {
     throw new Error(
-      `Unsupported generation asset type: "${unsupportedAssets[0].type}". Only solar and wind assets are supported in this simulation pipeline.`
+      `Unsupported generation asset type: "${(unsupportedAssets[0] as any).type}". Only solar, wind, and generator assets are supported in this simulation pipeline.`
     );
   }
 
@@ -326,16 +333,17 @@ export function calculateGenerationOperationalProjection(
     );
   }
 
-  // At least one enabled supported generation asset (solar or supported wind) is required
+  // At least one enabled supported generation asset (solar, wind, or generator) is required
   const enabledSupportedAssets = enabledAssets.filter(
     (a) =>
       a.type === 'solar' ||
-      (a.type === 'wind' && (a as WindGenerationAsset).resourceMode !== 'interval_file')
+      (a.type === 'wind' && (a as WindGenerationAsset).resourceMode !== 'interval_file') ||
+      a.type === 'generator'
   );
 
   if (enabledSupportedAssets.length === 0) {
     throw new Error(
-      'Generation operational projection requires at least one enabled supported generation asset (solar or wind).'
+      'Generation operational projection requires at least one enabled supported generation asset (solar, wind, or generator).'
     );
   }
 
@@ -435,6 +443,29 @@ export function calculateGenerationOperationalProjection(
       renewableToBatteryKwh: genResult.totalRenewableToBatteryKwh,
       renewableExportKwh: genResult.totalRenewableExportKwh,
       renewableCurtailedKwh: genResult.totalRenewableCurtailedKwh,
+
+      generatorGeneratedKwh: genResult.generatorGeneratedKwh ?? 0,
+      generatorDirectToLoadKwh: genResult.generatorDirectToLoadKwh ?? 0,
+      generatorToBatteryKwh: genResult.generatorToBatteryKwh ?? 0,
+      generatorExportKwh: genResult.generatorExportKwh ?? 0,
+      generatorCurtailedKwh: genResult.generatorCurtailedKwh ?? 0,
+
+      generatorRuntimeHours: genResult.generatorRuntimeHours ?? 0,
+      generatorStarts: genResult.generatorStarts ?? 0,
+
+      generatorFuelCostUsd: genResult.generatorFuelCostUsd ?? 0,
+      generatorVariableMaintenanceCostUsd: genResult.generatorVariableMaintenanceCostUsd ?? 0,
+      generatorOperatingCostUsd: genResult.generatorOperatingCostUsd ?? 0,
+
+      modeledUtilityCostUsd: genResult.modeledUtilityCostUsd ?? genResult.simulatedCost,
+      utilityElectricitySavingsUsd: genResult.utilityElectricitySavingsUsd ?? genResult.netSavings,
+      netOperationalSavingsUsd: genResult.netOperationalSavingsUsd ?? genResult.netSavings,
+      modeledTotalOperatingEnergyCostUsd: genResult.modeledTotalOperatingEnergyCostUsd ?? genResult.simulatedCost,
+
+      generatorAssets: (genResult.generatorAssetSummaries ?? []).map((s) => ({
+        ...s,
+        starts: s.startCount,
+      })),
 
       gridImportKwh: genResult.totalGridImportKwh,
       gridExportKwh: genResult.totalGridExportKwh,
