@@ -544,7 +544,7 @@ export interface ExternalResourceMetadata {
   id: string;
   name: string;
   kind: ExternalResourceKind;
-  sourceTimeZone: string;
+  sourceTimeZone: string | null;
   intervalHours: number;
   rowCount: number;
   startTimestampUtc: string;
@@ -587,7 +587,7 @@ export interface ExternalResourceValidationResult {
   intervalHours?: number;
   startTimestampUtc?: string;
   endTimestampUtc?: string;
-  sourceTimeZone?: string;
+  sourceTimeZone?: string | null;
 }
 
 export interface ExternalResourceParseResult<T extends ExternalResourceDataset = ExternalResourceDataset>
