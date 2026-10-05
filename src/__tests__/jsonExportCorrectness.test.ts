@@ -2376,7 +2376,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
       ).toThrow('Cannot export multi-year generation projections for an incomplete or partial-period dataset.');
     });
 
-    it('28. Enabled generator cannot masquerade as supported export', () => {
+    it('28. Enabled generator is supported for generation export in Milestone G6', () => {
       const configWithActiveGenerator: GenerationConfig = {
         site: sampleMixedConfig.site,
         assets: [
@@ -2414,23 +2414,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
           generationConfig: configWithActiveGenerator,
           csvResult: mockCsvResult,
         })
-      ).toBe(false);
-
-      expect(() =>
-        buildGenerationExportLlmJson({
-          generationConfig: configWithActiveGenerator,
-          allowRenewableExport: true,
-          generationAwareResult: mockWindOnlyGenerationAwareResult,
-          operationalProjection: mockWindOnlyOperationalProjection25,
-          generationAnalysis: windOnlyFinancialAnalysis,
-          generationProjectCosts: windOnlyProjectCosts,
-          projectionHorizon: 15,
-          tiers,
-          activeTouProfile: touProfile,
-          financials: sampleFinancials,
-          csvResult: mockCsvResult,
-        })
-      ).toThrow('Enabled generator assets are not supported for generation export.');
+      ).toBe(true);
     });
 
     it('29. Enabled wind interval_file cannot masquerade as supported export', () => {
@@ -2546,6 +2530,570 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
       expect(frozenConfig).toEqual(configSnapshot);
       expect((frozenConfig.assets[2] as WindGenerationAsset).monthlyAverageWindSpeedMps).toBe(monthlyArrayRef);
       expect((frozenConfig.assets[2] as WindGenerationAsset).powerCurve).toBe(powerCurveRef);
+    });
+  });
+
+  describe('Milestone G6F — Generator JSON Export', () => {
+    const sampleScheduledGenerator: GeneratorGenerationAsset = {
+      id: 'gen-scheduled-1',
+      name: 'Generac Guardian 22kW',
+      type: 'generator',
+      enabled: true,
+      ratedContinuousKw: 19.5,
+      minimumStableLoadPercent: 20,
+      fuelType: 'natural_gas',
+      fuelUnit: 'therm',
+      customFuelUnitLabel: '',
+      fuelPricePerUnit: 1.85,
+      variableMaintenanceCostPerHourUsd: 1.25,
+      startupFuelUnits: 0.15,
+      fuelCurve: [
+        { loadPercent: 0, fuelUnitsPerHour: 0.4 },
+        { loadPercent: 50, fuelUnitsPerHour: 1.8 },
+        { loadPercent: 25, fuelUnitsPerHour: 1.1 }, // non-sorted order to prove exact preservation!
+        { loadPercent: 100, fuelUnitsPerHour: 3.2 },
+      ],
+      dispatchMode: 'scheduled',
+      allowBatteryCharging: true,
+      allowGridExport: false,
+      scheduledHours: Array.from({ length: 7 }, (_, d) =>
+        Array.from({ length: 24 }, (_, h) => d >= 1 && d <= 5 && h >= 17 && h < 21)
+      ),
+      installedCostUsd: 12000,
+      annualMaintenanceCostUsd: 350,
+    };
+
+    const sampleEconomicGenerator: GeneratorGenerationAsset = {
+      id: 'gen-economic-1',
+      name: 'Kohler 20RCA',
+      type: 'generator',
+      enabled: true,
+      ratedContinuousKw: 20.0,
+      minimumStableLoadPercent: 25,
+      fuelType: 'propane',
+      fuelUnit: 'gallon',
+      customFuelUnitLabel: '',
+      fuelPricePerUnit: 3.2,
+      variableMaintenanceCostPerHourUsd: 1.5,
+      startupFuelUnits: 0.2,
+      fuelCurve: [
+        { loadPercent: 0, fuelUnitsPerHour: 0.5 },
+        { loadPercent: 25, fuelUnitsPerHour: 1.2 },
+        { loadPercent: 50, fuelUnitsPerHour: 2.1 },
+        { loadPercent: 75, fuelUnitsPerHour: 2.9 },
+        { loadPercent: 100, fuelUnitsPerHour: 3.7 },
+      ],
+      dispatchMode: 'economic',
+      allowBatteryCharging: true,
+      allowGridExport: true,
+      scheduledHours: Array.from({ length: 7 }, () => Array(24).fill(false)),
+      installedCostUsd: 14000,
+      annualMaintenanceCostUsd: 400,
+    };
+
+    const sampleStandbyGenerator: GeneratorGenerationAsset = {
+      id: 'gen-standby-1',
+      name: 'Cummins QuietConnect 20kW',
+      type: 'generator',
+      enabled: true,
+      ratedContinuousKw: 20.0,
+      minimumStableLoadPercent: 30,
+      fuelType: 'diesel',
+      fuelUnit: 'gallon',
+      customFuelUnitLabel: '',
+      fuelPricePerUnit: 4.1,
+      variableMaintenanceCostPerHourUsd: 2.0,
+      startupFuelUnits: 0.25,
+      fuelCurve: [
+        { loadPercent: 0, fuelUnitsPerHour: 0.6 },
+        { loadPercent: 50, fuelUnitsPerHour: 1.6 },
+        { loadPercent: 100, fuelUnitsPerHour: 2.8 },
+      ],
+      dispatchMode: 'standby',
+      allowBatteryCharging: false,
+      allowGridExport: false,
+      scheduledHours: Array.from({ length: 7 }, () => Array(24).fill(false)),
+      installedCostUsd: 16000,
+      annualMaintenanceCostUsd: 450,
+    };
+
+    const sampleGeneratorConfig: GenerationConfig = {
+      site: {
+        latitude: 37.7749,
+        longitude: -122.4194,
+        timeZone: 'America/Los_Angeles',
+        elevationM: 100,
+      },
+      assets: [sampleScheduledGenerator],
+    };
+
+    const mockGenAwareResult: GenerationAwareSimulationResult = {
+      totalHomeLoadKwh: 12000,
+      totalSolarGenerationKwh: 0,
+      totalSolarDirectToLoadKwh: 0,
+      totalSolarToBatteryKwh: 0,
+      totalSolarExportKwh: 0,
+      totalSolarCurtailedKwh: 0,
+      totalWindGenerationKwh: 0,
+      totalWindDirectToLoadKwh: 0,
+      totalWindToBatteryKwh: 0,
+      totalWindExportKwh: 0,
+      totalWindCurtailedKwh: 0,
+      totalRenewableGenerationKwh: 0,
+      totalRenewableDirectToLoadKwh: 0,
+      totalRenewableToBatteryKwh: 0,
+      totalRenewableExportKwh: 0,
+      totalRenewableCurtailedKwh: 0,
+      totalGridImportKwh: 8000,
+      totalBatteryExportKwh: 200,
+      totalGridExportKwh: 200,
+
+      generatorGeneratedKwh: 4500,
+      generatorDirectToLoadKwh: 3800,
+      generatorToBatteryKwh: 700,
+      generatorExportKwh: 0,
+      generatorCurtailedKwh: 0,
+      generatorRuntimeHours: 400,
+      generatorStarts: 80,
+
+      generatorFuelCostUsd: 1500,
+      generatorVariableMaintenanceCostUsd: 500,
+      generatorOperatingCostUsd: 2000,
+
+      baselineCost: 3600,
+      simulatedCost: 1800,
+      netSavings: 1800,
+      utilityElectricitySavingsUsd: 1800,
+      netOperationalSavingsUsd: -200, // 1800 - 2000
+      modeledUtilityCostUsd: 1800,
+      modeledTotalOperatingEnergyCostUsd: 3800, // 1800 + 2000
+      totalOnsiteGenerationKwh: 4500,
+
+      generatorAssetSummaries: [
+        {
+          assetId: 'gen-scheduled-1',
+          assetName: 'Generac Guardian 22kW',
+          dispatchMode: 'scheduled',
+          fuelType: 'natural_gas',
+          fuelUnit: 'therm',
+          customFuelUnitLabel: '',
+          runningFuelUnits: 800,
+          startupFuelUnits: 12,
+          totalFuelUnits: 812,
+          fuelCostUsd: 1500,
+          variableMaintenanceCostUsd: 500,
+          operatingCostUsd: 2000,
+          runtimeHours: 400,
+          starts: 80,
+          generatedKwh: 4500,
+          directToLoadKwh: 3800,
+          toBatteryAcKwh: 700,
+          directExportKwh: 0,
+          curtailedKwh: 0,
+        },
+      ],
+    } as unknown as GenerationAwareSimulationResult;
+
+    function createMockGenOperationalProjection(horizon: number = 25): GenerationOperationalProjection {
+      const years: GenerationOperationalYear[] = [];
+      for (let y = 1; y <= horizon; y++) {
+        years.push({
+          year: y,
+          baselineElectricityCostUsd: 3600,
+          simulatedElectricityCostUsd: 1800,
+          electricitySavingsUsd: 1800,
+          solarGeneratedKwh: 0,
+          solarDirectToLoadKwh: 0,
+          solarToBatteryKwh: 0,
+          solarExportKwh: 0,
+          solarCurtailedKwh: 0,
+          solarAssets: [],
+          windGeneratedKwh: 0,
+          windDirectToLoadKwh: 0,
+          windToBatteryKwh: 0,
+          windExportKwh: 0,
+          windCurtailedKwh: 0,
+          renewableGeneratedKwh: 0,
+          renewableDirectToLoadKwh: 0,
+          renewableToBatteryKwh: 0,
+          renewableExportKwh: 0,
+          renewableCurtailedKwh: 0,
+
+          generatorGeneratedKwh: 4500,
+          generatorDirectToLoadKwh: 3800,
+          generatorToBatteryKwh: 700,
+          generatorExportKwh: 0,
+          generatorCurtailedKwh: 0,
+          generatorRuntimeHours: 400,
+          generatorStarts: 80,
+          generatorFuelCostUsd: 1500 * Math.pow(1.02, y - 1),
+          generatorVariableMaintenanceCostUsd: 500 * Math.pow(1.025, y - 1),
+          generatorOperatingCostUsd: (1500 * Math.pow(1.02, y - 1)) + (500 * Math.pow(1.025, y - 1)),
+
+          utilityElectricitySavingsUsd: 1800 * Math.pow(1.03, y - 1),
+          netOperationalSavingsUsd: (1800 * Math.pow(1.03, y - 1)) - ((1500 * Math.pow(1.02, y - 1)) + (500 * Math.pow(1.025, y - 1))),
+          modeledUtilityCostUsd: 1800 * Math.pow(1.03, y - 1),
+          modeledTotalOperatingEnergyCostUsd: (1800 * Math.pow(1.03, y - 1)) + ((1500 * Math.pow(1.02, y - 1)) + (500 * Math.pow(1.025, y - 1))),
+
+          batteryUsableCapacityKwh: 13.5,
+          batteryCapacityRetentionFactor: 1.0,
+          gridImportKwh: 8000,
+          gridExportKwh: 200,
+          batteryExportKwh: 200,
+          batteryDischargedKwh: 2500,
+          equivalentFullCycles: 185,
+        });
+      }
+      return { horizonYears: horizon, years };
+    }
+
+    const mockGenOperationalProjection25 = createMockGenOperationalProjection(25);
+    const genProjectCosts = aggregateGenerationProjectCosts(sampleGeneratorConfig);
+    const genFinancialAnalysis = calculateGenerationAwareFinancials({
+      batteryProfile: profile,
+      operationalProjection: mockGenOperationalProjection25,
+      projectCosts: genProjectCosts,
+      financials: sampleFinancials,
+    });
+
+    it('1. Scheduled generator configuration exports faithfully', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleGeneratorConfig,
+        allowSolarExport: false,
+        generationAwareResult: mockGenAwareResult,
+        operationalProjection: mockGenOperationalProjection25,
+        generationAnalysis: genFinancialAnalysis,
+        generationProjectCosts: genProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_configuration.generators).toBeDefined();
+      expect(exportData.generation_configuration.generators).toHaveLength(1);
+      const gen = exportData.generation_configuration.generators![0];
+
+      expect(gen.id).toBe('gen-scheduled-1');
+      expect(gen.name).toBe('Generac Guardian 22kW');
+      expect(gen.type).toBe('generator');
+      expect(gen.enabled).toBe(true);
+      expect(gen.ratedContinuousKw).toBe(19.5);
+      expect(gen.minimumStableLoadPercent).toBe(20);
+      expect(gen.fuelType).toBe('natural_gas');
+      expect(gen.fuelUnit).toBe('therm');
+      expect(gen.customFuelUnitLabel).toBe('');
+      expect(gen.fuelPricePerUnit).toBe(1.85);
+      expect(gen.variableMaintenanceCostPerHourUsd).toBe(1.25);
+      expect(gen.startupFuelUnits).toBe(0.15);
+      expect(gen.dispatchMode).toBe('scheduled');
+      expect(gen.allowBatteryCharging).toBe(true);
+      expect(gen.allowGridExport).toBe(false);
+      expect(gen.installedCostUsd).toBe(12000);
+      expect(gen.annualMaintenanceCostUsd).toBe(350);
+      expect(gen.scheduledHours).toHaveLength(7);
+      expect(gen.scheduledHours[1][17]).toBe(true);
+      expect(gen.scheduledHours[0][12]).toBe(false);
+    });
+
+    it('2. Fuel curve point order and values are preserved exactly without normalization or sorting', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleGeneratorConfig,
+        allowSolarExport: false,
+        generationAwareResult: mockGenAwareResult,
+        operationalProjection: mockGenOperationalProjection25,
+        generationAnalysis: genFinancialAnalysis,
+        generationProjectCosts: genProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const gen = exportData.generation_configuration.generators![0];
+      // Expect exact preservation of the original non-sorted array order [0, 50, 25, 100]
+      expect(gen.fuelCurve).toEqual([
+        { loadPercent: 0, fuelUnitsPerHour: 0.4 },
+        { loadPercent: 50, fuelUnitsPerHour: 1.8 },
+        { loadPercent: 25, fuelUnitsPerHour: 1.1 },
+        { loadPercent: 100, fuelUnitsPerHour: 3.2 },
+      ]);
+    });
+
+    it('3. Economic generator configuration exports faithfully', () => {
+      const econConfig: GenerationConfig = {
+        site: sampleGeneratorConfig.site,
+        assets: [sampleEconomicGenerator],
+      };
+      const costs = aggregateGenerationProjectCosts(econConfig);
+      const financials = calculateGenerationAwareFinancials({
+        batteryProfile: profile,
+        operationalProjection: mockGenOperationalProjection25,
+        projectCosts: costs,
+        financials: sampleFinancials,
+      });
+
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: econConfig,
+        allowSolarExport: false,
+        generationAwareResult: mockGenAwareResult,
+        operationalProjection: mockGenOperationalProjection25,
+        generationAnalysis: financials,
+        generationProjectCosts: costs,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const gen = exportData.generation_configuration.generators![0];
+      expect(gen.dispatchMode).toBe('economic');
+      expect(gen.fuelType).toBe('propane');
+      expect(gen.fuelUnit).toBe('gallon');
+      expect(gen.allowGridExport).toBe(true);
+      expect(gen.allowBatteryCharging).toBe(true);
+      expect(gen.startupFuelUnits).toBe(0.2);
+    });
+
+    it('4. Standby configuration exports without fabricated runtime', () => {
+      const standbyConfig: GenerationConfig = {
+        site: sampleGeneratorConfig.site,
+        assets: [sampleStandbyGenerator],
+      };
+      const costs = aggregateGenerationProjectCosts(standbyConfig);
+      const financials = calculateGenerationAwareFinancials({
+        batteryProfile: profile,
+        operationalProjection: mockGenOperationalProjection25,
+        projectCosts: costs,
+        financials: sampleFinancials,
+      });
+
+      const standbyResult = {
+        ...mockGenAwareResult,
+        generatorGeneratedKwh: 0,
+        generatorDirectToLoadKwh: 0,
+        generatorToBatteryKwh: 0,
+        generatorExportKwh: 0,
+        generatorCurtailedKwh: 0,
+        generatorRuntimeHours: 0,
+        generatorStarts: 0,
+        generatorFuelCostUsd: 0,
+        generatorVariableMaintenanceCostUsd: 0,
+        generatorOperatingCostUsd: 0,
+        generatorAssetSummaries: [
+          {
+            assetId: 'gen-standby-1',
+            assetName: 'Cummins QuietConnect 20kW',
+            dispatchMode: 'standby' as const,
+            fuelType: 'diesel' as const,
+            fuelUnit: 'gallon' as const,
+            runningFuelUnits: 0,
+            startupFuelUnits: 0,
+            totalFuelUnits: 0,
+            fuelCostUsd: 0,
+            variableMaintenanceCostUsd: 0,
+            operatingCostUsd: 0,
+            runtimeHours: 0,
+            starts: 0,
+            generatedKwh: 0,
+            directToLoadKwh: 0,
+            toBatteryAcKwh: 0,
+            directExportKwh: 0,
+            curtailedKwh: 0,
+          },
+        ],
+      };
+
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: standbyConfig,
+        allowSolarExport: false,
+        generationAwareResult: standbyResult as any,
+        operationalProjection: mockGenOperationalProjection25,
+        generationAnalysis: financials,
+        generationProjectCosts: costs,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const gen = exportData.generation_configuration.generators![0];
+      expect(gen.dispatchMode).toBe('standby');
+      expect(exportData.generation_year_1_results.generator_generated_kwh).toBe(0);
+      expect(exportData.generation_year_1_results.generator_runtime_hours).toBe(0);
+      expect(exportData.generation_year_1_results.generator_starts).toBe(0);
+      expect(exportData.generation_year_1_results.generator_fuel_cost_usd).toBe(0);
+      expect(exportData.generation_year_1_results.generator_operating_cost_usd).toBe(0);
+    });
+
+    it('5. Year-1 generator outputs and distinct operational savings fields export matching engine', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleGeneratorConfig,
+        allowSolarExport: false,
+        generationAwareResult: mockGenAwareResult,
+        operationalProjection: mockGenOperationalProjection25,
+        generationAnalysis: genFinancialAnalysis,
+        generationProjectCosts: genProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      const y1 = exportData.generation_year_1_results;
+      expect(y1.generator_generated_kwh).toBe(4500);
+      expect(y1.generator_direct_to_load_kwh).toBe(3800);
+      expect(y1.generator_to_battery_kwh).toBe(700);
+      expect(y1.generator_export_kwh).toBe(0);
+      expect(y1.generator_curtailed_kwh).toBe(0);
+      expect(y1.generator_runtime_hours).toBe(400);
+      expect(y1.generator_starts).toBe(80);
+      expect(y1.generator_fuel_cost_usd).toBe(1500);
+      expect(y1.generator_variable_maintenance_cost_usd).toBe(500);
+      expect(y1.generator_operating_cost_usd).toBe(2000);
+
+      // Distinct operational savings fields
+      expect(y1.modeled_utility_cost_usd).toBe(1800);
+      expect(y1.utility_electricity_savings_usd).toBe(1800);
+      expect(y1.net_operational_savings_usd).toBe(-200);
+      expect(y1.modeled_total_operating_energy_cost_usd).toBe(3800);
+
+      // Distinct per-asset context preserved
+      expect(y1.generator_assets).toHaveLength(1);
+      const asset = y1.generator_assets![0];
+      expect(asset.asset_id).toBe('gen-scheduled-1');
+      expect(asset.fuel_unit).toBe('therm');
+      expect(asset.running_fuel).toBe(800);
+      expect(asset.startup_fuel).toBe(12);
+      expect(asset.total_fuel).toBe(812);
+      expect(asset.fuel_cost_usd).toBe(1500);
+      expect(asset.variable_maintenance_cost_usd).toBe(500);
+      expect(asset.operating_cost_usd).toBe(2000);
+    });
+
+    it('6. Annual generator projections serialize directly from authoritative projection result', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleGeneratorConfig,
+        allowSolarExport: false,
+        generationAwareResult: mockGenAwareResult,
+        operationalProjection: mockGenOperationalProjection25,
+        generationAnalysis: genFinancialAnalysis,
+        generationProjectCosts: genProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(exportData.generation_annual_projection).toHaveLength(15);
+      const row1 = exportData.generation_annual_projection[0];
+      expect(row1.year).toBe(1);
+      expect(row1.generator_generated_kwh).toBe(4500);
+      expect(row1.generator_direct_to_load_kwh).toBe(3800);
+      expect(row1.generator_to_battery_kwh).toBe(700);
+      expect(row1.generator_runtime_hours).toBe(400);
+      expect(row1.generator_starts).toBe(80);
+      expect(row1.generator_fuel_cost_usd).toBe(1500);
+      expect(row1.generator_variable_maintenance_cost_usd).toBe(500);
+      expect(row1.generator_operating_cost_usd).toBe(2000);
+      expect(row1.utility_electricity_savings_usd).toBe(1800);
+      expect(row1.net_operational_savings_usd).toBe(-200);
+      expect(row1.modeled_total_operating_energy_cost_usd).toBe(3800);
+    });
+
+    it('7. Project costs and lifecycle finance include generator CAPEX and O&M', () => {
+      const exportData = buildGenerationExportLlmJson({
+        generationConfig: sampleGeneratorConfig,
+        allowSolarExport: false,
+        generationAwareResult: mockGenAwareResult,
+        operationalProjection: mockGenOperationalProjection25,
+        generationAnalysis: genFinancialAnalysis,
+        generationProjectCosts: genProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      // CAPEX reflects generator installed cost
+      expect(exportData.generation_project_costs.generation_capex_usd).toBe(12000);
+      expect(exportData.generation_project_costs.annual_generation_om_usd).toBe(350);
+      expect(exportData.generation_project_costs.generation_assets).toHaveLength(1);
+      expect(exportData.generation_project_costs.generation_assets[0].type).toBe('generator');
+      expect(exportData.generation_project_costs.generation_assets[0].installed_cost_usd).toBe(12000);
+
+      // Selected horizon summary KPIs reflect 15-year values
+      expect(exportData.generation_horizon_summary_kpis.horizon_years).toBe(15);
+      expect(exportData.generation_horizon_summary_kpis.horizon_generation_maintenance_usd).toBeGreaterThan(0);
+    });
+
+    it('8. Non-generator configurations do not emit generator schema clutter', () => {
+      const solarOnlyExport = buildGenerationExportLlmJson({
+        generationConfig: sampleGenerationConfig,
+        allowSolarExport: true,
+        generationAwareResult: mockGenerationAwareResult,
+        operationalProjection: mockOperationalProjection25,
+        generationAnalysis: generationFinancialAnalysis,
+        generationProjectCosts,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: sampleFinancials,
+        csvResult: mockCsvResult,
+      });
+
+      expect(solarOnlyExport.generation_configuration.generators).toBeUndefined();
+      expect(solarOnlyExport.generation_year_1_results.generator_generated_kwh).toBeUndefined();
+      expect(solarOnlyExport.generation_year_1_results.generator_assets).toBeUndefined();
+      solarOnlyExport.generation_annual_projection.forEach((row) => {
+        expect(row.generator_generated_kwh).toBeUndefined();
+        expect(row.generator_operating_cost_usd).toBeUndefined();
+      });
+    });
+
+    it('9. Incomplete or partial-period dataset blocks annual projection export', () => {
+      const partialCsvResult: CsvValidationResult = {
+        ...mockCsvResult,
+        completeness: {
+          ...mockCsvResult.completeness!,
+          isSuitableForAnnualProjection: false,
+          reason: 'Dataset covers less than one full year.',
+        },
+      };
+
+      expect(
+        canExportGenerationProjectionsJson({
+          generationAnalysis: genFinancialAnalysis,
+          operationalProjection: mockGenOperationalProjection25,
+          generationAwareResult: mockGenAwareResult,
+          generationProjectCosts: genProjectCosts,
+          generationConfig: sampleGeneratorConfig,
+          csvResult: partialCsvResult,
+        })
+      ).toBe(false);
+
+      expect(() =>
+        buildGenerationExportLlmJson({
+          generationConfig: sampleGeneratorConfig,
+          allowSolarExport: false,
+          generationAwareResult: mockGenAwareResult,
+          operationalProjection: mockGenOperationalProjection25,
+          generationAnalysis: genFinancialAnalysis,
+          generationProjectCosts: genProjectCosts,
+          projectionHorizon: 15,
+          tiers,
+          activeTouProfile: touProfile,
+          financials: sampleFinancials,
+          csvResult: partialCsvResult,
+        })
+      ).toThrow('Cannot export multi-year generation projections for an incomplete or partial-period dataset.');
     });
   });
 });

@@ -12,7 +12,7 @@
  */
 
 import { GenerationAwareSimulationResult } from './generationAwareSimulation';
-import { AnalysisState, SolarAssetMetadata } from '../types/energy';
+import { AnalysisState, SolarAssetMetadata, GeneratorAssetAnnualSummary } from '../types/energy';
 
 export interface GenerationOperationalDisplayMetrics {
   // Authoritative operational energy flows (kWh)
@@ -44,11 +44,24 @@ export interface GenerationOperationalDisplayMetrics {
   generatorExportKwh?: number;
   generatorCurtailedKwh?: number;
 
+  totalGeneratorGenerationKwh?: number;
+  totalGeneratorDirectToLoadKwh?: number;
+  totalGeneratorToBatteryKwh?: number;
+  totalGeneratorExportKwh?: number;
+  totalGeneratorCurtailedKwh?: number;
+
+  // Authoritative generator operation & activity
+  generatorRuntimeHours?: number;
+  generatorStarts?: number;
+  generatorAssetSummaries?: GeneratorAssetAnnualSummary[];
+
   // Authoritative generator economics (USD)
   generatorFuelCostUsd?: number;
   generatorVariableMaintenanceCostUsd?: number;
   generatorOperatingCostUsd?: number;
+  utilityElectricitySavingsUsd?: number;
   netOperationalSavingsUsd?: number;
+  modeledUtilityCostUsd?: number;
   modeledTotalOperatingEnergyCostUsd?: number;
 
   totalOnsiteGenerationKwh?: number;
@@ -196,19 +209,31 @@ export function deriveGenerationOperationalDisplayMetrics(
     renewableExportKwh: renewableExport,
     renewableCurtailedKwh: renewableCurtailed,
 
-    generatorGeneratedKwh: result.generatorGeneratedKwh,
-    generatorDirectToLoadKwh: result.generatorDirectToLoadKwh,
-    generatorToBatteryKwh: result.generatorToBatteryKwh,
-    generatorExportKwh: result.generatorExportKwh,
-    generatorCurtailedKwh: result.generatorCurtailedKwh,
+    generatorGeneratedKwh: result.generatorGeneratedKwh ?? result.totalGeneratorGenerationKwh,
+    generatorDirectToLoadKwh: result.generatorDirectToLoadKwh ?? result.totalGeneratorDirectToLoadKwh,
+    generatorToBatteryKwh: result.generatorToBatteryKwh ?? result.totalGeneratorToBatteryKwh,
+    generatorExportKwh: result.generatorExportKwh ?? result.totalGeneratorExportKwh,
+    generatorCurtailedKwh: result.generatorCurtailedKwh ?? result.totalGeneratorCurtailedKwh,
+
+    totalGeneratorGenerationKwh: result.totalGeneratorGenerationKwh ?? result.generatorGeneratedKwh,
+    totalGeneratorDirectToLoadKwh: result.totalGeneratorDirectToLoadKwh ?? result.generatorDirectToLoadKwh,
+    totalGeneratorToBatteryKwh: result.totalGeneratorToBatteryKwh ?? result.generatorToBatteryKwh,
+    totalGeneratorExportKwh: result.totalGeneratorExportKwh ?? result.generatorExportKwh,
+    totalGeneratorCurtailedKwh: result.totalGeneratorCurtailedKwh ?? result.generatorCurtailedKwh,
+
+    generatorRuntimeHours: result.generatorRuntimeHours,
+    generatorStarts: result.generatorStarts,
+    generatorAssetSummaries: result.generatorAssetSummaries,
 
     generatorFuelCostUsd: result.generatorFuelCostUsd,
     generatorVariableMaintenanceCostUsd: result.generatorVariableMaintenanceCostUsd,
     generatorOperatingCostUsd: result.generatorOperatingCostUsd,
+    utilityElectricitySavingsUsd: result.utilityElectricitySavingsUsd ?? result.netSavings,
     netOperationalSavingsUsd: result.netOperationalSavingsUsd,
+    modeledUtilityCostUsd: result.modeledUtilityCostUsd ?? result.simulatedCost,
     modeledTotalOperatingEnergyCostUsd: result.modeledTotalOperatingEnergyCostUsd,
 
-    totalOnsiteGenerationKwh: result.totalOnsiteGenerationKwh,
+    totalOnsiteGenerationKwh: result.totalOnsiteGenerationKwh ?? (renewableGenerated + (result.generatorGeneratedKwh ?? result.totalGeneratorGenerationKwh ?? 0)),
 
     gridImportKwh: result.totalGridImportKwh,
     gridExportKwh: result.totalGridExportKwh,
@@ -262,6 +287,45 @@ export function deriveGenerationOperationalDisplayMetrics(
     netSavings: result.netSavings,
     netSavingsUsd: result.netSavings,
   };
+}
+
+/**
+ * Formats fuel consumption summary per asset, preserving physical units.
+ * Never combines quantities across differing fuel units.
+ */
+export function formatGeneratorFuelAssetSummaries(
+  summaries?: GeneratorAssetAnnualSummary[]
+): Array<{ assetName: string; fuelString: string; fuelCostUsd: number }> {
+  if (!summaries || summaries.length === 0) return [];
+  return summaries.map((s) => {
+    const unit = s.customFuelUnitLabel || s.fuelUnit;
+    const qty = s.totalFuelUnits.toLocaleString(undefined, { maximumFractionDigits: 1 });
+    return {
+      assetName: s.assetName,
+      fuelString: `${qty} ${unit}s`,
+      fuelCostUsd: s.fuelCostUsd,
+    };
+  });
+}
+
+/**
+ * Formats aggregate fuel quantity ONLY when all assets share the exact same physical fuel unit.
+ * Strictly returns null if assets have heterogeneous fuel units, preventing meaningless sums.
+ */
+export function formatAggregateGeneratorFuel(
+  summaries?: GeneratorAssetAnnualSummary[]
+): string | null {
+  if (!summaries || summaries.length === 0) return null;
+  const firstUnit = summaries[0].customFuelUnitLabel || summaries[0].fuelUnit;
+  const allSame = summaries.every(
+    (s) => (s.customFuelUnitLabel || s.fuelUnit) === firstUnit
+  );
+  if (!allSame) {
+    // Heterogeneous fuel units must never be summed into a combined physical total
+    return null;
+  }
+  const totalQty = summaries.reduce((sum, s) => sum + s.totalFuelUnits, 0);
+  return `${totalQty.toLocaleString(undefined, { maximumFractionDigits: 1 })} ${firstUnit}s`;
 }
 
 /** Formats kWh with thousands separators */

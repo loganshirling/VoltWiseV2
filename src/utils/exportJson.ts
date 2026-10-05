@@ -16,6 +16,10 @@ import {
   SolarGenerationAsset,
   TouProfile,
   WindGenerationAsset,
+  GeneratorGenerationAsset,
+  GeneratorFuelType,
+  GeneratorFuelUnit,
+  GeneratorDispatchMode,
   YearProjection,
 } from '../types/energy';
 import { APP_VERSION } from '../version';
@@ -519,6 +523,31 @@ export interface GenerationExportWindTurbine {
   annual_maintenance_cost_usd: number;
 }
 
+export interface GenerationExportGenerator {
+  id: string;
+  name: string;
+  type: 'generator';
+  enabled: boolean;
+  ratedContinuousKw: number;
+  minimumStableLoadPercent: number;
+  fuelType: GeneratorFuelType;
+  fuelUnit: GeneratorFuelUnit;
+  customFuelUnitLabel: string;
+  fuelPricePerUnit: number;
+  variableMaintenanceCostPerHourUsd: number;
+  startupFuelUnits: number;
+  fuelCurve: Array<{
+    loadPercent: number;
+    fuelUnitsPerHour: number;
+  }>;
+  dispatchMode: GeneratorDispatchMode;
+  allowBatteryCharging: boolean;
+  allowGridExport: boolean;
+  scheduledHours: boolean[][];
+  installedCostUsd: number;
+  annualMaintenanceCostUsd: number;
+}
+
 export interface GenerationExportAnnualProjectionRow {
   year: number;
   solar_generation_kwh: number;
@@ -561,6 +590,24 @@ export interface GenerationExportAnnualProjectionRow {
   renewable_to_battery_kwh?: number;
   renewable_export_kwh?: number;
   renewable_curtailed_kwh?: number;
+
+  generator_generation_kwh?: number;
+  generator_generated_kwh?: number;
+  generator_direct_to_load_kwh?: number;
+  generator_to_battery_kwh?: number;
+  generator_export_kwh?: number;
+  generator_curtailed_kwh?: number;
+
+  generator_runtime_hours?: number;
+  generator_starts?: number;
+
+  generator_fuel_cost_usd?: number;
+  generator_variable_maintenance_cost_usd?: number;
+  generator_operating_cost_usd?: number;
+
+  utility_electricity_savings_usd?: number;
+  net_operational_savings_usd?: number;
+  modeled_total_operating_energy_cost_usd?: number;
 }
 
 export interface GenerationLlmExportPayload {
@@ -666,6 +713,7 @@ export interface GenerationLlmExportPayload {
     enabled_solar_arrays: GenerationExportSolarArray[];
     allow_renewable_export?: boolean;
     wind_turbines?: GenerationExportWindTurbine[];
+    generators?: GenerationExportGenerator[];
   };
   generation_year_1_results: {
     total_home_load_kwh: number;
@@ -692,6 +740,48 @@ export interface GenerationLlmExportPayload {
     renewable_to_battery_ac_kwh?: number;
     renewable_export_kwh?: number;
     renewable_curtailed_kwh?: number;
+
+    generator_generated_kwh?: number;
+    generator_direct_to_load_kwh?: number;
+    generator_to_battery_kwh?: number;
+    generator_export_kwh?: number;
+    generator_curtailed_kwh?: number;
+
+    generator_runtime_hours?: number;
+    generator_starts?: number;
+
+    generator_fuel_cost_usd?: number;
+    generator_variable_maintenance_cost_usd?: number;
+    generator_operating_cost_usd?: number;
+
+    utility_electricity_savings_usd?: number;
+    net_operational_savings_usd?: number;
+    modeled_utility_cost_usd?: number;
+    modeled_total_operating_energy_cost_usd?: number;
+
+    total_onsite_generation_kwh?: number;
+
+    generator_assets?: Array<{
+      asset_id: string;
+      asset_name: string;
+      dispatch_mode: GeneratorDispatchMode;
+      generated_kwh: number;
+      direct_to_load_kwh: number;
+      to_battery_kwh: number;
+      direct_export_kwh: number;
+      curtailed_kwh: number;
+      runtime_hours: number;
+      starts: number;
+      running_fuel: number;
+      startup_fuel: number;
+      total_fuel: number;
+      fuel_unit: GeneratorFuelUnit;
+      fuel_type: GeneratorFuelType;
+      custom_fuel_unit_label?: string;
+      fuel_cost_usd: number;
+      variable_maintenance_cost_usd: number;
+      operating_cost_usd: number;
+    }>;
   };
   generation_project_costs: {
     battery_capex_usd: number;
@@ -799,7 +889,6 @@ export function canExportGenerationProjectionsJson(
   if (generationConfig?.assets && Array.isArray(generationConfig.assets)) {
     const hasUnsupportedAsset = generationConfig.assets.some((a) => {
       if (!a || !a.enabled) return false;
-      if (a.type === 'generator') return true;
       if (a.type === 'wind') {
         const windAsset = a as WindGenerationAsset;
         if (windAsset.resourceMode === 'interval_file') return true;
@@ -859,9 +948,6 @@ export function buildGenerationExportLlmJson(
   // Reject unsupported active assets
   const enabledAssets = (generationConfig.assets || []).filter((a) => a && a.enabled);
   for (const asset of enabledAssets) {
-    if (asset.type === 'generator') {
-      throw new Error('Enabled generator assets are not supported for generation export.');
-    }
     if (asset.type === 'wind') {
       const windAsset = asset as WindGenerationAsset;
       if (windAsset.resourceMode === 'interval_file') {
@@ -879,7 +965,11 @@ export function buildGenerationExportLlmJson(
   const enabledWindAssets = enabledAssets.filter(
     (a): a is WindGenerationAsset => a.type === 'wind'
   );
+  const enabledGeneratorAssets = enabledAssets.filter(
+    (a): a is GeneratorGenerationAsset => a.type === 'generator'
+  );
   const hasEnabledWind = enabledWindAssets.length > 0;
+  const hasEnabledGenerator = enabledGeneratorAssets.length > 0;
 
   const effectiveAllowRenewableExport =
     allowRenewableExport !== undefined
@@ -973,6 +1063,31 @@ export function buildGenerationExportLlmJson(
     return entry;
   });
 
+  const generatorsExport: GenerationExportGenerator[] = enabledGeneratorAssets.map((asset) => ({
+    id: asset.id,
+    name: asset.name,
+    type: 'generator',
+    enabled: asset.enabled,
+    ratedContinuousKw: asset.ratedContinuousKw,
+    minimumStableLoadPercent: asset.minimumStableLoadPercent,
+    fuelType: asset.fuelType,
+    fuelUnit: asset.fuelUnit,
+    customFuelUnitLabel: asset.customFuelUnitLabel ?? '',
+    fuelPricePerUnit: asset.fuelPricePerUnit,
+    variableMaintenanceCostPerHourUsd: asset.variableMaintenanceCostPerHourUsd,
+    startupFuelUnits: asset.startupFuelUnits,
+    fuelCurve: (asset.fuelCurve || []).map((pt) => ({
+      loadPercent: pt.loadPercent,
+      fuelUnitsPerHour: pt.fuelUnitsPerHour,
+    })),
+    dispatchMode: asset.dispatchMode,
+    allowBatteryCharging: asset.allowBatteryCharging,
+    allowGridExport: asset.allowGridExport,
+    scheduledHours: (asset.scheduledHours || []).map((row) => [...row]),
+    installedCostUsd: asset.installedCostUsd,
+    annualMaintenanceCostUsd: asset.annualMaintenanceCostUsd,
+  }));
+
   // Annual projection time series
   const annualProjection: GenerationExportAnnualProjectionRow[] = [];
   for (let i = 0; i < safeHorizon; i++) {
@@ -1024,6 +1139,26 @@ export function buildGenerationExportLlmJson(
       row.renewable_to_battery_kwh = opYear.renewableToBatteryKwh;
       row.renewable_export_kwh = opYear.renewableExportKwh;
       row.renewable_curtailed_kwh = opYear.renewableCurtailedKwh;
+    }
+
+    if (hasEnabledGenerator) {
+      row.generator_generation_kwh = opYear.generatorGeneratedKwh ?? 0;
+      row.generator_generated_kwh = opYear.generatorGeneratedKwh ?? 0;
+      row.generator_direct_to_load_kwh = opYear.generatorDirectToLoadKwh ?? 0;
+      row.generator_to_battery_kwh = opYear.generatorToBatteryKwh ?? 0;
+      row.generator_export_kwh = opYear.generatorExportKwh ?? 0;
+      row.generator_curtailed_kwh = opYear.generatorCurtailedKwh ?? 0;
+
+      row.generator_runtime_hours = opYear.generatorRuntimeHours ?? 0;
+      row.generator_starts = opYear.generatorStarts ?? 0;
+
+      row.generator_fuel_cost_usd = opYear.generatorFuelCostUsd ?? 0;
+      row.generator_variable_maintenance_cost_usd = opYear.generatorVariableMaintenanceCostUsd ?? 0;
+      row.generator_operating_cost_usd = opYear.generatorOperatingCostUsd ?? 0;
+
+      row.utility_electricity_savings_usd = finYear.utilityElectricitySavingsUsd ?? opYear.utilityElectricitySavingsUsd ?? finYear.electricitySavingsUsd;
+      row.net_operational_savings_usd = finYear.netOperationalSavingsUsd ?? opYear.netOperationalSavingsUsd ?? (finYear.electricitySavingsUsd - (row.generator_operating_cost_usd ?? 0));
+      row.modeled_total_operating_energy_cost_usd = finYear.modeledTotalOperatingEnergyCostUsd ?? opYear.modeledTotalOperatingEnergyCostUsd ?? (finYear.modeledProjectElectricityCostUsd + (row.generator_operating_cost_usd ?? 0));
     }
 
     annualProjection.push(row);
@@ -1153,6 +1288,11 @@ export function buildGenerationExportLlmJson(
             wind_turbines: windTurbinesExport,
           }
         : {}),
+      ...(hasEnabledGenerator
+        ? {
+            generators: generatorsExport,
+          }
+        : {}),
     },
     generation_year_1_results: {
       total_home_load_kwh: opDisplay.totalHomeLoadKwh,
@@ -1180,6 +1320,51 @@ export function buildGenerationExportLlmJson(
             renewable_to_battery_ac_kwh: opDisplay.renewableToBatteryAcKwh,
             renewable_export_kwh: opDisplay.renewableExportKwh,
             renewable_curtailed_kwh: opDisplay.renewableCurtailedKwh,
+          }
+        : {}),
+      ...(hasEnabledGenerator
+        ? {
+            generator_generated_kwh: opDisplay.generatorGeneratedKwh ?? 0,
+            generator_direct_to_load_kwh: opDisplay.generatorDirectToLoadKwh ?? 0,
+            generator_to_battery_kwh: opDisplay.generatorToBatteryKwh ?? 0,
+            generator_export_kwh: opDisplay.generatorExportKwh ?? 0,
+            generator_curtailed_kwh: opDisplay.generatorCurtailedKwh ?? 0,
+
+            generator_runtime_hours: opDisplay.generatorRuntimeHours ?? generationAwareResult.generatorRuntimeHours ?? 0,
+            generator_starts: opDisplay.generatorStarts ?? generationAwareResult.generatorStarts ?? 0,
+
+            generator_fuel_cost_usd: opDisplay.generatorFuelCostUsd ?? 0,
+            generator_variable_maintenance_cost_usd: opDisplay.generatorVariableMaintenanceCostUsd ?? 0,
+            generator_operating_cost_usd: opDisplay.generatorOperatingCostUsd ?? 0,
+
+            utility_electricity_savings_usd: opDisplay.utilityElectricitySavingsUsd ?? generationAwareResult.utilityElectricitySavingsUsd ?? opDisplay.electricitySavingsUsd,
+            net_operational_savings_usd: opDisplay.netOperationalSavingsUsd ?? generationAwareResult.netOperationalSavingsUsd ?? 0,
+            modeled_utility_cost_usd: opDisplay.modeledUtilityCostUsd ?? generationAwareResult.modeledUtilityCostUsd ?? opDisplay.simulatedCostUsd,
+            modeled_total_operating_energy_cost_usd: opDisplay.modeledTotalOperatingEnergyCostUsd ?? generationAwareResult.modeledTotalOperatingEnergyCostUsd ?? (opDisplay.simulatedCostUsd + (opDisplay.generatorOperatingCostUsd ?? 0)),
+
+            total_onsite_generation_kwh: opDisplay.totalOnsiteGenerationKwh ?? (opDisplay.renewableGeneratedKwh + (opDisplay.generatorGeneratedKwh ?? 0)),
+
+            generator_assets: (generationAwareResult.generatorAssetSummaries || []).map((summary) => ({
+              asset_id: summary.assetId,
+              asset_name: summary.assetName,
+              dispatch_mode: summary.dispatchMode,
+              generated_kwh: summary.generatedKwh,
+              direct_to_load_kwh: summary.directToLoadKwh,
+              to_battery_kwh: summary.toBatteryAcKwh,
+              direct_export_kwh: summary.directExportKwh,
+              curtailed_kwh: summary.curtailedKwh,
+              runtime_hours: summary.runtimeHours,
+              starts: summary.startCount ?? summary.starts ?? 0,
+              running_fuel: summary.runningFuelUnits,
+              startup_fuel: summary.startupFuelUnits,
+              total_fuel: summary.totalFuelUnits,
+              fuel_unit: summary.fuelUnit,
+              fuel_type: summary.fuelType,
+              custom_fuel_unit_label: summary.customFuelUnitLabel,
+              fuel_cost_usd: summary.fuelCostUsd,
+              variable_maintenance_cost_usd: summary.variableMaintenanceCostUsd,
+              operating_cost_usd: summary.operatingCostUsd,
+            })),
           }
         : {}),
     },

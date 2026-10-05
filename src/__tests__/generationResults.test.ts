@@ -8,6 +8,8 @@ import {
   resolveMultiProfileMatrixState,
   formatSolarDegradationSummary,
   formatSolarDegradationClause,
+  formatGeneratorFuelAssetSummaries,
+  formatAggregateGeneratorFuel,
 } from '../utils/generationResults';
 import {
   aggregateGenerationProjectCosts,
@@ -36,6 +38,7 @@ import {
   GenerationConfig,
   IntervalDataPoint,
   SolarGenerationAsset,
+  GeneratorAssetAnnualSummary,
 } from '../types/energy';
 import {
   GenerationAwareSimulationResult,
@@ -623,6 +626,394 @@ describe('G4D — Generation Results & Analytics Integration', () => {
       expect(metrics.solarToBatteryAcKwh).toBe(1400.45);
       expect(metrics.windToBatteryAcKwh).toBe(800.25);
       expect(metrics.renewableToBatteryAcKwh).toBe(2200.70);
+    });
+  });
+
+  describe('G6E — Generator Operational Results & Presentation Integration', () => {
+    it('1. generator-only Results use authoritative engine values', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 12000,
+        totalSolarGenerationKwh: 0,
+        totalSolarDirectToLoadKwh: 0,
+        totalSolarToBatteryKwh: 0,
+        totalSolarExportKwh: 0,
+        totalSolarCurtailedKwh: 0,
+        totalWindGenerationKwh: 0,
+        totalWindDirectToLoadKwh: 0,
+        totalWindToBatteryKwh: 0,
+        totalWindExportKwh: 0,
+        totalWindCurtailedKwh: 0,
+        totalRenewableGenerationKwh: 0,
+        totalRenewableDirectToLoadKwh: 0,
+        totalRenewableToBatteryKwh: 0,
+        totalRenewableExportKwh: 0,
+        totalRenewableCurtailedKwh: 0,
+        totalGridImportKwh: 7000,
+        totalBatteryExportKwh: 0,
+        totalGridExportKwh: 500,
+
+        generatorGeneratedKwh: 5500,
+        generatorDirectToLoadKwh: 4500,
+        generatorToBatteryKwh: 500,
+        generatorExportKwh: 500,
+        generatorCurtailedKwh: 0,
+        generatorRuntimeHours: 550,
+        generatorStarts: 120,
+
+        generatorFuelCostUsd: 1850,
+        generatorVariableMaintenanceCostUsd: 275,
+        generatorOperatingCostUsd: 2125,
+
+        baselineCost: 3600,
+        simulatedCost: 1900,
+        netSavings: 1700,
+        utilityElectricitySavingsUsd: 1700,
+        netOperationalSavingsUsd: -425, // 1700 - 2125
+        modeledUtilityCostUsd: 1900,
+        modeledTotalOperatingEnergyCostUsd: 4025, // 1900 + 2125
+        totalOnsiteGenerationKwh: 5500,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.generatorGeneratedKwh).toBe(5500);
+      expect(metrics.generatorDirectToLoadKwh).toBe(4500);
+      expect(metrics.generatorToBatteryKwh).toBe(500);
+      expect(metrics.generatorExportKwh).toBe(500);
+      expect(metrics.generatorCurtailedKwh).toBe(0);
+      expect(metrics.generatorRuntimeHours).toBe(550);
+      expect(metrics.generatorStarts).toBe(120);
+      expect(metrics.generatorFuelCostUsd).toBe(1850);
+      expect(metrics.generatorVariableMaintenanceCostUsd).toBe(275);
+      expect(metrics.generatorOperatingCostUsd).toBe(2125);
+      expect(metrics.utilityElectricitySavingsUsd).toBe(1700);
+      expect(metrics.netOperationalSavingsUsd).toBe(-425);
+      expect(metrics.modeledUtilityCostUsd).toBe(1900);
+      expect(metrics.modeledTotalOperatingEnergyCostUsd).toBe(4025);
+      expect(metrics.totalOnsiteGenerationKwh).toBe(5500);
+    });
+
+    it('2. mixed solar/wind/generator Results reconcile and maintain strict separation', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 15000,
+        totalSolarGenerationKwh: 6000,
+        totalSolarDirectToLoadKwh: 3000,
+        totalSolarToBatteryKwh: 1500,
+        totalSolarExportKwh: 1200,
+        totalSolarCurtailedKwh: 300,
+
+        totalWindGenerationKwh: 4000,
+        totalWindDirectToLoadKwh: 2000,
+        totalWindToBatteryKwh: 1000,
+        totalWindExportKwh: 800,
+        totalWindCurtailedKwh: 200,
+
+        totalRenewableGenerationKwh: 10000,
+        totalRenewableDirectToLoadKwh: 5000,
+        totalRenewableToBatteryKwh: 2500,
+        totalRenewableExportKwh: 2000,
+        totalRenewableCurtailedKwh: 500,
+
+        generatorGeneratedKwh: 3000,
+        generatorDirectToLoadKwh: 2200,
+        generatorToBatteryKwh: 500,
+        generatorExportKwh: 300,
+        generatorCurtailedKwh: 0,
+        generatorRuntimeHours: 300,
+        generatorStarts: 60,
+
+        generatorFuelCostUsd: 1100,
+        generatorVariableMaintenanceCostUsd: 150,
+        generatorOperatingCostUsd: 1250,
+
+        totalGridImportKwh: 4800,
+        totalBatteryExportKwh: 400,
+        totalGridExportKwh: 2700, // 1200 solar + 800 wind + 300 gen + 400 battery
+
+        baselineCost: 4500,
+        simulatedCost: 1440,
+        netSavings: 3060,
+        utilityElectricitySavingsUsd: 3060,
+        netOperationalSavingsUsd: 1810, // 3060 - 1250
+        modeledUtilityCostUsd: 1440,
+        modeledTotalOperatingEnergyCostUsd: 2690, // 1440 + 1250
+        totalOnsiteGenerationKwh: 13000, // 10000 renewable + 3000 generator
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      // Invariant: Renewable strictly equals Solar + Wind, EXCLUDING generator
+      expect(metrics.renewableGeneratedKwh).toBe(metrics.solarGeneratedKwh + metrics.windGeneratedKwh);
+      expect(metrics.renewableGeneratedKwh).toBe(10000);
+      expect(metrics.renewableGeneratedKwh).not.toContain(metrics.generatorGeneratedKwh);
+
+      // Invariant: Total onsite includes Renewable + Generator
+      expect(metrics.totalOnsiteGenerationKwh).toBe(metrics.renewableGeneratedKwh + (metrics.generatorGeneratedKwh ?? 0));
+      expect(metrics.totalOnsiteGenerationKwh).toBe(13000);
+
+      // Invariant: Renewable export excludes generator export
+      expect(metrics.renewableExportKwh).toBe(metrics.solarExportKwh + metrics.windExportKwh);
+      expect(metrics.renewableExportKwh).toBe(2000);
+      expect(metrics.generatorExportKwh).toBe(300);
+
+      // Invariant: Battery export is distinct from generator export and renewable export
+      expect(metrics.batteryExportKwh).toBe(400);
+      expect(metrics.gridExportKwh).toBe(
+        metrics.solarExportKwh + metrics.windExportKwh + (metrics.generatorExportKwh ?? 0) + metrics.batteryExportKwh
+      );
+      expect(metrics.generatorExportKwh).not.toBe(metrics.batteryExportKwh);
+      expect(metrics.generatorExportKwh).not.toBe(metrics.renewableExportKwh);
+
+      // Economics match engine
+      expect(metrics.generatorFuelCostUsd).toBe(1100);
+      expect(metrics.generatorVariableMaintenanceCostUsd).toBe(150);
+      expect(metrics.generatorOperatingCostUsd).toBe(1250);
+      expect(metrics.utilityElectricitySavingsUsd).toBe(3060);
+      expect(metrics.netOperationalSavingsUsd).toBe(1810);
+      expect(metrics.modeledUtilityCostUsd).toBe(1440);
+      expect(metrics.modeledTotalOperatingEnergyCostUsd).toBe(2690);
+    });
+
+    it('3. fuel cost, variable maintenance, and operating cost match engine exactly', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 8000,
+        totalSolarGenerationKwh: 0,
+        totalWindGenerationKwh: 0,
+        totalRenewableGenerationKwh: 0,
+        generatorGeneratedKwh: 1200,
+        generatorRuntimeHours: 150,
+        generatorStarts: 35,
+        generatorFuelCostUsd: 480.25,
+        generatorVariableMaintenanceCostUsd: 75.50,
+        generatorOperatingCostUsd: 555.75,
+        utilityElectricitySavingsUsd: 650.00,
+        netOperationalSavingsUsd: 94.25,
+        modeledUtilityCostUsd: 1200.00,
+        modeledTotalOperatingEnergyCostUsd: 1755.75,
+        totalGridImportKwh: 6800,
+        totalGridExportKwh: 0,
+        totalBatteryExportKwh: 0,
+        baselineCost: 1850,
+        simulatedCost: 1200,
+        netSavings: 650,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.generatorFuelCostUsd).toBe(480.25);
+      expect(metrics.generatorVariableMaintenanceCostUsd).toBe(75.50);
+      expect(metrics.generatorOperatingCostUsd).toBe(555.75);
+      expect(metrics.utilityElectricitySavingsUsd).toBe(650.00);
+      expect(metrics.netOperationalSavingsUsd).toBe(94.25);
+    });
+
+    it('4. heterogeneous fuel units are preserved per asset and never summed into meaningless combined totals', () => {
+      const summaries = [
+        {
+          assetId: 'gen-ng',
+          assetName: 'Natural Gas Generator',
+          dispatchMode: 'economic' as const,
+          fuelType: 'natural_gas' as const,
+          fuelUnit: 'therm' as const,
+          runningFuelUnits: 200,
+          startupFuelUnits: 14,
+          totalFuelUnits: 214,
+          fuelCostUsd: 321,
+          variableMaintenanceCostUsd: 50,
+          operatingCostUsd: 371,
+          runtimeHours: 100,
+          startCount: 20,
+          starts: 20,
+          generatedKwh: 1000,
+          directToLoadKwh: 900,
+          toBatteryAcKwh: 100,
+          directExportKwh: 0,
+          curtailedKwh: 0,
+        },
+        {
+          assetId: 'gen-diesel',
+          assetName: 'Diesel Standby Generator',
+          dispatchMode: 'scheduled' as const,
+          fuelType: 'diesel' as const,
+          fuelUnit: 'gallon' as const,
+          runningFuelUnits: 95,
+          startupFuelUnits: 3,
+          totalFuelUnits: 98,
+          fuelCostUsd: 392,
+          variableMaintenanceCostUsd: 40,
+          operatingCostUsd: 432,
+          runtimeHours: 50,
+          startCount: 10,
+          starts: 10,
+          generatedKwh: 500,
+          directToLoadKwh: 500,
+          toBatteryAcKwh: 0,
+          directExportKwh: 0,
+          curtailedKwh: 0,
+        },
+      ];
+
+      // Formatted per asset preserves distinct units
+      const assetSummaries = formatGeneratorFuelAssetSummaries(summaries);
+      expect(assetSummaries).toHaveLength(2);
+      expect(assetSummaries[0].assetName).toBe('Natural Gas Generator');
+      expect(assetSummaries[0].fuelString).toBe('214 therms');
+      expect(assetSummaries[1].assetName).toBe('Diesel Standby Generator');
+      expect(assetSummaries[1].fuelString).toBe('98 gallons');
+
+      // Aggregate physical sum must be null for heterogeneous units (therms vs gallons)
+      const aggregateFuel = formatAggregateGeneratorFuel(summaries);
+      expect(aggregateFuel).toBeNull();
+
+      // Aggregate USD cost may be aggregated
+      const totalFuelCostUsd = summaries.reduce((s, a) => s + a.fuelCostUsd, 0);
+      expect(totalFuelCostUsd).toBe(713);
+    });
+
+    it('5. homogeneous fuel units allow physical aggregation', () => {
+      const summaries = [
+        {
+          assetId: 'gen-1',
+          assetName: 'Propane Gen 1',
+          dispatchMode: 'economic' as const,
+          fuelType: 'propane' as const,
+          fuelUnit: 'gallon' as const,
+          runningFuelUnits: 150,
+          startupFuelUnits: 10,
+          totalFuelUnits: 160,
+          fuelCostUsd: 400,
+          variableMaintenanceCostUsd: 30,
+          operatingCostUsd: 430,
+          runtimeHours: 60,
+          startCount: 10,
+          starts: 10,
+          generatedKwh: 600,
+          directToLoadKwh: 600,
+          toBatteryAcKwh: 0,
+          directExportKwh: 0,
+          curtailedKwh: 0,
+        },
+        {
+          assetId: 'gen-2',
+          assetName: 'Propane Gen 2',
+          dispatchMode: 'scheduled' as const,
+          fuelType: 'propane' as const,
+          fuelUnit: 'gallon' as const,
+          runningFuelUnits: 80,
+          startupFuelUnits: 5,
+          totalFuelUnits: 85,
+          fuelCostUsd: 212.5,
+          variableMaintenanceCostUsd: 20,
+          operatingCostUsd: 232.5,
+          runtimeHours: 40,
+          startCount: 5,
+          starts: 5,
+          generatedKwh: 400,
+          directToLoadKwh: 400,
+          toBatteryAcKwh: 0,
+          directExportKwh: 0,
+          curtailedKwh: 0,
+        },
+      ];
+
+      const aggregateFuel = formatAggregateGeneratorFuel(summaries);
+      expect(aggregateFuel).toBe('245 gallons');
+    });
+
+    it('6. standby generator produces zero generation and runtime hours with financial costs preserved', () => {
+      const standbySummary: GeneratorAssetAnnualSummary = {
+        assetId: 'gen-standby',
+        assetName: 'Standby Generator',
+        dispatchMode: 'standby',
+        fuelType: 'diesel',
+        fuelUnit: 'gallon',
+        runningFuelUnits: 0,
+        startupFuelUnits: 0,
+        totalFuelUnits: 0,
+        fuelCostUsd: 0,
+        variableMaintenanceCostUsd: 0,
+        operatingCostUsd: 0,
+        runtimeHours: 0,
+        startCount: 0,
+        starts: 0,
+        generatedKwh: 0,
+        directToLoadKwh: 0,
+        toBatteryAcKwh: 0,
+        directExportKwh: 0,
+        curtailedKwh: 0,
+      };
+
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 10000,
+        totalSolarGenerationKwh: 0,
+        totalWindGenerationKwh: 0,
+        totalRenewableGenerationKwh: 0,
+        generatorGeneratedKwh: 0,
+        generatorDirectToLoadKwh: 0,
+        generatorToBatteryKwh: 0,
+        generatorExportKwh: 0,
+        generatorCurtailedKwh: 0,
+        generatorRuntimeHours: 0,
+        generatorStarts: 0,
+        generatorFuelCostUsd: 0,
+        generatorVariableMaintenanceCostUsd: 0,
+        generatorOperatingCostUsd: 0,
+        generatorAssetSummaries: [standbySummary],
+        totalGridImportKwh: 10000,
+        totalGridExportKwh: 0,
+        totalBatteryExportKwh: 0,
+        baselineCost: 3000,
+        simulatedCost: 3000,
+        netSavings: 0,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.generatorGeneratedKwh).toBe(0);
+      expect(metrics.generatorRuntimeHours).toBe(0);
+      expect(metrics.generatorStarts).toBe(0);
+      expect(metrics.generatorFuelCostUsd).toBe(0);
+      expect(metrics.generatorOperatingCostUsd).toBe(0);
+      expect(metrics.generatorAssetSummaries?.[0].runtimeHours).toBe(0);
+      expect(metrics.generatorAssetSummaries?.[0].generatedKwh).toBe(0);
+    });
+
+    it('7. passive-only compatibility preserves unmodified behavior when no generator is configured', () => {
+      const mockResult: GenerationAwareSimulationResult = {
+        totalHomeLoadKwh: 8000,
+        totalSolarGenerationKwh: 5000,
+        totalSolarDirectToLoadKwh: 2500,
+        totalSolarToBatteryKwh: 1000,
+        totalSolarExportKwh: 1200,
+        totalSolarCurtailedKwh: 300,
+        totalWindGenerationKwh: 0,
+        totalWindDirectToLoadKwh: 0,
+        totalWindToBatteryKwh: 0,
+        totalWindExportKwh: 0,
+        totalWindCurtailedKwh: 0,
+        totalRenewableGenerationKwh: 5000,
+        totalRenewableDirectToLoadKwh: 2500,
+        totalRenewableToBatteryKwh: 1000,
+        totalRenewableExportKwh: 1200,
+        totalRenewableCurtailedKwh: 300,
+        totalGridImportKwh: 4500,
+        totalBatteryExportKwh: 300,
+        totalGridExportKwh: 1500,
+        baselineCost: 2500,
+        simulatedCost: 1100,
+        netSavings: 1400,
+      } as unknown as GenerationAwareSimulationResult;
+
+      const metrics = deriveGenerationOperationalDisplayMetrics(mockResult);
+
+      expect(metrics.solarGeneratedKwh).toBe(5000);
+      expect(metrics.solarExportKwh).toBe(1200);
+      expect(metrics.batteryExportKwh).toBe(300);
+      expect(metrics.gridExportKwh).toBe(1500);
+      expect(metrics.generatorGeneratedKwh).toBeUndefined();
+      expect(metrics.generatorExportKwh).toBeUndefined();
+      expect(metrics.generatorFuelCostUsd).toBeUndefined();
+      expect(metrics.totalOnsiteGenerationKwh).toBe(5000);
     });
   });
 });

@@ -1540,8 +1540,30 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
 
           <div>
             <label className="text-xs text-slate-300 font-medium flex items-center mb-1.5">
+              Startup Fuel ({asset.fuelUnit === 'custom' && asset.customFuelUnitLabel ? asset.customFuelUnitLabel : asset.fuelUnit}s / start)
+              <InfoTooltip text="Additional fuel units consumed per start event to account for engine cranking, cold idle, and thermal warm-up." />
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                step="0.05"
+                value={asset.startupFuelUnits ?? 0}
+                onChange={(e) =>
+                  onUpdate({
+                    startupFuelUnits: Math.max(0, parseFloat(e.target.value) || 0),
+                  })
+                }
+                placeholder="0.00"
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 font-mono focus:outline-none focus:border-purple-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-300 font-medium flex items-center mb-1.5">
               Dispatch Mode
-              <InfoTooltip text="Standby: run only during grid outages. Scheduled: run during designated peak windows. Economic: run whenever grid buy rate exceeds marginal generation cost." />
+              <InfoTooltip text="Standby: run only during grid outages (chronological outages not modeled). Scheduled: fixed weekly operating matrix. Economic: interval-by-interval dispatch when grid buy rate exceeds marginal generation cost." />
             </label>
             <select
               value={asset.dispatchMode}
@@ -1551,11 +1573,29 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
               className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-purple-500"
             >
               <option value="standby">Standby (Outages Only)</option>
-              <option value="scheduled">Scheduled Windows</option>
+              <option value="scheduled">Scheduled Windows (7×24)</option>
               <option value="economic">Economic Price Arbitrage</option>
             </select>
           </div>
         </div>
+
+        {asset.dispatchMode === 'economic' && (
+          <div className="mt-4 p-3 bg-purple-950/20 border border-purple-500/30 rounded-lg text-xs text-purple-200/90 flex items-start gap-2.5">
+            <Info className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <strong className="text-purple-100 font-semibold">Economic Dispatch Semantics:</strong> Dispatches interval-by-interval strictly when the TOU grid buy rate exceeds marginal generation cost (fuel burn at required load, variable maintenance, and amortized startup fuel). Generator output replaces electricity that would otherwise be imported for household load. Battery charging and grid export do not independently trigger generator startup.
+            </div>
+          </div>
+        )}
+
+        {asset.dispatchMode === 'standby' && (
+          <div className="mt-4 p-3 bg-amber-950/20 border border-amber-500/30 rounded-lg text-xs text-amber-200/90 flex items-start gap-2.5">
+            <ShieldAlert className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="leading-relaxed">
+              <strong className="text-amber-100 font-semibold">Standby Operational Disclosure:</strong> VoltWise models grid-tied operation and does not simulate chronological outages because no grid-availability timeline exists. Standby generators do not run during standard grid-connected operation (0 kWh generated, 0 operating hours) and produce no simulated outage energy, autonomy, or resilience savings. Capital expenditure and annual fixed maintenance are fully included in project financial analysis.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Scheduled Generator Editor (when dispatchMode === 'scheduled') */}
@@ -1670,7 +1710,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
                 Allow Battery Charging
               </span>
               <span className="text-[11px] text-slate-400">
-                Reserved for future generator-to-battery dispatch modeling. This setting does not affect current Results.
+                When enabled, surplus generator output above household load during active run intervals may charge the battery up to its maximum continuous charge rate. Note: battery charging needs do not independently justify generator startup.
               </span>
             </div>
           </label>
@@ -1687,7 +1727,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
                 Allow Grid Export
               </span>
               <span className="text-[11px] text-slate-400">
-                Generator grid-parallel export is not modeled yet. This setting is reserved for a future dispatch milestone.
+                When enabled, generator output exceeding household load (and battery charging) is permitted to export to the grid. Note: export economics do not independently justify generator startup.
               </span>
             </div>
           </label>
