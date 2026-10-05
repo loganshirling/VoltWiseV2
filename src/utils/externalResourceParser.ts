@@ -22,11 +22,31 @@ import { isValidIanaTimeZone, resolveTimestampToUtc } from './loadTimeAlignment'
 const MAX_VALIDATION_ERRORS = 25;
 const SPACING_TOLERANCE_MS = 1000;
 
+/**
+ * Produces a stable fallback resource ID from the source content and parse context.
+ * Identical inputs must retain the same identity across parses.
+ */
+function createDeterministicResourceId(
+  kind: ExternalResourceKind,
+  rawCsv: string,
+  sourceTimeZone: string | null
+): string {
+  const input = `${kind}\n${sourceTimeZone ?? ''}\n${rawCsv}`;
+  let hash = 0x811c9dc5;
+
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return `res_${kind}_${(hash >>> 0).toString(36)}`;
+}
+
 export interface ParseExternalResourceOptions {
   csvContent?: string;
   csvText?: string;
   kind?: ExternalResourceKind;
-  sourceTimeZone?: string;
+  sourceTimeZone?: string | null;
   id?: string;
   name?: string;
 }
@@ -75,7 +95,7 @@ export function parseExternalResourceCsv(options: {
   csvContent?: string;
   csvText?: string;
   kind: ExternalResourceKind;
-  sourceTimeZone?: string;
+  sourceTimeZone?: string | null;
   id?: string;
   name?: string;
 }): ExternalResourceParseResult;
@@ -83,17 +103,17 @@ export function parseExternalResourceCsv(options: {
 export function parseExternalResourceCsv(
   csvText: string,
   kind: ExternalResourceKind,
-  options?: { sourceTimeZone?: string; id?: string; name?: string }
+  options?: { sourceTimeZone?: string | null; id?: string; name?: string }
 ): ExternalResourceParseResult;
 
 export function parseExternalResourceCsv(
   param1: string | ParseExternalResourceOptions,
   param2?: ExternalResourceKind,
-  param3?: { sourceTimeZone?: string; id?: string; name?: string }
+  param3?: { sourceTimeZone?: string | null; id?: string; name?: string }
 ): ExternalResourceParseResult {
   let rawCsv: string;
   let kind: ExternalResourceKind;
-  let options: { sourceTimeZone?: string; id?: string; name?: string } = {};
+  let options: { sourceTimeZone?: string | null; id?: string; name?: string } = {};
 
   if (typeof param1 === 'object' && param1 !== null) {
     rawCsv = param1.csvContent ?? param1.csvText ?? '';
@@ -115,7 +135,7 @@ export function parseExternalResourceCsv(
   const createFailureResult = (
     rowCount: number,
     validRowCount: number = 0,
-    timeZone?: string
+    timeZone?: string | null
   ): ExternalResourceParseResult => {
     const validation: ExternalResourceValidationResult = {
       isValid: false,
@@ -404,12 +424,12 @@ export function parseExternalResourceCsv(
 
   const startTimestampUtc = parsedHolders[0].timestampUtc;
   const endTimestampUtc = parsedHolders[parsedHolders.length - 1].timestampUtc;
-  const resolvedTimeZone = effectiveTimeZone || 'UTC';
+  const resolvedTimeZone = effectiveTimeZone || null;
 
   const metadata: ExternalResourceMetadata = {
     id:
       options.id ||
-      `res_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      createDeterministicResourceId(kind, rawCsv, resolvedTimeZone),
     name:
       options.name ||
       (kind === 'solar_irradiance'
@@ -463,7 +483,7 @@ export function parseExternalResourceCsv(
  */
 export function parseSolarIrradianceCsv(
   csvContent: string,
-  options?: { sourceTimeZone?: string; id?: string; name?: string }
+  options?: { sourceTimeZone?: string | null; id?: string; name?: string }
 ): ExternalResourceParseResult<SolarIrradianceDataset> {
   return parseExternalResourceCsv(csvContent, 'solar_irradiance', options) as ExternalResourceParseResult<SolarIrradianceDataset>;
 }
@@ -473,7 +493,7 @@ export function parseSolarIrradianceCsv(
  */
 export function parseWindSpeedCsv(
   csvContent: string,
-  options?: { sourceTimeZone?: string; id?: string; name?: string }
+  options?: { sourceTimeZone?: string | null; id?: string; name?: string }
 ): ExternalResourceParseResult<WindSpeedDataset> {
   return parseExternalResourceCsv(csvContent, 'wind_speed', options) as ExternalResourceParseResult<WindSpeedDataset>;
 }
