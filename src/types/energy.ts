@@ -431,6 +431,7 @@ export interface SolarGenerationAsset extends GenerationAssetBase {
   annualDegradationPercent: number;
 
   resourceMode: SolarResourceMode;
+  externalResourceId?: string | null;
 
   monthlyPeakSunHoursPerDay: number[];
 }
@@ -461,6 +462,7 @@ export interface WindGenerationAsset extends GenerationAssetBase {
   systemLossPercent: number;
 
   resourceMode: WindResourceMode;
+  externalResourceId?: string | null;
 
   measurementHeightM: number;
   windShearExponent: number;
@@ -527,6 +529,71 @@ export type GenerationAsset =
 export interface GenerationConfig {
   site: GenerationSite;
   assets: GenerationAsset[];
+  externalResources?: ExternalResourceDataset[];
+}
+
+// ============================================================================
+// External Resource Data Contracts (Milestone G7A)
+// ============================================================================
+
+export type ExternalResourceKind =
+  | 'solar_irradiance'
+  | 'wind_speed';
+
+export interface ExternalResourceMetadata {
+  id: string;
+  name: string;
+  kind: ExternalResourceKind;
+  sourceTimeZone: string;
+  intervalHours: number;
+  rowCount: number;
+  startTimestampUtc: string;
+  endTimestampUtc: string;
+}
+
+export interface SolarIrradianceRecord {
+  timestampUtc: string;
+  ghiWm2: number;
+  dniWm2: number;
+  dhiWm2: number;
+}
+
+export interface WindSpeedRecord {
+  timestampUtc: string;
+  windSpeedMps: number;
+}
+
+export interface SolarIrradianceDataset extends ExternalResourceMetadata {
+  kind: 'solar_irradiance';
+  records: SolarIrradianceRecord[];
+}
+
+export interface WindSpeedDataset extends ExternalResourceMetadata {
+  kind: 'wind_speed';
+  records: WindSpeedRecord[];
+}
+
+export type ExternalResourceDataset =
+  | SolarIrradianceDataset
+  | WindSpeedDataset;
+
+export interface ExternalResourceValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+  kind: ExternalResourceKind;
+  rowCount: number;
+  validRowCount: number;
+  intervalHours?: number;
+  startTimestampUtc?: string;
+  endTimestampUtc?: string;
+  sourceTimeZone?: string;
+}
+
+export interface ExternalResourceParseResult<T extends ExternalResourceDataset = ExternalResourceDataset>
+  extends ExternalResourceValidationResult {
+  validation: ExternalResourceValidationResult;
+  dataset?: T;
 }
 
 export interface GeneratorAssetAnnualSummary {
