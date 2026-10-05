@@ -362,7 +362,46 @@ describe('G7A — External Resource CSV Parser', () => {
     });
   });
 
-  describe('6. Immutability & Safety', () => {
+  describe('6. Deterministic Metadata', () => {
+    it('uses a deterministic fallback resource ID for identical input', () => {
+      const csv = [
+        'timestamp,wind_speed_mps',
+        '2026-06-01T12:00:00Z,5.0',
+        '2026-06-01T13:00:00Z,6.0',
+      ].join('\n');
+
+      const first = parseWindSpeedCsv(csv);
+      const second = parseWindSpeedCsv(csv);
+
+      expect(first.isValid).toBe(true);
+      expect(second.isValid).toBe(true);
+      expect(first.dataset?.id).toBe(second.dataset?.id);
+    });
+
+    it('keeps sourceTimeZone null for absolute timestamps and preserves an explicit local timezone', () => {
+      const absoluteCsv = [
+        'timestamp,wind_speed_mps',
+        '2026-06-01T12:00:00Z,5.0',
+        '2026-06-01T13:00:00Z,6.0',
+      ].join('\n');
+      const localCsv = [
+        'timestamp,wind_speed_mps',
+        '2026-06-01 08:00,5.0',
+        '2026-06-01 09:00,6.0',
+      ].join('\n');
+
+      const absolute = parseWindSpeedCsv(absoluteCsv);
+      const local = parseWindSpeedCsv(absoluteCsv, { sourceTimeZone: 'America/New_York' });
+      const localWallClock = parseWindSpeedCsv(localCsv, { sourceTimeZone: 'America/New_York' });
+
+      expect(absolute.dataset?.sourceTimeZone).toBeNull();
+      expect(absolute.sourceTimeZone).toBeNull();
+      expect(local.dataset?.sourceTimeZone).toBe('America/New_York');
+      expect(localWallClock.dataset?.sourceTimeZone).toBe('America/New_York');
+    });
+  });
+
+  describe('7. Immutability & Safety', () => {
     it('does not mutate caller options object or input string', () => {
       const originalCsv = [
         'timestamp,wind_speed_mps',
