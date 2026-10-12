@@ -169,13 +169,13 @@
 - Reuse authoritative simulation and projection outputs as expected values; do not duplicate calculation formulas in test assertions or exporters.
 - Test scope expands only after the related corrections (Tasks 1–7) stabilize their contracts.
 
-- [ ] Add a curated nonzero measured-resource period journey with exact aligned data and assert result totals against a checked-in deterministic engine golden.
-- [ ] Add end-to-end import/settings/results/export cases for battery-only, solar, wind, generator, and one mixed configuration; include a tariff schedule boundary and generator fuel-cost case.
-- [ ] After Task 1 path A, add one complete-year file-backed projection journey and Year-1 equality test; for path B, test that period results work and lifecycle projection is clearly disabled.
+- [x] Add a curated nonzero measured-resource period journey with exact aligned data and assert result totals against a checked-in deterministic engine golden.
+- [x] Add end-to-end import/settings/results/export cases for battery-only, solar, wind, generator, and one mixed configuration; include a tariff schedule boundary and generator fuel-cost case.
+- [x] After Task 1 path A, add a complete-year measured-resource projection test and Year-1 equality test using file-backed resource records. Covered by the engine test in `generationProjection.test.ts`; browser upload of a full-year file remains outside this verified journey.
 - [ ] Run production browser smoke on Chromium plus a second supported browser/runtime selected from actual available/tested environments; record untested platforms honestly.
 - [ ] Repeat documented 8,760/35,040 interval and multi-profile/mixed-asset performance measurements across representative lower-memory and reference devices, with multiple trials for latency and peak memory.
-- [ ] Investigate structured-clone costs across projection workers; optimize only if measurements show a material gain and worker/direct parity remains exact within existing numerical tolerances.
-- [ ] Set or retain minimum supported device guidance only from reproducible measurements; retain no-pass claims for missing devices.
+- [x] Investigate structured-clone costs across projection workers; optimize only if measurements show a material gain and worker/direct parity remains exact within existing numerical tolerances. Measured clone serialization was about 1.1% of mixed 25-year executor time, so no protocol optimization was justified; browser postMessage overhead remains unmeasured.
+- [x] Set or retain minimum supported device guidance only from reproducible measurements; retain no-pass claims for missing devices. No lower-memory device was available, so no minimum-device claim is made.
 
 **Acceptance:** Numerical paths have inspectable golden evidence; browser and performance docs clearly distinguish measured passes, skipped/unavailable runtimes, and untested targets.
 
@@ -195,6 +195,8 @@
 - [ ] Select a staging/production host and define only its needed deployment workflow. Verify HTTPS, HSTS where applicable, CSP including Google Fonts, content-type, frame, and referrer headers.
 - [ ] Deploy the exact tested artifact/SHA to staging, run hosted browser smoke and inspect console/network behavior, then execute rollback to the last verified artifact.
 - [ ] Record URLs, SHA256, CI run, header results, smoke result, and rollback evidence in the runbook/release record before stable release.
+
+**Current completion boundary (2026-10-12):** The CI/release workflows and operator instructions are present, and the local dependency audit passes. This environment has no verified repository-administrator access or configured hosting target, so branch enforcement, an actual PR run, security-alert settings, hosted headers, deployment, and rollback remain unverified. Keep Task 9 open until an administrator and hosting operator attach evidence for the checks above.
 
 **Acceptance:** Stable release approval requires enforced branch governance and a verified deployment/rollback. Tag creation or green CI alone does not satisfy deployment qualification.
 
