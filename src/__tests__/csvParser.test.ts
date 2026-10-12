@@ -83,6 +83,64 @@ describe('load CSV validation states and units', () => {
     expect(result.isValid).toBe(false);
   });
 
+  it('rejects unsupported date strings instead of accepting JavaScript-normalized dates', () => {
+    const result = parseAndValidateEnergyCsv(csvRows([
+      'February 30 2025,12:00 AM,1,24,kWh',
+    ]));
+    expect(result.schemaValid).toBe(false);
+  });
+
+  it('rejects an invalid calendar date in the legacy timestamp schema', () => {
+    const result = parseAndValidateEnergyCsv([
+      'Timestamp,Usage kWh',
+      '2025-02-30 00:00,1',
+      '2025-02-30 01:00,1',
+    ].join('\n'));
+
+    expect(result.schemaValid).toBe(false);
+    expect(result.isValid).toBe(false);
+  });
+
+  it('keeps legacy offset-bearing annual eligibility independent of the host timezone', () => {
+    const rows = ['Timestamp,Usage kWh'];
+    for (let hour = 0; hour < 365 * 24; hour += 1) {
+      rows.push(`${new Date(Date.UTC(2025, 0, 1, hour)).toISOString()},1`);
+    }
+    const originalTz = process.env.TZ;
+    try {
+      process.env.TZ = 'America/New_York';
+      const newYork = parseAndValidateEnergyCsv(rows.join('\n'));
+      process.env.TZ = 'Asia/Tokyo';
+      const tokyo = parseAndValidateEnergyCsv(rows.join('\n'));
+      expect(newYork.annualProjectionEligible).toBe(true);
+      expect(tokyo.annualProjectionEligible).toBe(true);
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
+  });
+
+  it('keeps cumulative energy finite when legacy values exceed the numeric sum range', () => {
+    const result = parseAndValidateEnergyCsv([
+      'Timestamp,Usage kWh',
+      '2025-01-01T00:00:00Z,1e308',
+      '2025-01-01T01:00:00Z,1e308',
+    ].join('\n'));
+    expect(result.schemaValid).toBe(false);
+    expect(Number.isFinite(result.totalKwh)).toBe(true);
+  });
+
+  it('rejects peak power that overflows after interval conversion', () => {
+    const result = parseAndValidateEnergyCsv([
+      'Timestamp,Usage kWh',
+      '2025-01-01T00:00:00Z,1e308',
+      '2025-01-01T00:30:00Z,0',
+    ].join('\n'));
+    expect(result.schemaValid).toBe(false);
+    expect(result.operationallySimulatable).toBe(false);
+    expect(Number.isFinite(result.peakKw)).toBe(true);
+  });
+
   it('marks a chronological defect separately from schema validity', () => {
     const result = parseAndValidateEnergyCsv(csvRows([
       '01/01/2025,12:00 AM,1,24,kWh',
@@ -121,5 +179,27 @@ describe('load CSV validation states and units', () => {
     expect(result.schemaValid).toBe(true);
     expect(result.operationallySimulatable).toBe(true);
     expect(result.annualProjectionEligible).toBe(false);
+  });
+
+  it('keeps exact calendar-year eligibility independent of the host timezone', () => {
+    const rows: string[] = [];
+    for (let hour = 0; hour < 365 * 24; hour += 1) {
+      const date = new Date(Date.UTC(2025, 0, 1, hour));
+      const day = `${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}/${date.getUTCFullYear()}`;
+      const time = `${date.getUTCHours() % 12 || 12}:00 ${date.getUTCHours() < 12 ? 'AM' : 'PM'}`;
+      rows.push(`${day},${time},1,24,kWh`);
+    }
+    const originalTz = process.env.TZ;
+    try {
+      process.env.TZ = 'America/New_York';
+      const newYork = parseAndValidateEnergyCsv(csvRows(rows));
+      process.env.TZ = 'Asia/Tokyo';
+      const tokyo = parseAndValidateEnergyCsv(csvRows(rows));
+      expect(newYork.annualProjectionEligible).toBe(true);
+      expect(tokyo.annualProjectionEligible).toBe(true);
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
   });
 });

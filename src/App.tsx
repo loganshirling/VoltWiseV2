@@ -123,7 +123,7 @@ export default function App() {
       !csvResult?.schemaValid ||
       !csvResult.chronologicallyValid ||
       !csvResult.operationallySimulatable ||
-      !generationConfig.assets.some((asset) => asset.enabled)
+      !generationConfig.site.timeZone.trim()
     ) {
       return null;
     }
@@ -205,7 +205,8 @@ export default function App() {
   }, [unifiedResults]);
 
   const isSuitableForAnnual = Boolean(
-    csvResult?.annualProjectionEligible
+    csvResult?.annualProjectionEligible &&
+    siteLoadAlignmentEligibility?.operationallySimulatable !== false
   );
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0];
@@ -225,7 +226,7 @@ export default function App() {
       !csvResult ||
       !csvResult.schemaValid ||
       !csvResult.chronologicallyValid ||
-      !csvResult.annualProjectionEligible ||
+      !isSuitableForAnnual ||
       csvResult.data.length === 0 ||
       !activeUnifiedResult ||
       activeUnifiedResult.mode !== 'generation-aware'
@@ -335,7 +336,7 @@ export default function App() {
       !csvResult ||
       !csvResult.schemaValid ||
       !csvResult.chronologicallyValid ||
-      !csvResult.annualProjectionEligible ||
+      !isSuitableForAnnual ||
       csvResult.data.length === 0 ||
       Object.keys(allSimulationSummaries).length === 0
     ) {

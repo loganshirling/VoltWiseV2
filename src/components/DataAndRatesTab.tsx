@@ -131,6 +131,13 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
     siteAlignmentEligibility?.operationallySimulatable !== false
   );
   const simulationReadinessReason = siteAlignmentEligibility?.reason;
+  const lifecycleReady = Boolean(
+    csvResult?.annualProjectionEligible &&
+    siteAlignmentEligibility?.operationallySimulatable !== false
+  );
+  const lifecycleReadinessReason = siteAlignmentEligibility?.operationallySimulatable === false
+    ? siteAlignmentEligibility.reason
+    : csvResult?.completeness?.reason || 'a complete, continuous calendar year is required.';
   const currentTouProfile =
     touProfiles.find((p) => p.id === activeTouProfileId) || touProfiles[0];
 
@@ -972,10 +979,10 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                         ? 'This continuous interval dataset can be simulated for its covered period.'
                         : simulationReadinessReason || 'This dataset cannot be simulated until missing or irregular intervals are resolved.'}
                     </p>
-                    <p className={csvResult.annualProjectionEligible ? 'text-emerald-300' : 'text-amber-200'}>
-                      {csvResult.annualProjectionEligible
+                    <p className={lifecycleReady ? 'text-emerald-300' : 'text-amber-200'}>
+                      {lifecycleReady
                         ? 'Exact full-calendar-year coverage is available for lifecycle projections.'
-                        : `Lifecycle projections are unavailable: ${csvResult.completeness?.reason || 'a complete, continuous calendar year is required.'}`}
+                        : `Lifecycle projections are unavailable: ${lifecycleReadinessReason}`}
                     </p>
                   </div>
                 )}

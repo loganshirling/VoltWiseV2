@@ -32,6 +32,12 @@ function parseFiniteNumber(raw: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function roundFinite(value: number, digits: number): number {
+  const scale = 10 ** digits;
+  const rounded = Math.round(value * scale) / scale;
+  return Number.isFinite(rounded) ? rounded : value;
+}
+
 /**
  * Robust date parser supporting MM/DD/YYYY, YYYY-MM-DD, M/D/YYYY, etc.
  */
@@ -60,17 +66,13 @@ function parseDayString(raw: string): ParsedDay | null {
     }
   }
 
-  // Fallback JavaScript date parse
-  const d = new Date(trimmed);
-  if (!isNaN(d.getTime())) {
-    return {
-      year: d.getFullYear(),
-      month: d.getMonth() + 1,
-      day: d.getDate(),
-    };
-  }
-
   return null;
+}
+
+function calendarCoordinate(timestamp: string): number | null {
+  const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?/);
+  if (!match) return null;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5]), Number(match[6] ?? 0), Number((match[7] ?? '').padEnd(3, '0').slice(0, 3) || 0));
 }
 
 /**
@@ -371,6 +373,16 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
       const usageKwh = hourlyVal * multiplier;
       const reportedDailyKwh = dailyVal * multiplier;
+      if (!Number.isFinite(usageKwh) || !Number.isFinite(reportedDailyKwh) ||
+          !Number.isFinite(Math.round(usageKwh * 1000) / 1000) ||
+          !Number.isFinite(totalKwh + usageKwh)) {
+        schemaValid = false;
+        if (errorCount < maxErrorsToCollect) {
+          errors.push(`Row ${rowNum}: Converted energy value exceeds the supported finite numeric range.`);
+        }
+        errorCount++;
+        continue;
+      }
 
       // Construct Date
       const dateObj = new Date(
@@ -456,8 +468,17 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       const [rawTs, rawUsage] = cols;
       const normalizedTs = rawTs.replace(' ', 'T');
       const parsedDate = new Date(normalizedTs);
+      const timestampParts = rawTs.trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/i);
+      const calendarDay = timestampParts && {
+        year: Number(timestampParts[1]),
+        month: Number(timestampParts[2]),
+        day: Number(timestampParts[3]),
+      };
+      const calendarTimeValid = !!timestampParts && isValidCalendarDay(calendarDay!) &&
+        Number(timestampParts[4]) <= 23 && Number(timestampParts[5]) <= 59 &&
+        Number(timestampParts[6] ?? 0) <= 59;
 
-      if (isNaN(parsedDate.getTime())) {
+      if (isNaN(parsedDate.getTime()) || !calendarTimeValid) {
         schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Invalid timestamp "${rawTs}". Format must be YYYY-MM-DD HH:mm.`);
@@ -466,7 +487,16 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
         continue;
       }
 
-      const timeMs = parsedDate.getTime();
+      // Treat timestamps without an explicit offset as wall-clock coordinates
+      // for dataset cadence checks, independent of the browser's host timezone.
+      const hasExplicitOffset = !!timestampParts?.[7];
+      const timeMs = hasExplicitOffset
+        ? parsedDate.getTime()
+        : Date.UTC(
+            Number(timestampParts![1]), Number(timestampParts![2]) - 1,
+            Number(timestampParts![3]), Number(timestampParts![4]),
+            Number(timestampParts![5]), Number(timestampParts![6] ?? 0),
+          );
       const canonicalKey = rawTs.trim();
 
       if (seenTimestamps.has(canonicalKey)) {
@@ -505,6 +535,13 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Invalid usage_kwh "${rawUsage}". Must be a positive number.`);
         }
+        errorCount++;
+        continue;
+      }
+
+      if (!Number.isFinite(totalKwh + usage)) {
+        schemaValid = false;
+        if (errorCount < maxErrorsToCollect) errors.push(`Row ${rowNum}: Cumulative energy exceeds the supported finite numeric range.`);
         errorCount++;
         continue;
       }
@@ -549,7 +586,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       warnings,
       totalRows: lines.length - 1,
       validRows: dataPoints.length,
-      totalKwh: Math.round(totalKwh * 100) / 100,
+      totalKwh: roundFinite(totalKwh, 2),
       intervalHours: 1,
       peakKw: 0,
       data: [],
@@ -631,6 +668,10 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   // Dataset completeness evaluation
   const firstDate = dataPoints[0]?.date;
   const lastDate = dataPoints[dataPoints.length - 1]?.date;
+  const firstCalendarMs = dataPoints[0] ? calendarCoordinate(dataPoints[0].timestamp) : null;
+  const lastCalendarMs = dataPoints.length ? calendarCoordinate(dataPoints[dataPoints.length - 1].timestamp) : null;
+  const firstCalendarDate = firstCalendarMs === null ? null : new Date(firstCalendarMs);
+  const lastCalendarDate = lastCalendarMs === null ? null : new Date(lastCalendarMs);
   const modalStepMs = intervalHours * 3600 * 1000;
 
   let durationDays = 0;
@@ -639,17 +680,17 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   let isSuitableForAnnualProjection = false;
   let unsuitabilityReason: string | undefined = undefined;
 
-  if (firstDate && lastDate) {
-    const totalSpanMs = lastDate.getTime() - firstDate.getTime() + modalStepMs;
+  if (firstDate && lastDate && firstCalendarDate && lastCalendarDate) {
+    const totalSpanMs = lastCalendarMs! - firstCalendarMs! + modalStepMs;
     durationDays = Math.round((totalSpanMs / (24 * 3600 * 1000)) * 10) / 10;
     expectedIntervalCount = Math.round(totalSpanMs / modalStepMs);
 
     // Check if the range spans a leap day (Feb 29)
-    for (let y = firstDate.getFullYear(); y <= lastDate.getFullYear(); y++) {
+    for (let y = firstCalendarDate.getUTCFullYear(); y <= lastCalendarDate.getUTCFullYear(); y++) {
       const isYearLeap = (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0);
       if (isYearLeap) {
-        const feb29 = new Date(y, 1, 29, 12, 0, 0);
-        if (feb29 >= firstDate && feb29 <= lastDate) {
+        const feb29 = Date.UTC(y, 1, 29, 12, 0, 0);
+        if (feb29 >= firstCalendarMs! && feb29 <= lastCalendarMs!) {
           isLeapYear = true;
           break;
         }
@@ -661,11 +702,12 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
     const operationallySimulatable = dataPoints.length >= 2 &&
       schemaValid && chronologicallyValid &&
       totalMissingIntervals === 0 && inconsistentIntervalsCount === 0;
-    const beginsAtCalendarYear = firstDate.getMonth() === 0 &&
-      firstDate.getDate() === 1 && firstDate.getHours() === 0 && firstDate.getMinutes() === 0;
-    const endsAtCalendarYear = lastDate.getFullYear() === firstDate.getFullYear() &&
-      lastDate.getMonth() === 11 && lastDate.getDate() === 31 &&
-      lastDate.getHours() * 60 + lastDate.getMinutes() === 1440 - intervalHours * 60;
+    const beginsAtCalendarYear = firstCalendarDate.getUTCMonth() === 0 &&
+      firstCalendarDate.getUTCDate() === 1 && firstCalendarDate.getUTCHours() === 0 && firstCalendarDate.getUTCMinutes() === 0 &&
+      firstCalendarDate.getUTCSeconds() === 0 && firstCalendarDate.getUTCMilliseconds() === 0;
+    const endsAtCalendarYear = lastCalendarDate.getUTCFullYear() === firstCalendarDate.getUTCFullYear() &&
+      lastCalendarDate.getUTCMonth() === 11 && lastCalendarDate.getUTCDate() === 31 &&
+      lastCalendarMs === Date.UTC(firstCalendarDate.getUTCFullYear() + 1, 0, 1) - modalStepMs;
 
     // Lifecycle projections require one exact, continuous calendar year.
     if (durationDays < 360) {
@@ -692,6 +734,15 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
     }
   }
 
+  const peakKw = intervalHours > 0 ? maxUsageKwh / intervalHours : maxUsageKwh;
+  const peakOverflow = !Number.isFinite(peakKw);
+  if (peakOverflow) {
+    schemaValid = false;
+    isSuitableForAnnualProjection = false;
+    unsuitabilityReason = 'Peak power exceeds the supported finite numeric range.';
+    warnings.push(unsuitabilityReason);
+  }
+
   const completeness: DatasetCompleteness = {
     startDate: dataPoints[0]?.timestamp || '',
     endDate: dataPoints[dataPoints.length - 1]?.timestamp || '',
@@ -711,7 +762,6 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
     unsuitabilityReason,
   };
 
-  const peakKw = intervalHours > 0 ? maxUsageKwh / intervalHours : maxUsageKwh;
   const operationallySimulatable = dataPoints.length >= 2 && schemaValid &&
     chronologicallyValid && totalMissingIntervals === 0 && inconsistentIntervalsCount === 0;
 
@@ -721,15 +771,15 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
     operationallySimulatable,
     annualProjectionEligible: isSuitableForAnnualProjection && operationallySimulatable,
     isValid: schemaValid && chronologicallyValid,
-    errors: [],
+    errors: peakOverflow ? ['Peak power exceeds the supported finite numeric range.'] : [],
     warnings,
     totalRows: lines.length - 1,
     validRows: dataPoints.length,
-    totalKwh: Math.round(totalKwh * 100) / 100,
+    totalKwh: roundFinite(totalKwh, 2),
     intervalHours,
     startDate: dataPoints[0]?.timestamp,
     endDate: dataPoints[dataPoints.length - 1]?.timestamp,
-    peakKw: Math.round(peakKw * 100) / 100,
+    peakKw: peakOverflow ? 0 : roundFinite(peakKw, 2),
     data: dataPoints,
     schemaDetected,
     completeness,
