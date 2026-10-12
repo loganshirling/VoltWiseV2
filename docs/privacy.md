@@ -8,7 +8,7 @@ The static page itself must be downloaded from its hosting origin. Hosting provi
 
 ## Files and persistence
 
-Selected CSVs are read in memory by the browser. VoltWise does not save project inputs to application storage across reloads. **Save Project** creates a downloadable JSON archive containing the current configuration, load CSV/provenance, financial assumptions, site time zone, and any imported resource intervals. The separate analysis export contains results and their assumptions. The user chooses where those files are saved; they are ordinary local files and are not encrypted by the application. Protect, back up, or delete them using the operating system's normal file tools.
+Selected CSVs are read in memory by the browser. VoltWise does not save project inputs to application storage across reloads, and it does not add automatic local or cloud recovery. The interface tracks unsaved edits in memory, warns before discarding them, and asks the browser to warn when closing or reloading a dirty workspace. **Save Project** creates a downloadable JSON archive containing the current configuration, load CSV/provenance, financial assumptions, site time zone, and any imported resource intervals. The separate analysis export contains results and their assumptions. The user chooses where those files are saved; they are ordinary local files and are not encrypted by the application. Protect, back up, or delete them using the operating system's normal file tools.
 
 Reset clears active project data in the page; it does not delete archives or exported files already downloaded. Closing or reloading the page discards the in-memory workspace unless it was saved by the user. VoltWise does not automatically transmit input data when saving or exporting.
 

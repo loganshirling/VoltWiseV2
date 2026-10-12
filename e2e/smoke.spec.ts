@@ -100,9 +100,11 @@ async function completePendingResourceRead(page: Page) {
 test('covers sample, imports, settings, results, local save/open, export, and reset at mobile width', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('dialog', (dialog) => dialog.accept());
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
@@ -174,7 +176,6 @@ test('covers sample, imports, settings, results, local save/open, export, and re
   const projectPath = await projectDownload.path();
   const archiveBytes = (await stat(projectPath!)).size;
   expect(projectPath).toBeTruthy();
-  page.on('dialog', (dialog) => dialog.accept());
   const archiveImportStartedAt = Date.now();
   await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(projectPath!);
   await expect(page.getByRole('status').filter({ hasText: /^Opened / })).toBeVisible();
@@ -304,9 +305,11 @@ test('rejects invalid project archives atomically and navigates a valid archive 
 test('supersedes pending load reads when a sample, reset, or project opening is selected', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('dialog', (dialog) => dialog.accept());
   await installDelayedLoadReader(page);
   await page.goto('/');
   await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
 
   const olderCsv = validLoadCsv;
   const newerCsv = validLoadCsv.replace(',1,24,kWh', ',10,33,kWh').replace(',1.2,24,kWh', ',11,33,kWh').replace(',0.8,24,kWh', ',12,33,kWh');
@@ -315,6 +318,7 @@ test('supersedes pending load reads when a sample, reset, or project opening is 
   await completePendingLoadRead(page, 'newer-load.csv');
   await completePendingLoadRead(page, 'older-load.csv');
   await expect(page.getByRole('main').getByText('33 kWh', { exact: true })).toBeVisible();
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
 
   await startDelayedLoadRead(page);
   await page.getByRole('main').getByRole('button', { name: 'Load synthetic 8,760h sample' }).click();
@@ -322,10 +326,12 @@ test('supersedes pending load reads when a sample, reset, or project opening is 
   await completePendingLoadRead(page);
   await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
   await expect(page.getByText(/active dataset is unchanged/i)).toHaveCount(0);
+  await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
 
   await startDelayedLoadRead(page);
   await page.getByRole('button', { name: 'Reset all project data, including load and solar/wind resource files' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'No load dataset is active.' })).toBeVisible();
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
   await completePendingLoadRead(page);
   await expect(page.getByRole('status').filter({ hasText: 'No load dataset is active.' })).toBeVisible();
 
@@ -334,13 +340,13 @@ test('supersedes pending load reads when a sample, reset, or project opening is 
     page.waitForEvent('download'), page.getByRole('button', { name: 'Save Project' }).click(),
   ]);
   const savedPath = await download.path();
-  page.on('dialog', (dialog) => dialog.accept());
   await startDelayedLoadRead(page);
   await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(savedPath!);
   await expect(page.getByRole('status').filter({ hasText: /^Opened / })).toBeVisible();
   await completePendingLoadRead(page);
   await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
   await expect(page.getByText(/active dataset is unchanged/i)).toHaveCount(0);
+  await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
 
@@ -396,6 +402,99 @@ test('load reader errors and aborts report recoverably without discarding active
   });
   await expect(page.getByText(/reading abort-load\.csv was canceled/i)).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+});
+
+test('tracks unsaved project edits and guards save, open, reset, and browser close', async ({ page }) => {
+  await page.addInitScript(() => {
+    const listeners = new Set<EventListenerOrEventListenerObject>();
+    const add = window.addEventListener.bind(window);
+    const remove = window.removeEventListener.bind(window);
+    Object.defineProperty(window, '__beforeUnloadCount', { value: 0, writable: true });
+    window.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+      if (type === 'beforeunload') {
+        listeners.add(listener);
+        (window as unknown as Window & { __beforeUnloadCount: number }).__beforeUnloadCount = listeners.size;
+      }
+      add(type, listener, options);
+    }) as typeof window.addEventListener;
+    window.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+      if (type === 'beforeunload') {
+        listeners.delete(listener);
+        (window as unknown as Window & { __beforeUnloadCount: number }).__beforeUnloadCount = listeners.size;
+      }
+      remove(type, listener, options);
+    }) as typeof window.removeEventListener;
+  });
+  await page.goto('/');
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'), page.getByRole('button', { name: 'Save Project' }).click(),
+  ]);
+  const savedPath = await download.path();
+  await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
+
+  await openTab(page, '2. Battery Profiles');
+  const capacity = page.getByLabel('Total storage capacity (kWh)');
+  await capacity.fill('13');
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as Window & { __beforeUnloadCount: number }).__beforeUnloadCount)).toBe(1);
+
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('not-a-timezone');
+  await openTab(page, '1. Data & TOU Rates');
+  await page.getByRole('button', { name: 'Save Project' }).click();
+  await expect(page.getByText(/Invalid project archive: project\.generationConfig\.site\.timeZone/i)).toBeVisible();
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save Project' }).click()]);
+  await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as Window & { __beforeUnloadCount: number }).__beforeUnloadCount)).toBe(0);
+  expect(await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  })).toBe(false);
+
+  await openTab(page, '2. Battery Profiles');
+  await capacity.fill('14');
+  await openTab(page, '1. Data & TOU Rates');
+  const cancelOpenDialog = page.waitForEvent('dialog').then((dialog) => dialog.dismiss());
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(savedPath!);
+  await cancelOpenDialog;
+  await expect(page.getByText(/Open canceled/i)).toBeVisible();
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
+  await openTab(page, '2. Battery Profiles');
+  await expect(capacity).toHaveValue('14');
+
+  await openTab(page, '1. Data & TOU Rates');
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles({
+    name: 'invalid.json', mimeType: 'application/json', buffer: Buffer.from('{ invalid'),
+  });
+  await expect(page.getByRole('alert')).toContainText(/not valid JSON/i);
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
+  await openTab(page, '2. Battery Profiles');
+  await expect(capacity).toHaveValue('14');
+  expect(await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  })).toBe(true);
+
+  const acceptResetDialog = page.waitForEvent('dialog').then((dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Reset all project data, including load and solar/wind resource files' }).click();
+  await acceptResetDialog;
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible();
+
+  const acceptReplacementDialog = page.waitForEvent('dialog').then((dialog) => dialog.accept());
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(savedPath!);
+  await acceptReplacementDialog;
+  await expect(page.getByRole('status').filter({ hasText: /^Opened / })).toBeVisible();
+  await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
 });
 
 test('gives numeric controls accessible names across data, batteries, and every generation asset type', async ({ page }) => {

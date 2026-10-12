@@ -50,6 +50,22 @@ import { createSimulationWorkerClient, SimulationRunResult, SimulationTaskHandle
 import { SimulationJobInput, SimulationJobResult } from './utils/simulationWorkerJob';
 import { Zap, ChevronRight, Activity, ArrowRight, Bookmark, AlertTriangle } from 'lucide-react';
 
+function fingerprintProjectState(state: ProjectArchiveState): string {
+  return JSON.stringify([
+    state.profiles,
+    state.activeProfileId,
+    state.touProfiles,
+    state.activeTouProfileId,
+    state.tiers,
+    state.scheduleMatrix,
+    state.generationConfig,
+    state.allowSolarExport,
+    state.financials,
+    state.loadDataCsv,
+    state.loadDataSource,
+  ]);
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'data' | 'profiles' | 'generation' | 'financials' | 'results'>('results');
 
@@ -77,6 +93,7 @@ export default function App() {
   const [loadDataSource, setLoadDataSource] = useState<LoadDataSource | null>(null);
   const [loadImportError, setLoadImportError] = useState<string | null>(null);
   const [isReadingLoadFile, setIsReadingLoadFile] = useState(false);
+  const [savedProjectFingerprint, setSavedProjectFingerprint] = useState<string | null>(null);
   const loadImportGeneration = useRef(0);
   const activeLoadReader = useRef<FileReader | null>(null);
   const [simulationWorkerClient] = useState(() => createSimulationWorkerClient());
@@ -172,6 +189,7 @@ export default function App() {
 
   // Quick load 8,760h realistic sample
   const handleLoadSample = () => {
+    if (isDirty && !window.confirm('Loading the synthetic sample replaces your current load data. Continue and discard your unsaved changes?')) return;
     invalidatePendingLoadRead();
     setLoadImportError(null);
     const { rawCsv } = generateRealistic8760Dataset();
@@ -183,6 +201,7 @@ export default function App() {
 
   // Reset data handler
   const handleResetData = () => {
+    if (isDirty && !window.confirm('Reset the project and discard its unsaved changes?')) return;
     invalidatePendingLoadRead();
     setLoadImportError(null);
     setCsvResult(null);
@@ -372,6 +391,7 @@ export default function App() {
     setLoadDataCsv(project.loadDataCsv);
     setLoadDataSource(project.loadDataSource);
     setCsvResult(project.csvResult);
+    setSavedProjectFingerprint(fingerprintProjectState(project));
     setActiveTab('data');
   };
 
@@ -389,6 +409,34 @@ export default function App() {
     loadDataSource,
   };
 
+  const currentProjectFingerprint = useMemo(
+    () => fingerprintProjectState(projectState),
+    [profiles, activeProfileId, touProfiles, activeTouProfileId, tiers, scheduleMatrix, generationConfig, allowSolarExport, financials, loadDataCsv, loadDataSource]
+  );
+  const isDirty = savedProjectFingerprint !== null && savedProjectFingerprint !== currentProjectFingerprint;
+  const dirtyStateRef = useRef(isDirty);
+  dirtyStateRef.current = isDirty;
+
+  useEffect(() => {
+    if (savedProjectFingerprint === null && loadDataSource === 'synthetic_sample') {
+      setSavedProjectFingerprint(currentProjectFingerprint);
+    }
+  }, [savedProjectFingerprint, loadDataSource, currentProjectFingerprint]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [isDirty]);
+
+  const handleProjectSaved = (state: ProjectArchiveState) => {
+    setSavedProjectFingerprint(fingerprintProjectState(state));
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-emerald-500/20 selection:text-emerald-400">
       {/* 3-Zone Top Navigation Contract */}
@@ -400,6 +448,11 @@ export default function App() {
         hasData={Boolean(csvResult?.operationallySimulatable)}
         totalKwh={csvResult?.totalKwh || 0}
       />
+      <div role="status" aria-live="polite" className={`border-b px-4 py-1.5 text-center text-xs ${isDirty ? 'border-amber-500/30 bg-amber-950/30 text-amber-200' : 'border-emerald-500/20 bg-emerald-950/20 text-emerald-200/80'}`}>
+        {isDirty
+          ? <><strong>Unsaved changes</strong><span> · Save a project file to keep them.</span></>
+          : 'No unsaved changes'}
+      </div>
 
       {/* Main Viewport Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -549,6 +602,8 @@ export default function App() {
             annualProjectionReason={annualProjectionEligibility.reason}
             onFileUpload={handleFileUpload}
               onProjectOpening={invalidatePendingLoadRead}
+              getIsDirty={() => dirtyStateRef.current}
+              onProjectSaved={handleProjectSaved}
               loadImportError={loadImportError}
               isReadingLoadFile={isReadingLoadFile}
             onLoadSample={handleLoadSample}

@@ -8,9 +8,11 @@ interface ProjectFileControlsProps {
   projectState: ProjectArchiveState;
   onProjectLoaded: (project: ValidatedProjectState) => void;
   onProjectOpening: () => void;
+  getIsDirty: () => boolean;
+  onProjectSaved: (state: ProjectArchiveState) => void;
 }
 
-export const ProjectFileControls: React.FC<ProjectFileControlsProps> = ({ projectState, onProjectLoaded, onProjectOpening }) => {
+export const ProjectFileControls: React.FC<ProjectFileControlsProps> = ({ projectState, onProjectLoaded, onProjectOpening, getIsDirty, onProjectSaved }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const openRequestId = useRef(0);
   const [status, setStatus] = useState<{ kind: 'status' | 'error'; message: string } | null>(null);
@@ -28,6 +30,7 @@ export const ProjectFileControls: React.FC<ProjectFileControlsProps> = ({ projec
       link.click();
       document.body.removeChild(link);
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      onProjectSaved(projectState);
       setStatus({ kind: 'status', message: 'Project file saved to your browser downloads.' });
     } catch (error) {
       setStatus({ kind: 'error', message: error instanceof Error ? error.message : 'Project could not be saved.' });
@@ -47,8 +50,11 @@ export const ProjectFileControls: React.FC<ProjectFileControlsProps> = ({ projec
       }
       const project = await parseProjectArchive(await file.text());
       if (openRequestId.current !== requestId) return;
+      const hasUnsavedChanges = getIsDirty();
       const confirmed = window.confirm(
-        'Opening this project replaces your current load data, battery and tariff settings, generation assets and resource files, and financial assumptions. Save your current project first if you want to keep it. Continue?'
+        hasUnsavedChanges
+          ? 'You have unsaved changes. Opening this project replaces them with the selected archive. Save your current project first if you want to keep those changes. Continue?'
+          : 'Opening this project replaces your current load data, battery and tariff settings, generation assets and resource files, and financial assumptions. Save your current project first if you want to keep it. Continue?'
       );
       if (!confirmed) {
         if (openRequestId.current !== requestId) return;

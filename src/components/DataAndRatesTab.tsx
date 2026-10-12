@@ -62,6 +62,8 @@ interface DataAndRatesTabProps {
   annualProjectionReason?: string;
   onFileUpload: (file: File) => void;
   onProjectOpening: () => void;
+  getIsDirty: () => boolean;
+  onProjectSaved: (state: ProjectArchiveState) => void;
   loadImportError: string | null;
   isReadingLoadFile: boolean;
   onLoadSample: () => void;
@@ -142,6 +144,8 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   annualProjectionReason,
   onFileUpload,
   onProjectOpening,
+  getIsDirty,
+  onProjectSaved,
   loadImportError,
   isReadingLoadFile,
   onLoadSample,
@@ -785,7 +789,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
 
   return (
     <div className="space-y-10" onMouseUp={handleMouseUp}>
-      <ProjectFileControls projectState={projectState} onProjectLoaded={onProjectLoaded} onProjectOpening={onProjectOpening} />
+      <ProjectFileControls projectState={projectState} onProjectLoaded={onProjectLoaded} onProjectOpening={onProjectOpening} getIsDirty={getIsDirty} onProjectSaved={onProjectSaved} />
       <div role="status" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
         {loadDataSource === 'synthetic_sample' ? (
           <><strong className="text-amber-300">Illustrative synthetic sample.</strong> These generated intervals are not your household measurements. Upload your own CSV to replace them.</>

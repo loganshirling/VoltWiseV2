@@ -134,11 +134,11 @@
 - Track whether the active project differs from the last explicitly saved/opened state, without serializing user data to cloud services or browser storage by default.
 - Expose dirty/saved status and guard destructive navigation/replacement actions; use `beforeunload` only for browser tab/window close.
 
-- [ ] Define dirty-state semantics for sample initialization, field edits, successful save, successful open, canceled/failed save, reset, and archive replacement.
-- [ ] Add failing tests for dirty status, successful save clearing dirty state, and canceled/invalid open leaving existing dirty data intact.
-- [ ] Show clear saved/unsaved status and a confirmation before destructive in-app reset/open when edits would be lost.
-- [ ] Add/remove a `beforeunload` handler only while dirty; test install/cleanup so it cannot leak across mounts.
-- [ ] Update privacy/setup docs to state that recovery remains download-based and no automatic browser/cloud persistence was added.
+- [x] Define dirty-state semantics for sample initialization, field edits, successful save, successful open, canceled/failed save, reset, and archive replacement.
+- [x] Add failing tests for dirty status, successful save clearing dirty state, and canceled/invalid open leaving existing dirty data intact.
+- [x] Show clear saved/unsaved status and a confirmation before destructive in-app reset/open when edits would be lost.
+- [x] Add/remove a `beforeunload` handler only while dirty; test install/cleanup so it cannot leak across mounts.
+- [x] Update privacy/setup docs to state that recovery remains download-based and no automatic browser/cloud persistence was added.
 
 **Acceptance:** Users receive a clear warning before closing or replacing unsaved work; no project contents are persisted without an explicit user action.
 
