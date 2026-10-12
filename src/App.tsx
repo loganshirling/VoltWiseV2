@@ -35,6 +35,7 @@ import {
   getHeaderPaybackText,
 } from './utils/simulationEngine';
 import { createDefaultGenerationConfig } from './utils/generationDefaults';
+import { formatEnabledGenerationLabels, formatUsdAmount } from './utils/generationLabels';
 import {
   deriveAnalysisState,
   aggregateGenerationProjectCosts,
@@ -507,13 +508,15 @@ export default function App() {
               <span>·</span>
               <span>
                 Project:{' '}
-                <strong className="text-slate-200">{activeProfile.name} + Generation</strong>
+                <strong className="text-slate-200">{activeProfile.name} + {formatEnabledGenerationLabels(generationConfig)}</strong>
               </span>
               <span>·</span>
               <span>
-                {getHeaderSavingsLabel(true)}:{' '}
+                {generationConfig.assets.some((asset) => asset.enabled && asset.type === 'generator') ? 'Year 1 Net Operational Value' : 'Year 1 Utility Electricity Savings'}:{' '}
                 <strong className="text-emerald-400 font-mono">
-                  ${activeGenerationAnalysis.year1ElectricitySavingsUsd.toLocaleString()}/yr
+                  {formatUsdAmount(generationConfig.assets.some((asset) => asset.enabled && asset.type === 'generator')
+                    ? activeGenerationAnalysis.year1NetOperationalSavingsUsd ?? (activeGenerationAnalysis.year1UtilityElectricitySavingsUsd ?? activeGenerationAnalysis.year1ElectricitySavingsUsd) - (activeGenerationAnalysis.year1GeneratorOperatingCostUsd ?? 0)
+                    : activeGenerationAnalysis.year1UtilityElectricitySavingsUsd ?? activeGenerationAnalysis.year1ElectricitySavingsUsd)}/yr
                 </strong>
               </span>
               <span>·</span>

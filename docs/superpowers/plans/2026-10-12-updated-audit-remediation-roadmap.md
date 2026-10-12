@@ -152,10 +152,10 @@
 - A shared selector maps enabled asset types to display names; configured standby assets remain represented even when output is zero.
 - Separate avoided utility-electricity cost from net operating value after generator fuel and maintenance. UI and JSON use consistent names and figures.
 
-- [ ] Add failing heading cases for generator-only, solar+generator, wind+generator, all assets, and enabled standby with zero generation.
-- [ ] Implement display selection from enabled assets, not generation values alone.
-- [ ] Add a generator case where marginal fuel/maintenance exceeds avoided imports; assert labels, values, and totals in App headline, Results, JSON export, and cash flow.
-- [ ] Keep bill-scope disclaimers and user-entered cost assumptions visible at the point of interpretation.
+- [x] Add selector cases for generator-only, solar+generator, wind+generator, all assets, disabled assets, and enabled standby with zero generation.
+- [x] Implement display selection from enabled assets, not generation values alone.
+- [x] Add a generator case where marginal fuel/maintenance exceeds avoided imports; verify net operational value and cash flow, align JSON fields, and wire App/Results labels and values to those authoritative finance fields.
+- [x] Keep bill-scope disclaimers and user-entered cost assumptions visible at the point of interpretation.
 
 **Acceptance:** Asset headings match configuration and generator scenarios cannot present avoided imports as net savings after generator operating cost.
 

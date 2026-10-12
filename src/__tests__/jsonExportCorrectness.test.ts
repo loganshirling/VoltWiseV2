@@ -3099,6 +3099,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
       expect(row1.generator_operating_cost_usd).toBe(2000);
       expect(row1.utility_electricity_savings_usd).toBe(1800);
       expect(row1.net_operational_savings_usd).toBe(-200);
+      expect(row1.electricity_savings_usd).toBe(row1.utility_electricity_savings_usd);
       expect(row1.modeled_total_operating_energy_cost_usd).toBe(3800);
     });
 

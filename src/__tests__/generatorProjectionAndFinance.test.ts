@@ -797,7 +797,7 @@ describe('G6D — Multi-Year Projection & Lifecycle Financial Integration', () =
       expect(costs.annualGenerationMaintenanceUsd).toBe(0);
     });
 
-    it('21. Fixed generator O&M is deducted through annualMaintenanceCostUsd once per year', () => {
+    it('21. Higher generator run cost makes operating value and project cash flow negative; fixed O&M is counted once', () => {
       const gen = createTestGenerator('gen-1', {
         installedCostUsd: 4000,
         annualMaintenanceCostUsd: 250,
@@ -813,7 +813,10 @@ describe('G6D — Multi-Year Projection & Lifecycle Financial Integration', () =
           simulatedElectricityCostUsd: 1500,
           electricitySavingsUsd: 1000,
           utilityElectricitySavingsUsd: 1000,
-          netOperationalSavingsUsd: 800,
+          generatorOperatingCostUsd: 1200,
+          generatorFuelCostUsd: 900,
+          generatorVariableMaintenanceCostUsd: 300,
+          netOperationalSavingsUsd: -200,
           solarGeneratedKwh: 0,
           solarDirectToLoadKwh: 0,
           solarToBatteryKwh: 0,
@@ -852,8 +855,11 @@ describe('G6D — Multi-Year Projection & Lifecycle Financial Integration', () =
       });
 
       expect(fin.annualGenerationMaintenanceUsd).toBe(250);
-      // netProjectCashFlow = netOperationalSavings (800) - fixed O&M (250) = 550
-      expect(fin.projections[0].netProjectCashFlowUsd).toBe(550);
+      // netProjectCashFlow = netOperationalSavings (-200) - fixed O&M (250) = -450
+      expect(fin.projections[0].utilityElectricitySavingsUsd).toBe(1000);
+      expect(fin.projections[0].generatorOperatingCostUsd).toBe(1200);
+      expect(fin.projections[0].netOperationalSavingsUsd).toBe(-200);
+      expect(fin.projections[0].netProjectCashFlowUsd).toBe(-450);
     });
 
     it('22. No fuel/O&M double counting: fuel and variable O&M are inside netOperationalSavings, not in fixed O&M', () => {
