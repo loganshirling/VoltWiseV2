@@ -188,13 +188,13 @@ The following audit claims were spot-checked against current code and remain ope
 - The supported model contract must distinguish interval energy-rate accounting from a complete utility-bill engine, deterministic interval generator dispatch from global optimization, and standby assumptions from chronological outage simulation.
 - Canonical measured solar/wind CSV is supported; TMY3/EPW/weather APIs must not be advertised unless adapters are implemented and tested.
 
-- [ ] Audit visible capability claims and replace stale generator, clear-sky, TMY3, wind-file, and projection text with current support and limitations.
-- [ ] Document accepted load/resource schemas, timezone rules, browser requirements, sample onboarding, assumptions, uncertainty, troubleshooting, and reproducible developer setup.
-- [ ] Decide and record target v1 tariff scope (bounded energy-rate model or specific added bill components); add known-bill golden fixtures only for plans claimed as supported.
-- [ ] Document local processing and external requests (including Google Fonts) accurately; verify production hosting uses HTTPS and appropriate security headers before calling deployment secure.
-- [ ] Confirm whether `@google/genai`, `express`, and `dotenv` are used; remove unused production dependencies only with import/build review and frozen-lockfile update in an isolated task.
-- [ ] Choose a public/private reuse license and pre-release version policy; correct stale app description and make `clean` cross-platform.
-- [ ] Run documentation link/schema checks, build, and targeted UI copy tests.
+- [x] Audit visible capability claims and replace stale generator, clear-sky, TMY3, wind-file, and projection text with current support and limitations.
+- [x] Document accepted load/resource schemas, timezone rules, browser requirements, sample onboarding, assumptions, uncertainty, troubleshooting, and reproducible developer setup.
+- [x] Decide and record target v1 tariff scope (bounded energy-rate model or specific added bill components); add known-bill golden fixtures only for plans claimed as supported.
+- [x] Document local processing and external requests (including Google Fonts) accurately; record that production hosting is not configured and HTTPS/security-header verification remains an operator gate before calling deployment secure.
+- [x] Confirm whether `@google/genai`, `express`, and `dotenv` are used; remove unused production dependencies after import/build review and frozen-lockfile update.
+- [x] Choose a reuse license and pre-release version policy; correct stale app description and make `clean` cross-platform.
+- [x] Run documentation link/schema checks, build, and targeted UI copy tests.
 
 ### Task 9: Optional v1.x analysis features after core release gates
 

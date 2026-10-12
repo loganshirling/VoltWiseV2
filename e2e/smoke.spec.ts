@@ -244,3 +244,27 @@ test('keeps keyboard focus visible, chart table navigation accessible, and honor
     .evaluate((node) => getComputedStyle(node).transitionDuration);
   expect(parseFloat(motion)).toBeLessThanOrEqual(0.00001);
 });
+
+test('explains the modeled scope at tariff, generation, and results steps', async ({ page }) => {
+  await page.goto('/');
+  await expect(page).toHaveTitle(/VoltWise \| Home Energy Scenario Analyzer/);
+  const description = await page.locator('meta[name="description"]').getAttribute('content');
+  expect(description).toMatch(/energy-rate estimates/i);
+  expect(description).not.toMatch(/comprehensive|ROI & TOU Simulation/i);
+
+  await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByRole('region', { name: 'Tariff scope' })).toContainText(/energy-rate estimate/i);
+  await expect(page.getByRole('region', { name: 'Tariff scope' })).toContainText(/demand charges.*fixed.*taxes/i);
+  await expect(page.getByRole('region', { name: 'Tariff scope' })).toContainText(/built-in profiles are illustrative/i);
+
+  await openTab(page, '3. Power Generation');
+  await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/interval-by-interval/i);
+  await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/does not simulate chronological outages/i);
+  await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/does not fetch weather services or support TMY3\/EPW files/i);
+
+  await openTab(page, '5. Results & Analytics');
+  await expect(page.getByRole('region', { name: 'Analysis scope' })).toContainText(/estimates, not a utility bill or a guarantee/i);
+  await expect(page.getByRole('region', { name: 'Analysis scope' })).toContainText(/user-entered outage assumptions/i);
+  await expect(page.getByText(/modeled cost reduction/i).first()).toBeVisible();
+  await expect(page.getByText(/bill cut|8,760 hours/i)).toHaveCount(0);
+});

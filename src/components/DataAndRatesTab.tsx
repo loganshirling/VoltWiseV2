@@ -782,6 +782,10 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
           <><strong className="text-slate-100">No load dataset is active.</strong> Reset cleared the load data and solar/wind resource files. Upload a CSV or deliberately load the synthetic sample.</>
         )}
       </div>
+      <aside role="region" aria-label="Tariff scope" className="rounded-xl border border-sky-500/30 bg-sky-950/20 px-4 py-3 text-xs leading-relaxed text-sky-100/90">
+        <strong className="text-sky-100">Energy-rate estimate, not a complete utility bill.</strong>{' '}
+        VoltWise applies your scheduled import rates and export credits to each interval. Demand charges, fixed customer charges, taxes, minimum-bill rules, and other utility adjustments are not modeled. Built-in profiles are illustrative; verify current rates with your provider.
+      </aside>
       {/* SECTION 1: CSV DATA INGESTION & VALIDATION */}
       <section className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
@@ -1163,7 +1167,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
             <button
               onClick={handleResetToStandardProfiles}
               className="p-1.5 text-slate-400 hover:text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition-colors"
-              title="Reset to default library of utility tariffs"
+              title="Reset to default illustrative tariff profiles"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>

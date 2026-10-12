@@ -309,6 +309,10 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
         </div>
       </div>
 
+      <aside role="region" aria-label="Generation model scope" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-xs leading-relaxed text-slate-300">
+        Modeled solar and wind use clear-sky or monthly inputs, or measured CSV for its imported period. VoltWise does not fetch weather services or support TMY3/EPW files. Economic generator dispatch makes a deterministic interval-by-interval decision, not a global optimization. Standby mode does not simulate chronological outages.
+      </aside>
+
       {activeAsset && activeAsset.type !== 'generator' && (
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4" aria-labelledby="resource-import-title">
           <h2 id="resource-import-title" className="text-sm font-semibold text-slate-100">Measured resource data</h2>
@@ -989,13 +993,13 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
             },
             {
               id: 'clear_sky' as SolarResourceMode,
-              title: 'Clear-Sky Geometric Model',
-              desc: 'Calculated from solar geometry equations & site latitude.',
+              title: 'Clear-Sky Estimate',
+              desc: 'Deterministic solar-geometry estimate. It does not include cloud cover or measured site weather.',
             },
             {
               id: 'weather_file' as SolarResourceMode,
-              title: 'TMY3 / Weather Data File',
-              desc: 'Hourly historical meteorological solar irradiance file.',
+              title: 'Measured Irradiance CSV',
+              desc: 'Use imported GHI, DNI, and DHI records for this matching period only.',
             },
           ].map((mode) => {
             const isSelected = asset.resourceMode === mode.id;
@@ -1325,8 +1329,8 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
             },
             {
               id: 'interval_file' as WindResourceMode,
-              title: 'Hourly / Interval Wind File',
-              desc: 'Measured wind speed at each resource interval; timestamps must match the load data.',
+              title: 'Measured Wind-Speed CSV',
+              desc: 'Measured wind speed at each resource interval; timestamps must match the load data exactly.',
               disabled: false,
             },
           ].map((mode) => {
@@ -1788,9 +1792,9 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
               }
               className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-purple-500"
             >
-              <option value="standby">Standby (Outages Only)</option>
+              <option value="standby">Standby Capacity (No Outage Simulation)</option>
               <option value="scheduled">Scheduled Windows (7×24)</option>
-              <option value="economic">Economic Price Arbitrage</option>
+              <option value="economic">Economic Interval Dispatch</option>
             </select>
           </div>
         </div>

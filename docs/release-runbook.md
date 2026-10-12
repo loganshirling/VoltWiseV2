@@ -15,13 +15,13 @@ Review audit output and advisories before changing dependencies. Do not run auto
 
 ## Version and tag policy
 
-Use semantic versions in `package.json` and matching annotated Git tags named `v<version>` (for example, package version `1.2.0` uses tag `v1.2.0`). Bump the package version in the release pull request. Tag only a commit already present on `main`; the release workflow checks both conditions and reruns the complete CI qualification before packaging. Do not move or reuse a published version tag.
+While v1 scope is being validated, use SemVer prereleases: `0.x.y-alpha.N`, then `0.x.y-beta.N`, then `0.x.y-rc.N`. The current package version is `0.1.0-beta.1`; use its matching annotated tag `v0.1.0-beta.1`. Promote to `1.0.0` only after the documented v1 model and deployment gates are satisfied. Bump `package.json` in the release pull request and use an identical `v<version>` annotated tag. Tag only a commit already present on `main`; the release workflow checks the version, annotation, branch ancestry, and exact source commit before packaging. Do not move or reuse a published version tag.
 
 The release workflow produces a static `dist/` archive named with the tag and full source commit SHA, plus a SHA-256 checksum. It retains the package for 90 days. Verify the artifact before deployment:
 
 ```sh
-sha256sum --check voltwise-v1.2.0-<full-commit-sha>.tar.gz.sha256
-git show -s --format='%H %D' v1.2.0
+sha256sum --check voltwise-v0.1.0-beta.1-<full-commit-sha>.tar.gz.sha256
+git show -s --format='%H %D' v0.1.0-beta.1
 ```
 
 Confirm the printed commit matches the SHA in the artifact name and the successful `Release qualification` run. Keep the workflow run URL and checksum with the release record.
@@ -30,7 +30,7 @@ Confirm the printed commit matches the SHA in the artifact name and the successf
 
 CI tests the production build locally through Vite preview and runs the browser journey in Chromium. For a hosted preview or staging deployment, deploy the exact verified archive and record its source SHA. Before promotion, open the deployed URL over HTTPS and repeat the browser smoke journey: sample notice, valid and invalid load import, solar/wind resource binding, asset and financial settings, results and table alternative, project save/open, export download, and reset. Check the browser console for runtime errors and verify the tested page corresponds to the recorded release SHA. Keep deployment-provider preview URLs and credentials in that provider; never add them to this repository or CI logs.
 
-No hosting provider, preview URL, or deployment credential is configured by this repository. The hosted preview/staging smoke and HTTPS/security-header checks therefore remain an operator step before calling any deployment qualified. Do not infer deployment readiness from a green local CI run.
+No hosting provider, preview URL, or deployment credential is configured by this repository. The hosted preview/staging smoke and HTTPS/security-header checks therefore remain an operator step before calling any deployment qualified. Confirm HTTPS, Content-Security-Policy, `X-Content-Type-Options`, frame protections, and an appropriate `Referrer-Policy` on the deployed response; account for Google Fonts in the CSP. These settings are host-specific and have not been verified here. Do not infer deployment readiness from a green local CI run.
 
 ## Rollback
 

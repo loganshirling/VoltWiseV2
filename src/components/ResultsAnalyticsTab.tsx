@@ -1008,7 +1008,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
 
   return (
     <div className="space-y-8">
-      <aside aria-label="Analysis data and assumptions" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
+      <aside role="region" aria-label="Analysis scope" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
         {loadDataSource === 'synthetic_sample' ? (
           <p><strong className="text-amber-300">Illustrative synthetic sample.</strong> These generated intervals are not household measurements; replace them with your own CSV before using results for a real project.</p>
         ) : loadDataSource === 'uploaded' ? (
@@ -1017,6 +1017,9 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
           <p><strong className="text-slate-100">Load data source unspecified.</strong> Confirm the active dataset before relying on these results.</p>
         )}
         <p className="mt-1 text-xs text-slate-400">Tariff rates and financial assumptions are configurable user inputs; results and exports reflect the current selections.</p>
+        <p className="mt-1 text-xs text-slate-400">These are estimates, not a utility bill or a guarantee. The energy-cost comparison omits demand charges, fixed fees, taxes, and other bill adjustments.</p>
+        <p className="mt-1 text-xs text-slate-400">Lifecycle projections apply configured assumptions to a representative full-year load profile; future use, rates, weather, and equipment performance may differ.</p>
+        <p className="mt-1 text-xs text-slate-400">Resilience value uses user-entered outage assumptions. It does not simulate a chronological outage sequence.</p>
       </aside>
       {/* HEADER BAR */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
@@ -1120,7 +1123,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             <span>Partial-Period Dataset ({completeness?.durationDays ?? daysInDataset} Days) — Multi-Year Annual Projections Disabled</span>
           </div>
           <p className="text-slate-300 leading-relaxed">
-            {completeness?.reason || `Dataset covers only ${completeness?.durationDays ?? daysInDataset} days. Long-term multi-year projections (NPV, IRR, Payback, 15/25-year cumulative cash flows) require approximately one full year (~365 days) of continuous data and have been disabled to prevent inaccurate long-term forecasts.`}
+            {completeness?.reason || `Dataset covers only ${completeness?.durationDays ?? daysInDataset} days. Lifecycle projections require one exact, continuous calendar year of valid intervals and have been disabled for this dataset.`}
           </p>
           <div className="flex flex-wrap gap-4 text-[11px] font-mono text-amber-300/90 pt-1 border-t border-amber-500/20">
             <span>Observed Span: <strong>{completeness?.durationDays ?? daysInDataset} days</strong></span>
@@ -1140,10 +1143,10 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             <span>Generation-Aware Operational Simulation Active — Lifecycle Financial Analysis Unavailable</span>
           </div>
           <p className="text-slate-300 leading-relaxed">
-            {generationAnalysisError || 'Authoritative 8,760-hour generation and dispatch modeling is complete. Year-1 operational energy savings and interval dispatch metrics are fully calculated. Multi-year lifecycle financial modeling is unavailable for the current configuration or run.'}
+            {generationAnalysisError || 'The modeled full-year generation and dispatch run is complete. Year-1 operational energy and cost estimates are available. Multi-year lifecycle financial modeling is unavailable for the current configuration or run.'}
           </p>
           <div className="flex flex-wrap gap-4 text-[11px] font-mono text-sky-300/90 pt-1 border-t border-sky-500/20">
-            <span>Operational Model: <strong>Generation-Aware (8,760h)</strong></span>
+            <span>Operational Model: <strong>Generation-Aware (Full-Year)</strong></span>
             <span>Year-1 Net Savings: <strong>${annualSummary.year1Savings.toLocaleString()}/yr</strong></span>
             <span>Grid Import: <strong>{annualSummary.annualGridImportKwh.toLocaleString()} kWh</strong></span>
             <span>Grid Export: <strong>{annualSummary.annualGridExportKwh.toLocaleString()} kWh</strong></span>
@@ -1165,15 +1168,15 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 ) : (
                   <Sun className="h-4 w-4 text-amber-400" />
                 )}
-                <span>Authoritative Generation & Grid Dispatch Operations</span>
+                <span>Modeled Generation & Grid Dispatch Results</span>
                 <span className="text-[10px] font-mono font-normal px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/30 text-emerald-300">
-                  {isPartialPeriod ? `${partialMetrics.durationDays}-Day Observed Period` : 'Year 1 (8,760 Hours)'}
+                  {isPartialPeriod ? `${partialMetrics.durationDays}-Day Observed Period` : 'Year 1 (Full-Year Model)'}
                 </span>
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 {isPartialPeriod
                   ? 'Observed energy flows and renewable dispatch across the uploaded period. Values represent actual observed totals (not annualized).'
-                  : 'Full-year 8,760-hour simulated physical dispatch, direct self-consumption, battery absorption, and grid boundary interactions.'}
+                  : 'Full-year modeled physical dispatch, direct self-consumption, battery absorption, and grid interactions.'}
               </p>
             </div>
             {isGenerationFinancial && activeGenerationAnalysis ? (
@@ -1450,7 +1453,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <div className="flex items-center justify-between text-xs text-slate-400 font-semibold uppercase tracking-wider">
                   <span>Resource Allocation Breakdown</span>
                   <span className="text-[10px] text-slate-500 font-mono normal-case">
-                    Authoritative Fleet & Sub-totals
+                    Fleet and Subtotals
                   </span>
                 </div>
                 <div className="overflow-x-auto">
@@ -1888,7 +1891,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                   <span>·</span>
                   <span>O&M: -${activeGenerationAnalysis.annualGenerationMaintenanceUsd.toLocaleString()}/yr</span>
                   <span>·</span>
-                  <span className="text-emerald-400 font-semibold">-{annualSummary.savingsPercentage}% bill cut</span>
+                  <span className="text-emerald-400 font-semibold">-{annualSummary.savingsPercentage}% modeled cost reduction</span>
                 </div>
               </div>
             )
@@ -1899,9 +1902,9 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <span className="text-xs text-slate-400 font-sans ml-1 font-normal">/year</span>
               </div>
               <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5 pt-2 border-t border-slate-800/80">
-                <span className="text-sky-400 font-medium">Authoritative 8,760h operational model</span>
+                <span className="text-sky-400 font-medium">Modeled full-year operational estimate</span>
                 <span>·</span>
-                <span className="text-emerald-400 font-semibold">-{annualSummary.savingsPercentage}% bill cut</span>
+                <span className="text-emerald-400 font-semibold">-{annualSummary.savingsPercentage}% modeled cost reduction</span>
               </div>
             </div>
           ) : activeAnalysis?.isFinanced ? (
@@ -1925,7 +1928,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1.5 pt-2 border-t border-slate-800/80">
                 <span>Monthly: +${activeAnalysis?.monthlyElectricitySavingsYear1.toFixed(0)}/mo</span>
                 <span>·</span>
-                <span className="text-emerald-400 font-semibold">-{annualSummary.savingsPercentage}% bill cut</span>
+                <span className="text-emerald-400 font-semibold">-{annualSummary.savingsPercentage}% modeled cost reduction</span>
               </div>
             </div>
           )}
@@ -2139,7 +2142,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               <span className="text-[10px] font-mono text-amber-300">O&M: ${activeGenerationAnalysis.annualGenerationMaintenanceUsd}/yr</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Authoritative project capital expenditure & ongoing maintenance:
+              Calculated project capital expenditure and ongoing maintenance:
             </p>
             <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 space-y-1 text-xs font-mono">
               <div className="flex justify-between">
@@ -2352,7 +2355,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <DollarSign className="h-4 w-4 text-emerald-400" />
                 Year 1 Operational Energy Costs
               </span>
-              <span className="text-[10px] font-mono text-sky-400">Full-Year 8,760h Simulation</span>
+              <span className="text-[10px] font-mono text-sky-400">Full-Year Simulation</span>
             </div>
             <p className="text-[11px] text-slate-400">
               Simulated electricity spend and operational savings with on-site generation and battery dispatch:
@@ -2384,10 +2387,10 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <BatteryCharging className="h-4 w-4 text-cyan-400" />
                 Battery & Generation Operation — Annual Model
               </span>
-              <span className="text-[10px] font-mono text-cyan-300">8,760 Hours</span>
+              <span className="text-[10px] font-mono text-cyan-300">Full-Year Model</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Authoritative dispatch throughput, load offset, and grid interaction over Year 1:
+              Modeled dispatch throughput, load offset, and grid interaction over Year 1:
             </p>
             <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 space-y-1 text-xs font-mono">
               <div className="flex justify-between">
@@ -2519,7 +2522,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             </h3>
             <p className="text-xs text-slate-400">
               {isGenerationFinancial
-                ? '25-year authoritative physical and economic simulation of solar generation, battery degradation, tariff escalation, and cash flows.'
+                ? 'Assumption-based 25-year projection of solar generation, battery degradation, tariff escalation, and cash flows.'
                 : 'Interactive financial simulation modeling cumulative electricity expenditure, battery investment, debt service, inverter maintenance, and breakeven crossover.'}
             </p>
           </div>
@@ -2552,10 +2555,10 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               <span>Multi-Year Financial Projections Disabled for Incomplete Dataset</span>
             </div>
             <p className="text-xs text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              The uploaded dataset spans {completeness?.durationDays ?? daysInDataset} days. Long-term multi-year projections (cumulative cash flows, NPV, simple and discounted payback) require approximately one full year (~365 days) of continuous data and have been disabled to prevent misleading annual forecasts.
+              The uploaded dataset spans {completeness?.durationDays ?? daysInDataset} days. Long-term projections require one exact, continuous calendar year of valid intervals and are disabled for this dataset.
             </p>
             <p className="text-[11px] text-amber-400/90 font-mono">
-              Please upload a complete 365-day (8,760-hour) dataset to view multi-year financial projections. Exploratory 24-hour dispatch and median daily load charts below remain fully functional.
+              Upload one complete, continuous calendar year of interval data to enable multi-year financial projections. Exploratory daily dispatch and load charts below remain available.
             </p>
           </div>
         )}
@@ -2629,7 +2632,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <span className="text-slate-300 font-medium block">Lifecycle Model</span>
                 <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 text-[11px] space-y-1.5 text-slate-400 leading-relaxed">
                   <p>
-                    <strong className="text-slate-200">Annual Physical Simulations:</strong> Modeled with {
+                    <strong className="text-slate-200">Annual modeled projections:</strong> Apply {
                       isMixedGeneration
                         ? `${formatSolarDegradationClause(generationProjectCosts?.solarMetadata)} and wind turbine degradation`
                         : isWindOnly
@@ -2638,7 +2641,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                     }, electrochemical battery capacity fade ({financials?.annualBatteryDegradationRate ?? 2}%/yr), and compound tariff escalation ({financials?.annualElectricityInflationRate ?? 3}%/yr).
                   </p>
                   <p className="text-[10px] text-slate-500 font-mono pt-1 border-t border-slate-800">
-                    Authoritative Year 1–25 physical evolution
+                    Estimates for years 1–25; future conditions may differ.
                   </p>
                 </div>
               </div>
@@ -4453,7 +4456,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                   <tr>
                     <td colSpan={11} className="py-8 px-4 text-center text-slate-400">
                       <p className="text-sm font-medium">Multi-profile multi-year financial matrix is disabled for partial-period datasets.</p>
-                      <p className="text-xs text-slate-500 mt-1">Full 8,760-hour annual data is required for long-term multi-profile financial comparison.</p>
+                      <p className="text-xs text-slate-500 mt-1">One complete calendar year of load data is required for long-term multi-profile financial comparison.</p>
                     </td>
                   </tr>
                 ) : (
@@ -4602,7 +4605,7 @@ export const ResultsAnalyticsTab: React.FC<ResultsAnalyticsTabProps> = ({
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-12 text-center text-slate-400 space-y-3">
         <Activity className="h-8 w-8 text-slate-500 mx-auto animate-pulse" />
-        <p className="text-sm font-medium">Running 8,760-hour dispatch simulation...</p>
+        <p className="text-sm font-medium">Running full-year dispatch simulation...</p>
         <p className="text-xs text-slate-500">
           Please upload interval data or select a preset battery profile to initialize results.
         </p>
