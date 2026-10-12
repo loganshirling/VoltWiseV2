@@ -31,12 +31,15 @@ import {
   GeneratorDispatchMode,
   WindPowerCurvePoint,
   GeneratorFuelCurvePoint,
+  ExternalResourceDataset,
+  ExternalResourceKind,
 } from '../types/energy';
 import {
   createDefaultAsset,
   DEFAULT_GENERATION_CONFIG,
   createDefaultGenerationConfig,
 } from '../utils/generationDefaults';
+import { parseExternalResourceCsv } from '../utils/externalResourceParser';
 
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -77,6 +80,10 @@ function createAssetId(type: 'solar' | 'wind' | 'generator'): string {
   return `${type}-${uuid}`;
 }
 
+function getExternalResourceId(asset: GenerationAsset): string | null | undefined {
+  return asset.type === 'generator' ? undefined : asset.externalResourceId;
+}
+
 interface PowerGenerationTabProps {
   generationConfig: GenerationConfig;
   setGenerationConfig: React.Dispatch<React.SetStateAction<GenerationConfig>>;
@@ -93,11 +100,18 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   const [selectedAssetId, setSelectedAssetId] = useState<string>(
     generationConfig.assets[0]?.id || ''
   );
+  const [resourceImportMessage, setResourceImportMessage] = useState('');
+  const [resourceImportError, setResourceImportError] = useState('');
+  const [isImportingResource, setIsImportingResource] = useState(false);
 
   const activeAsset =
     generationConfig.assets.find((a) => a.id === selectedAssetId) ||
     generationConfig.assets[0] ||
     null;
+  const activeResourceId = activeAsset ? getExternalResourceId(activeAsset) : undefined;
+  const attachedResource = activeResourceId
+    ? generationConfig.externalResources?.find((resource) => resource.id === activeResourceId)
+    : undefined;
 
   // Site update handler
   const handleUpdateSite = (field: keyof GenerationSite, value: any) => {
@@ -172,6 +186,9 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
       return {
         ...prev,
         assets: filtered,
+        externalResources: (prev.externalResources ?? []).filter((resource) =>
+          filtered.some((asset) => getExternalResourceId(asset) === resource.id)
+        ),
       };
     });
   };
@@ -180,6 +197,56 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   const handleResetToDefault = () => {
     setGenerationConfig(createDefaultGenerationConfig());
     setSelectedAssetId('');
+  };
+
+  const handleResourceImport = async (file: File) => {
+    setResourceImportMessage('');
+    setResourceImportError('');
+    setIsImportingResource(true);
+    if (!activeAsset || activeAsset.type === 'generator') {
+      setResourceImportError('Select a solar array or wind turbine before importing a resource file.');
+      setIsImportingResource(false);
+      return;
+    }
+    try {
+      const kind: ExternalResourceKind = activeAsset.type === 'solar' ? 'solar_irradiance' : 'wind_speed';
+      const parsed = parseExternalResourceCsv({
+        csvContent: await file.text(),
+        kind,
+        sourceTimeZone: generationConfig.site.timeZone,
+        name: file.name,
+      });
+      if (!parsed.isValid || !parsed.dataset) {
+        setResourceImportError(parsed.errors.join(' '));
+        return;
+      }
+      const dataset = parsed.dataset;
+      setGenerationConfig((previous) => ({
+        ...previous,
+        assets: previous.assets.map((asset) => asset.id === activeAsset.id
+          ? ({
+              ...asset,
+              externalResourceId: dataset.id,
+              resourceMode: asset.type === 'solar' ? 'weather_file' : 'interval_file',
+            } as GenerationAsset)
+          : asset),
+        externalResources: [
+          ...(previous.externalResources ?? []).filter((resource) => resource.id !== dataset.id),
+          dataset,
+        ].filter((resource) =>
+          resource.id === dataset.id || previous.assets.some((asset) =>
+            asset.id !== activeAsset.id && getExternalResourceId(asset) === resource.id
+          )
+        ),
+      }));
+      setResourceImportMessage(
+        `Loaded ${dataset.rowCount.toLocaleString()} intervals from ${dataset.name}.${parsed.warnings.length ? ` ${parsed.warnings.join(' ')}` : ''}`
+      );
+    } catch (error) {
+      setResourceImportError(error instanceof Error ? error.message : 'Could not read this resource file.');
+    } finally {
+      setIsImportingResource(false);
+    }
   };
 
   return (
@@ -192,17 +259,83 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
         <div className="flex-1 text-xs text-emerald-200/90 leading-relaxed">
           <div className="flex items-center gap-2 mb-1">
             <span className="font-semibold text-emerald-100 text-sm">
-              Active Solar & Wind Modeling
+              Solar, Wind & Generator Simulation
             </span>
             <span className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
               Active Simulation
             </span>
           </div>
           <p>
-            Enabled solar photovoltaic arrays and supported wind turbines are actively simulated in the dispatch and financial engine. Both resources directly serve home load and charge battery storage. Passive renewable surplus is governed by the site renewable export setting below. Generator hardware configuration remains persisted, but generator simulation is not yet supported.
+            Enabled solar arrays and wind turbines are simulated alongside scheduled and economic generators. Solar and wind production directly serve home load and charge battery storage; generator dispatch follows its operating mode and fuel model. Renewable surplus export follows the site export setting.
           </p>
         </div>
       </div>
+
+      {activeAsset && activeAsset.type !== 'generator' && (
+        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4" aria-labelledby="resource-import-title">
+          <h2 id="resource-import-title" className="text-sm font-semibold text-slate-100">Measured resource data</h2>
+          <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            Import a timestamped CSV for the selected {activeAsset.type === 'solar' ? 'solar array' : 'wind turbine'}. Resource intervals must match the load data exactly; time-zone conversion is applied during import.
+          </p>
+          <label className="mt-3 block text-xs font-medium text-slate-300">
+            {activeAsset.type === 'solar'
+              ? 'Solar CSV: timestamp, ghi_wm2, dni_wm2, dhi_wm2'
+              : 'Wind CSV: timestamp, wind_speed_mps'}
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              aria-label="Import measured resource CSV"
+              className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:text-xs file:font-medium file:text-slate-100 hover:file:bg-slate-700"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                if (file) void handleResourceImport(file);
+                event.currentTarget.value = '';
+              }}
+            />
+          </label>
+          {activeResourceId && (
+            <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-3 text-xs text-emerald-100">
+              <p className="font-semibold">Attached: {attachedResource?.name ?? 'resource dataset'}</p>
+              {attachedResource ? (
+                <dl className="mt-1 grid grid-cols-1 gap-x-4 gap-y-1 text-slate-300 sm:grid-cols-2">
+                  <div><dt className="inline text-slate-500">Intervals: </dt><dd className="inline">{attachedResource.rowCount.toLocaleString()} at {attachedResource.intervalHours} h</dd></div>
+                  <div><dt className="inline text-slate-500">Coverage (UTC): </dt><dd className="inline">{attachedResource.startTimestampUtc} – {attachedResource.endTimestampUtc}</dd></div>
+                  <div><dt className="inline text-slate-500">Source time zone: </dt><dd className="inline">{attachedResource.sourceTimeZone ?? 'UTC'}</dd></div>
+                </dl>
+              ) : (
+                <p className="mt-1 text-amber-300">The attached dataset is missing. Import the resource file again.</p>
+              )}
+              <button
+                type="button"
+                className="mt-2 rounded border border-rose-500/30 px-2 py-1 text-rose-300 hover:bg-rose-950/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+                onClick={() => {
+                  const assetId = activeAsset.id;
+                  const resourceId = activeResourceId;
+                  handleUpdateAsset(assetId, {
+                    externalResourceId: undefined,
+                    resourceMode: activeAsset.type === 'solar' ? 'clear_sky' : 'annual_average',
+                  } as Partial<GenerationAsset>);
+                  setGenerationConfig((previous) => ({
+                    ...previous,
+                    externalResources: (previous.externalResources ?? []).filter((resource) =>
+                      resource.id !== resourceId || previous.assets.some((asset) =>
+                        asset.id !== assetId && getExternalResourceId(asset) === resourceId
+                      )
+                    ),
+                  }));
+                  setResourceImportMessage('Measured resource removed from this asset.');
+                  setResourceImportError('');
+                }}
+              >
+                Remove measured resource
+              </button>
+            </div>
+          )}
+          {resourceImportMessage && <p role="status" className="mt-2 text-xs text-emerald-300">{resourceImportMessage}</p>}
+          {isImportingResource && <p role="status" className="mt-2 text-xs text-sky-300">Reading and validating measured resource data…</p>}
+          {resourceImportError && <p role="alert" className="mt-2 text-xs text-rose-300">{resourceImportError}</p>}
+        </section>
+      )}
 
       {/* Section 1: Geographic Site & Coordinate Parameters */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 shadow-sm">
@@ -223,8 +356,10 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
           <button
             onClick={handleResetToDefault}
             className="text-xs text-slate-400 hover:text-slate-200 transition-colors self-start sm:self-auto"
+            aria-label="Reset generation settings and remove attached measured resource datasets"
+            title="Resets generation settings and removes imported measured resource datasets"
           >
-            Reset Generation Defaults
+            Reset Generation Defaults · clears measured resources
           </button>
         </div>
 
@@ -396,7 +531,16 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                     <div
                       key={asset.id}
                       onClick={() => setSelectedAssetId(asset.id)}
-                      className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSelected}
+                      onKeyDown={(event) => {
+                        if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                          event.preventDefault();
+                          setSelectedAssetId(asset.id);
+                        }
+                      }}
+                      className={`p-3 rounded-lg border cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 ${
                         isSelected
                           ? 'bg-slate-800 border-emerald-500/60 shadow-md ring-1 ring-emerald-500/20'
                           : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 hover:bg-slate-850'
@@ -862,13 +1006,13 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
 
         {asset.resourceMode === 'clear_sky' && (
           <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-4 text-xs text-slate-400 leading-relaxed">
-            <strong className="text-slate-200">Clear-Sky Geometric Mode:</strong> Clear-sky solar geometry will be implemented in the solar modeling milestone. Weather/cloud attenuation is not yet modeled.
+            <strong className="text-slate-200">Clear-Sky Geometric Mode:</strong> Estimates production from site solar geometry under clear skies. Cloud and weather attenuation are not included.
           </div>
         )}
 
         {asset.resourceMode === 'weather_file' && (
           <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-4 text-xs text-slate-400 leading-relaxed">
-            <strong className="text-slate-200">Weather File Mode:</strong> Hourly solar/weather-file ingestion will be implemented in the solar modeling milestone.
+            <strong className="text-slate-200">Weather File Mode:</strong> Uses the attached irradiance CSV with beam, diffuse, and ground-reflected plane-of-array irradiance. Resource timestamps and interval length must match the modeled load period. Multi-year projections require a modeled solar resource instead.
           </div>
         )}
       </div>
@@ -1114,9 +1258,8 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
             {
               id: 'interval_file' as WindResourceMode,
               title: 'Hourly / Interval Wind File',
-              desc: 'Explicit 8,760h anemometer time-series wind velocities (Coming later / External resource support).',
-              disabled: true,
-              tag: 'Unavailable',
+              desc: 'Measured wind speed at each resource interval; timestamps must match the load data.',
+              disabled: false,
             },
           ].map((mode) => {
             const isSelected = asset.resourceMode === mode.id;
@@ -1162,11 +1305,6 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 leading-normal">{mode.desc}</p>
-                {isDisabled && (
-                  <p className="text-[10px] text-amber-400/90 mt-1 font-mono">
-                    Interval-resource ingestion is not yet supported.
-                  </p>
-                )}
               </div>
             );
           })}
@@ -1242,7 +1380,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
 
         {asset.resourceMode === 'interval_file' && (
           <div className="bg-amber-950/20 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-200/90 leading-relaxed">
-            <strong className="text-amber-100 font-semibold">Unsupported Mode:</strong> Interval wind-resource file ingestion is not yet supported by the simulation engine. This asset remains persisted in interval_file mode, but the engine will reject simulation until switched to Annual or Monthly Average mode.
+            <strong className="text-amber-100 font-semibold">Measured Wind Mode:</strong> Applies the turbine power curve to each measured interval after hub-height and air-density adjustments. Attach a wind CSV above. Multi-year projections require annual or monthly average mode.
           </div>
         )}
       </div>

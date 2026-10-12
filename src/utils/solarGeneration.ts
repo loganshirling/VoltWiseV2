@@ -2,7 +2,7 @@
  * Unified Solar Profile Engine & Multi-Array Fleet Aggregation (Milestone G2C)
  *
  * Provides a single entry point for generating deterministic solar intervals across
- * any supported resource model ('clear_sky' or 'monthly_peak_sun_hours'), and aggregating
+ * modeled, monthly-sun-hour, or timestamp-aligned weather-file resources, and aggregating
  * multi-array fleets into unified interval production profiles for dispatch.
  */
 
@@ -11,9 +11,17 @@ import {
   SolarGenerationAsset,
   SolarGenerationInterval,
   SolarFleetGenerationInterval,
+  ExternalResourceDataset,
+  SolarIrradianceDataset,
 } from '../types/energy';
-import { calculateClearSkySolarInterval } from './solarModel';
+import {
+  calculateClearSkySolarInterval,
+  calculatePanelIncidenceCosine,
+  calculatePvOutputFromPoa,
+  calculateSolarPosition,
+} from './solarModel';
 import { generateMonthlyPeakSunHourSolarProfile } from './solarProfile';
+import { alignExternalResourceToLoad } from './externalResourceAlignment';
 
 /**
  * Validates the common UTC interval sequence.
@@ -67,13 +75,14 @@ function validateCommonUtcSequence(instantsUtc: Date[], intervalHours: number): 
  * Maps specific resource results to the common SolarGenerationInterval contract:
  * - clear_sky: maps clearSkyGhi, clearSkyDni, clearSkyPOA
  * - monthly_peak_sun_hours: maps modeledGhi, modeledDni, modeledPoa
- * - weather_file: throws clear error (not implemented yet)
+ * - weather_file: aligns imported irradiance records and converts them to plane-of-array power
  */
 export function generateSolarAssetProfile(
   instantsUtc: Date[],
   intervalHours: number,
   site: GenerationSite,
-  asset: SolarGenerationAsset
+  asset: SolarGenerationAsset,
+  externalResources: ExternalResourceDataset[] = []
 ): SolarGenerationInterval[] {
   validateCommonUtcSequence(instantsUtc, intervalHours);
 
@@ -129,8 +138,54 @@ export function generateSolarAssetProfile(
       }));
     }
 
-    case 'weather_file':
-      throw new Error('Solar weather-file resource mode is not implemented yet.');
+    case 'weather_file': {
+      const dataset = externalResources.find(
+        (resource): resource is SolarIrradianceDataset =>
+          resource.id === asset.externalResourceId && resource.kind === 'solar_irradiance'
+      );
+      if (!dataset) {
+        throw new Error(`Solar asset "${asset.name}" requires an attached solar irradiance resource.`);
+      }
+      const records = alignExternalResourceToLoad(
+        dataset,
+        instantsUtc.map((instant) => instant.toISOString()),
+        intervalHours
+      );
+      return records.map((record, index) => {
+        if (![record.ghiWm2, record.dniWm2, record.dhiWm2].every(
+          (value) => Number.isFinite(value) && value >= 0
+        )) {
+          throw new Error(
+            `Solar resource record at ${record.timestampUtc} has invalid irradiance values; irradiance values must be finite and non-negative.`
+          );
+        }
+        const instant = instantsUtc[index];
+        const position = calculateSolarPosition(instant, site);
+        const ghiKwPerM2 = record.ghiWm2 / 1000;
+        const dniKwPerM2 = record.dniWm2 / 1000;
+        const dhiKwPerM2 = record.dhiWm2 / 1000;
+        const incidence = calculatePanelIncidenceCosine(position, asset.tiltDegrees, asset.azimuthDegrees);
+        const tilt = asset.tiltDegrees * Math.PI / 180;
+        const poaKwPerM2 = position.elevationDegrees <= 0
+          ? 0
+          : Math.max(0,
+              dniKwPerM2 * incidence +
+              dhiKwPerM2 * (1 + Math.cos(tilt)) / 2 +
+              ghiKwPerM2 * 0.2 * (1 - Math.cos(tilt)) / 2
+            );
+        const output = calculatePvOutputFromPoa(poaKwPerM2, intervalHours, asset);
+        return {
+          assetId: asset.id,
+          timestampUtc: instant.toISOString(),
+          resourceMode: 'weather_file' as const,
+          position,
+          ghiKwPerM2,
+          dniKwPerM2,
+          poaKwPerM2,
+          ...output,
+        };
+      });
+    }
 
     default:
       throw new Error(`Unsupported solar resource mode: ${(asset as SolarGenerationAsset).resourceMode}`);
@@ -148,7 +203,8 @@ export function generateSolarFleetProfile(
   instantsUtc: Date[],
   intervalHours: number,
   site: GenerationSite,
-  assets: SolarGenerationAsset[]
+  assets: SolarGenerationAsset[],
+  externalResources: ExternalResourceDataset[] = []
 ): SolarFleetGenerationInterval[] {
   validateCommonUtcSequence(instantsUtc, intervalHours);
 
@@ -168,7 +224,7 @@ export function generateSolarFleetProfile(
 
   // Generate individual profiles for each asset in the fleet
   const assetProfiles = assets.map((asset) =>
-    generateSolarAssetProfile(instantsUtc, intervalHours, site, asset)
+    generateSolarAssetProfile(instantsUtc, intervalHours, site, asset, externalResources)
   );
 
   // Aggregate production across all arrays at each interval timestamp

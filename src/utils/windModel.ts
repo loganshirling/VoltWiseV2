@@ -61,7 +61,7 @@ const RATED_POWER_TOLERANCE_KW = 1e-4;
  * - At least two power-curve points with finite, non-negative, strictly-increasing wind speeds
  * - Non-negative power curve outputs not exceeding ratedPowerKw (within tolerance)
  * - Valid resource-mode parameters for annual_average and monthly_average
- * - Rejection of unsupported interval_file resource mode in G5
+ * - Resource-mode validation; interval data alignment is enforced by windGeneration
  *
  * Disabled assets are considered harmless and do not throw.
  */
@@ -224,9 +224,7 @@ export function validateWindGenerationAsset(asset: WindGenerationAsset): void {
       }
     }
   } else if (asset.resourceMode === 'interval_file') {
-    throw new Error(
-      'Wind resource mode "interval_file" is unsupported in G5.'
-    );
+    // The interval profile layer validates and aligns the measured resource data.
   } else {
     throw new Error(
       `Unsupported wind resource mode: "${asset.resourceMode}".`

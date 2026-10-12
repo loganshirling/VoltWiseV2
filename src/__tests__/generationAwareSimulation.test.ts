@@ -22,6 +22,7 @@ import {
   DEFAULT_GENERATOR_ASSET,
 } from '../utils/generationDefaults';
 import { summarizeSolarLoadFlow } from '../utils/solarLoadFlow';
+import { alignLoadTimestampsToSite } from '../utils/loadTimeAlignment';
 
 describe('G3Q Milestone — Authoritative Solar Generation Simulation Pipeline', () => {
   const baseSite: GenerationSite = {
@@ -588,9 +589,9 @@ describe('G3Q Milestone — Authoritative Solar Generation Simulation Pipeline',
   // --------------------------------------------------------------------------
   // 11. enabled wind asset rejects as unsupported
   // --------------------------------------------------------------------------
-  // 11. enabled wind asset runs through full pipeline and interval_file rejects
+  // 11. enabled wind asset runs through full pipeline; measured mode requires an attachment
   // --------------------------------------------------------------------------
-  it('11. enabled wind asset runs through full pipeline and interval_file rejects', () => {
+  it('11. enabled wind asset runs through full pipeline and missing interval data gives an actionable error', () => {
     const windAsset: WindGenerationAsset = {
       ...DEFAULT_WIND_ASSET,
       id: 'wind-1',
@@ -642,7 +643,74 @@ describe('G3Q Milestone — Authoritative Solar Generation Simulation Pipeline',
           },
         })
       )
-    ).toThrow(/interval_file/i);
+    ).toThrow(/attached wind-speed resource/i);
+  });
+
+  it('11a. measured wind records feed the complete generation-aware simulation', () => {
+    const dataPoints = createDataPoints(24, 1.0);
+    const aligned = alignLoadTimestampsToSite(dataPoints, 1, baseSite.timeZone);
+    const windAsset: WindGenerationAsset = {
+      ...DEFAULT_WIND_ASSET,
+      id: 'measured-wind',
+      enabled: true,
+      ratedPowerKw: 5,
+      hubHeightM: 20,
+      measurementHeightM: 10,
+      annualAverageWindSpeedMps: null,
+      cutInWindSpeedMps: 3,
+      ratedWindSpeedMps: 11,
+      cutOutWindSpeedMps: 25,
+      resourceMode: 'interval_file',
+      externalResourceId: 'measured-wind-data',
+      powerCurve: [
+        { windSpeedMps: 0, outputKw: 0 }, { windSpeedMps: 3, outputKw: 0 },
+        { windSpeedMps: 7, outputKw: 2 }, { windSpeedMps: 11, outputKw: 5 },
+        { windSpeedMps: 25, outputKw: 5 },
+      ],
+    };
+    const resource = {
+      id: 'measured-wind-data', name: 'Measured wind', kind: 'wind_speed' as const,
+      sourceTimeZone: 'America/Los_Angeles', intervalHours: 1, rowCount: aligned.length,
+      startTimestampUtc: aligned[0].timestampUtc, endTimestampUtc: aligned.at(-1)!.timestampUtc,
+      records: aligned.map(({ timestampUtc }) => ({ timestampUtc, windSpeedMps: 9 })),
+    };
+
+    const result = runGenerationAwareSimulation(buildSimulationParams({
+      dataPoints,
+      generationConfig: { site: baseSite, assets: [windAsset], externalResources: [resource] },
+    }));
+
+    expect(result.windFleetProfile).toHaveLength(24);
+    expect(result.windFleetProfile[0].totalExpectedPowerKw).toBeGreaterThan(0);
+    expect(result.totalWindGenerationKwh).toBeGreaterThan(0);
+    expect(result.renewableLoadFlow[0].windGenerationKwh).toBeGreaterThan(0);
+  });
+
+  it('11b. measured solar records feed the complete generation-aware simulation', () => {
+    const dataPoints = createDataPoints(24, 1.0);
+    const aligned = alignLoadTimestampsToSite(dataPoints, 1, baseSite.timeZone);
+    const asset = createClearSkyAsset('measured-solar', {
+      resourceMode: 'weather_file', externalResourceId: 'measured-solar-data',
+    });
+    const resource = {
+      id: 'measured-solar-data', name: 'Measured solar', kind: 'solar_irradiance' as const,
+      sourceTimeZone: 'America/Los_Angeles', intervalHours: 1, rowCount: aligned.length,
+      startTimestampUtc: aligned[0].timestampUtc, endTimestampUtc: aligned.at(-1)!.timestampUtc,
+      records: aligned.map(({ timestampUtc }, index) => ({
+        timestampUtc, ghiWm2: index === 13 ? 800 : 0,
+        dniWm2: index === 13 ? 650 : 0, dhiWm2: index === 13 ? 150 : 0,
+      })),
+    };
+
+    const result = runGenerationAwareSimulation(buildSimulationParams({
+      dataPoints,
+      generationConfig: { site: baseSite, assets: [asset], externalResources: [resource] },
+    }));
+
+    expect(result.solarFleetProfile).toHaveLength(24);
+    expect(result.solarFleetProfile[13].totalAcEnergyKwh).toBeGreaterThan(0);
+    expect(result.totalSolarGenerationKwh).toBeGreaterThan(0);
+    expect(result.renewableLoadFlow[13].solarGenerationKwh).toBeGreaterThan(0);
   });
 
   // --------------------------------------------------------------------------

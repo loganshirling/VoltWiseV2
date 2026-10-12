@@ -765,7 +765,7 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
           allowSolarExport: true,
           allowIncompleteYearForTesting: true,
         })
-      ).toThrow(/Wind assets with resourceMode "interval_file" are unsupported/i);
+      ).toThrow(/Measured wind resource data supports its imported interval period only/i);
 
       const hydroConfig: GenerationConfig = {
         site: baseSite,

@@ -710,7 +710,8 @@ export interface SolarGenerationProfileSummary {
 
 export type ModeledSolarResourceMode =
   | 'clear_sky'
-  | 'monthly_peak_sun_hours';
+  | 'monthly_peak_sun_hours'
+  | 'weather_file';
 
 export interface SolarGenerationInterval {
   assetId: string;
@@ -754,7 +755,8 @@ export interface SolarFleetGenerationInterval {
 
 export type ModeledWindResourceMode =
   | 'annual_average'
-  | 'monthly_average';
+  | 'monthly_average'
+  | 'interval_file';
 
 export interface WindGenerationInterval {
   assetId: string;

@@ -569,13 +569,11 @@ describe('G5A — Wind Physics, Validation & Expected-Power Model', () => {
       );
     });
 
-    it('30. explicitly rejects interval_file resource mode in G5', () => {
+    it('30. accepts interval_file as a resource mode and leaves data attachment to profile generation', () => {
       const intervalAsset = createValidWindAsset({
         resourceMode: 'interval_file',
       });
-      expect(() => validateWindGenerationAsset(intervalAsset)).toThrow(
-        /Wind resource mode "interval_file" is unsupported in G5/
-      );
+      expect(() => validateWindGenerationAsset(intervalAsset)).not.toThrow();
     });
 
     it('disabled wind asset remains harmless and does not throw even with incomplete defaults', () => {

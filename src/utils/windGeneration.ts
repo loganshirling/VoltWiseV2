@@ -2,13 +2,13 @@
  * Authoritative Wind Generation Profile & Multi-Turbine Fleet Aggregation (Milestone G5B)
  *
  * Implements:
- * - Single-turbine interval generation profile for annual_average and monthly_average resource modes.
+ * - Single-turbine interval generation for annual/monthly averages and measured interval resources.
  * - Authoritative reuse of G5A wind physics, validation, hub shear, air density, and Rayleigh integration.
  * - Deterministic site-local calendar month resolution using existing timezone logic.
  * - Multi-turbine fleet aggregation with independent per-turbine simulation.
  * - Deterministic, order-independent fleet summation.
  * - Safe handling of disabled wind assets, non-wind assets (solar, generator), and empty fleets.
- * - Explicit rejection of unsupported interval_file resource mode.
+ * - Exact timestamp and interval alignment for measured interval resources.
  * - Pure wind-profile summary calculation.
  * - Strict non-mutation of caller inputs.
  */
@@ -20,13 +20,19 @@ import {
   WindGenerationInterval,
   WindFleetGenerationInterval,
   WindFleetSummary,
+  ExternalResourceDataset,
+  WindSpeedDataset,
 } from '../types/energy';
 import { AlignedLoadTimestamp } from './loadTimeAlignment';
 import { getLocalDateAndMonth, validateTimeZone } from './solarProfile';
 import {
   simulateWindIntervalExpectedEnergy,
   validateWindGenerationAsset,
+  adjustWindSpeedToHubHeight,
+  calculateStandardAirDensityRatio,
+  interpolateWindPowerCurve,
 } from './windModel';
+import { alignExternalResourceToLoad } from './externalResourceAlignment';
 
 export type WindTimestampInput = AlignedLoadTimestamp | Date;
 
@@ -72,14 +78,15 @@ function normalizeTimestamp(item: WindTimestampInput, index: number): Normalized
  * - For annual_average: uses annualAverageWindSpeedMps constant across all intervals.
  * - For monthly_average: selects monthlyAverageWindSpeedMps based on the site's local calendar month.
  * - Disabled assets return zero-valued intervals without throwing configuration errors.
- * - Enabled interval_file mode is explicitly rejected via G5A validation boundary.
+ * - Enabled interval_file mode requires a matching attached wind-speed dataset.
  * - Does not mutate input parameters.
  */
 export function generateWindAssetProfile(
   timestamps: WindTimestampInput[],
   intervalHours: number,
   asset: WindGenerationAsset,
-  site?: GenerationSite | null
+  site?: GenerationSite | null,
+  externalResources: ExternalResourceDataset[] = []
 ): WindGenerationInterval[] {
   if (!Array.isArray(timestamps)) {
     throw new Error('timestamps must be an array.');
@@ -106,10 +113,7 @@ export function generateWindAssetProfile(
     return normalized.map((t) => ({
       assetId: asset.id,
       timestampUtc: t.timestampUtc,
-      resourceMode:
-        asset.resourceMode === 'monthly_average'
-          ? 'monthly_average'
-          : 'annual_average',
+      resourceMode: asset.resourceMode,
       resourceMeanWindSpeedMps: 0,
       hubHeightMeanWindSpeedMps: 0,
       expectedNetPowerKw: 0,
@@ -117,8 +121,45 @@ export function generateWindAssetProfile(
     }));
   }
 
-  // Validate enabled asset physics and configuration (rejects interval_file or invalid parameters)
+  // Validate turbine physics and whichever resource mode supplies its input.
   validateWindGenerationAsset(asset);
+
+  if (asset.resourceMode === 'interval_file') {
+    const dataset = externalResources.find(
+      (resource): resource is WindSpeedDataset =>
+        resource.id === asset.externalResourceId && resource.kind === 'wind_speed'
+    );
+    if (!dataset) {
+      throw new Error(`Wind asset "${asset.name}" requires an attached wind-speed resource.`);
+    }
+    const records = alignExternalResourceToLoad(
+      dataset,
+      normalized.map((timestamp) => timestamp.timestampUtc),
+      intervalHours
+    );
+    const densityRatio = calculateStandardAirDensityRatio(site?.elevationM);
+    return records.map((record, index) => {
+      const hubSpeed = adjustWindSpeedToHubHeight(
+        record.windSpeedMps,
+        asset.hubHeightM,
+        asset.measurementHeightM,
+        asset.windShearExponent
+      );
+      const densityAdjustedSpeed = hubSpeed * Math.cbrt(densityRatio);
+      const grossPowerKw = interpolateWindPowerCurve(densityAdjustedSpeed, asset);
+      const netPowerKw = grossPowerKw * asset.availabilityPercent / 100 *
+        (1 - asset.systemLossPercent / 100);
+      return {
+        assetId: asset.id,
+        timestampUtc: normalized[index].timestampUtc,
+        resourceMode: 'interval_file' as const,
+        resourceMeanWindSpeedMps: record.windSpeedMps,
+        hubHeightMeanWindSpeedMps: hubSpeed,
+        expectedNetPowerKw: netPowerKw,
+        energyKwh: netPowerKw * intervalHours,
+      };
+    });
+  }
 
   if (asset.resourceMode === 'annual_average') {
     const annualMean = asset.annualAverageWindSpeedMps!;
@@ -189,7 +230,8 @@ export function generateWindFleetProfile(
   timestamps: WindTimestampInput[],
   intervalHours: number,
   assets: (GenerationAsset | WindGenerationAsset)[],
-  site?: GenerationSite | null
+  site?: GenerationSite | null,
+  externalResources: ExternalResourceDataset[] = []
 ): WindFleetGenerationInterval[] {
   if (!Array.isArray(timestamps)) {
     throw new Error('timestamps must be an array.');
@@ -243,7 +285,7 @@ export function generateWindFleetProfile(
 
   // Generate individual profiles for each turbine
   const assetProfiles = sortedAssets.map((asset) =>
-    generateWindAssetProfile(timestamps, intervalHours, asset, site)
+    generateWindAssetProfile(timestamps, intervalHours, asset, site, externalResources)
   );
 
   // Aggregate power and energy across all turbines for each interval

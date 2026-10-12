@@ -357,8 +357,9 @@ describe('G6C — Generator Routing, Battery Provenance & Production Integration
       const genAware = result.generationAwareResult!;
       expect(genAware.totalSolarGenerationKwh).toBeGreaterThan(0);
       expect(genAware.totalWindGenerationKwh).toBeGreaterThan(0);
-      expect(genAware.totalRenewableGenerationKwh).toBe(
-        genAware.totalSolarGenerationKwh + genAware.totalWindGenerationKwh
+      expect(genAware.totalRenewableGenerationKwh).toBeCloseTo(
+        genAware.totalSolarGenerationKwh + genAware.totalWindGenerationKwh,
+        12
       );
       expect(genAware.generatorGeneratedKwh).toBeGreaterThan(0);
       expect(genAware.totalOnsiteGenerationKwh).toBe(
