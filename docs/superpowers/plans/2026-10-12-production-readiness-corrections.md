@@ -134,11 +134,11 @@ The following audit claims were spot-checked against current code and remain ope
 - Define typed worker messages with request ID, input snapshot, result/error, and cancellation; latest-request ID owns visible state.
 - Preserve `runUnifiedSimulation()` and the existing projection/finance engines as authoritative pure computation. Worker code calls these engines instead of duplicating them.
 
-- [ ] Benchmark baseline with 8,760 and 35,040 intervals, one and multiple battery profiles, and generation-aware 25-year projections; record target hardware, latency, and peak memory in `docs/performance-budget.md`.
-- [ ] Add tests proving worker and direct-engine outputs match, cancellation resolves cleanly, and out-of-order responses cannot replace newer results.
-- [ ] Move expensive orchestration off the render path; add pending/progress/error state and debounce or cancel superseded requests.
-- [ ] Re-run benchmark and set an explicit p95 interaction budget and memory ceiling based on measured target-device results; do not claim a pass without measurements.
-- [ ] Verify changing controls remains responsive and final visible results correspond to current inputs.
+- [x] Benchmark baseline with 8,760 and 35,040 intervals, one and multiple battery profiles, and generation-aware 25-year projections; record target hardware, latency, and peak memory in `docs/performance-budget.md`.
+- [x] Add tests proving worker and direct-engine outputs match, cancellation resolves cleanly, and out-of-order responses cannot replace newer results.
+- [x] Move expensive orchestration off the render path; add pending/progress/error state and debounce or cancel superseded requests.
+- [x] Re-run benchmark and set an explicit p95 interaction budget and memory ceiling based on measured target-device results; do not claim a pass without measurements.
+- [x] Verify changing controls remains responsive and final visible results correspond to current inputs.
 
 ### Task 6: Add browser journey, accessibility, and import lifecycle coverage
 

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { DataAndRatesTab } from './components/DataAndRatesTab';
 import { BatteryProfilesTab } from './components/BatteryProfilesTab';
@@ -17,12 +17,9 @@ import {
   ProfileFinancialAnalysis,
   RateTier,
   TouProfile,
-  AnnualSimulationSummary,
   GenerationConfig,
   AnalysisState,
   GenerationProjectCostSummary,
-  GenerationOperationalProjection,
-  GenerationFinancialAnalysis,
   LoadDataSource,
   ProjectArchiveState,
   ValidatedProjectState,
@@ -33,23 +30,20 @@ import {
   DEFAULT_RATE_TIERS,
   DEFAULT_TOU_PROFILES,
   ScheduleMatrix,
-  calculate15YearFinancials,
   createDefaultScheduleMatrix,
   getHeaderSavingsLabel,
   getHeaderPaybackText,
 } from './utils/simulationEngine';
-import { runUnifiedSimulation, UnifiedSimulationResult } from './utils/simulationRouter';
-import { DEFAULT_GENERATION_CONFIG, createDefaultGenerationConfig } from './utils/generationDefaults';
+import { createDefaultGenerationConfig } from './utils/generationDefaults';
 import {
   deriveAnalysisState,
-  shouldCalculateLegacyFinancials,
   aggregateGenerationProjectCosts,
-  calculateGenerationAwareFinancials,
 } from './utils/generationFinancials';
-import { calculateGenerationOperationalProjection } from './utils/generationProjection';
 import { generateRealistic8760Dataset } from './utils/sampleData';
 import { parseAndValidateEnergyCsv } from './utils/csvParser';
 import { evaluateLoadTimestampEligibility } from './utils/loadTimeAlignment';
+import { createSimulationWorkerClient, SimulationRunResult, SimulationTaskHandle } from './utils/simulationWorkerClient';
+import { SimulationJobInput, SimulationJobResult } from './utils/simulationWorkerJob';
 import { Zap, ChevronRight, Activity, ArrowRight, Bookmark, AlertTriangle } from 'lucide-react';
 
 export default function App() {
@@ -77,6 +71,16 @@ export default function App() {
   const [csvResult, setCsvResult] = useState<CsvValidationResult | null>(null);
   const [loadDataCsv, setLoadDataCsv] = useState<string | null>(null);
   const [loadDataSource, setLoadDataSource] = useState<LoadDataSource | null>(null);
+  const [simulationWorkerClient] = useState(() => createSimulationWorkerClient());
+  const simulationRequestId = useRef(0);
+  const [simulationWorkerState, setSimulationWorkerState] = useState<{
+    input: SimulationJobInput | null;
+    status: 'idle' | 'pending' | 'completed' | 'error';
+    progress: number;
+    stage: string;
+    output: SimulationJobResult | null;
+    error: string | null;
+  }>({ input: null, status: 'idle', progress: 0, stage: '', output: null, error: null });
 
   // Active TOU Profile reference
   const activeTouProfile = useMemo(() => {
@@ -147,83 +151,110 @@ export default function App() {
     );
   }, [csvResult, generationConfig]);
 
-  // 1. Unified interval simulation batch for all profiles
-  // Directly routes to legacy engine if no generation assets are enabled (exact parity).
-  // Routes to generation-aware simulation when generation assets are enabled.
-  // Catches invalid/incomplete generation configuration errors without crashing React render.
-  const { unifiedResults, simulationError } = useMemo(() => {
-    if (!csvResult || !csvResult.schemaValid || !csvResult.chronologicallyValid || csvResult.data.length === 0) {
-      return {
-        unifiedResults: {} as Record<string, UnifiedSimulationResult>,
-        simulationError: null as string | null,
-      };
-    }
-
-    if (!csvResult.operationallySimulatable) {
-      return {
-        unifiedResults: {} as Record<string, UnifiedSimulationResult>,
-        simulationError: 'Load data contains missing or irregular intervals. Upload a continuous interval sequence before running a simulation.',
-      };
-    }
-
-    try {
-      if (siteLoadAlignmentEligibility && !siteLoadAlignmentEligibility.operationallySimulatable) {
-        throw new Error(siteLoadAlignmentEligibility.reason || 'Load timestamps are not valid for the selected site timezone.');
-      }
-
-      const results: Record<string, UnifiedSimulationResult> = {};
-      for (const profile of profiles) {
-        results[profile.id] = runUnifiedSimulation({
-          dataPoints: csvResult.data,
-          intervalHours: csvResult.intervalHours,
-          tiers,
-          scheduleMatrix,
-          batteryProfile: profile,
-          seasons: activeTouProfile?.seasons,
-          generationConfig,
-          allowSolarExport,
-        });
-      }
-      return { unifiedResults: results, simulationError: null };
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : typeof err === 'string'
-          ? err
-          : 'Simulation error encountered with current generation configuration.';
-      return {
-        unifiedResults: {} as Record<string, UnifiedSimulationResult>,
-        simulationError: message,
-      };
-    }
-  }, [
-    csvResult,
-    tiers,
-    scheduleMatrix,
-    profiles,
-    activeTouProfile,
-    generationConfig,
-    allowSolarExport,
-    siteLoadAlignmentEligibility,
-  ]);
-
-  // Derive existing AnnualSimulationSummary map from unified results
-  const allSimulationSummaries = useMemo<Record<string, AnnualSimulationSummary>>(() => {
-    const summaries: Record<string, AnnualSimulationSummary> = {};
-    for (const [id, result] of Object.entries(unifiedResults)) {
-      summaries[id] = result.annualSummary;
-    }
-    return summaries;
-  }, [unifiedResults]);
-
   const isSuitableForAnnual = Boolean(
     csvResult?.annualProjectionEligible &&
     siteLoadAlignmentEligibility?.operationallySimulatable !== false
   );
 
+  const simulationInput = useMemo<SimulationJobInput | null>(() => {
+    if (!csvResult || !csvResult.schemaValid || !csvResult.chronologicallyValid || csvResult.data.length === 0) {
+      return null;
+    }
+
+    let preflightError: string | null = null;
+    if (!csvResult.operationallySimulatable) {
+      preflightError = 'Load data contains missing or irregular intervals. Upload a continuous interval sequence before running a simulation.';
+    } else if (siteLoadAlignmentEligibility && !siteLoadAlignmentEligibility.operationallySimulatable) {
+      preflightError = siteLoadAlignmentEligibility.reason || 'Load timestamps are not valid for the selected site timezone.';
+    }
+
+    return {
+      dataPoints: csvResult.data,
+      intervalHours: csvResult.intervalHours,
+      profiles,
+      activeProfileId,
+      tiers,
+      scheduleMatrix,
+      seasons: activeTouProfile?.seasons,
+      generationConfig,
+      allowSolarExport,
+      annualProjectionEligible: isSuitableForAnnual,
+      preflightError,
+      financials,
+    };
+  }, [
+    csvResult,
+    profiles,
+    activeProfileId,
+    tiers,
+    scheduleMatrix,
+    activeTouProfile,
+    generationConfig,
+    allowSolarExport,
+    siteLoadAlignmentEligibility,
+    isSuitableForAnnual,
+    financials,
+  ]);
+
+  useEffect(() => {
+    if (!simulationInput) {
+      setSimulationWorkerState({ input: null, status: 'idle', progress: 0, stage: '', output: null, error: null });
+      return;
+    }
+
+    let cancelled = false;
+    let task: SimulationTaskHandle | null = null;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      try {
+        task = simulationWorkerClient.run(simulationInput, (progress, stage) => {
+          if (cancelled || task?.requestId !== simulationRequestId.current) return;
+          setSimulationWorkerState((current) => current.input === simulationInput
+            ? { ...current, progress, stage }
+            : current);
+        });
+        simulationRequestId.current = task.requestId;
+        task.promise.then((result: SimulationRunResult) => {
+          if (cancelled || task?.requestId !== simulationRequestId.current || result.status === 'cancelled') return;
+          if (result.status === 'completed') {
+            setSimulationWorkerState({ input: simulationInput, status: 'completed', progress: 100, stage: 'complete', output: result.result, error: null });
+          } else {
+            setSimulationWorkerState({ input: simulationInput, status: 'error', progress: 100, stage: 'error', output: null, error: result.message });
+          }
+        });
+      } catch (error) {
+        setSimulationWorkerState({
+          input: simulationInput,
+          status: 'error',
+          progress: 100,
+          stage: 'error',
+          output: null,
+          error: error instanceof Error ? error.message : 'Simulation worker could not be started.',
+        });
+      }
+    }, 100);
+
+    setSimulationWorkerState({ input: simulationInput, status: 'pending', progress: 0, stage: 'Preparing calculation', output: null, error: null });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      task?.cancel();
+    };
+  }, [simulationInput]);
+
+  const currentSimulationState = simulationWorkerState.input === simulationInput ? simulationWorkerState : null;
+  const simulationPending = Boolean(simulationInput && (!currentSimulationState || currentSimulationState.status === 'pending'));
+  const simulationOutput = currentSimulationState?.status === 'completed' ? currentSimulationState.output : null;
+  const simulationError = simulationOutput?.simulationError || currentSimulationState?.error || null;
+  const allSimulationSummaries = simulationOutput?.allSimulationSummaries ?? {};
+  const allAnalyses = simulationOutput?.allAnalyses ?? [];
+  const activeUnifiedResult = simulationOutput?.activeUnifiedResult ?? null;
+  const activeGenerationOperationalProjection = simulationOutput?.activeGenerationOperationalProjection ?? null;
+  const generationProjectionError = simulationOutput?.generationProjectionError ?? null;
+  const activeGenerationAnalysis = simulationOutput?.activeGenerationAnalysis ?? null;
+  const generationFinancialError = simulationOutput?.generationFinancialError ?? null;
+
   const activeProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0];
-  const activeUnifiedResult = unifiedResults[activeProfileId];
   const activeSimulationSummary = allSimulationSummaries[activeProfileId] || null;
 
   // 1b. Authoritative Generation Project Cost Summary (Milestone G4A)
@@ -231,141 +262,7 @@ export default function App() {
     return aggregateGenerationProjectCosts(generationConfig);
   }, [generationConfig]);
 
-  // 1c. 25-Year Operational Projection for the active battery profile only (Milestone G4B)
-  // Evaluated ONLY when dataset is suitable for annual projection and generation-aware simulation is active.
-  const { activeGenerationOperationalProjection, generationProjectionError } = useMemo(() => {
-    if (
-      !isSuitableForAnnual ||
-      !csvResult ||
-      !csvResult.schemaValid ||
-      !csvResult.chronologicallyValid ||
-      !isSuitableForAnnual ||
-      csvResult.data.length === 0 ||
-      !activeUnifiedResult ||
-      activeUnifiedResult.mode !== 'generation-aware'
-    ) {
-      return {
-        activeGenerationOperationalProjection: null as GenerationOperationalProjection | null,
-        generationProjectionError: null as string | null,
-      };
-    }
-
-    try {
-      const projection = calculateGenerationOperationalProjection({
-        dataPoints: csvResult.data,
-        intervalHours: csvResult.intervalHours,
-        tiers,
-        scheduleMatrix,
-        batteryProfile: activeProfile,
-        seasons: activeTouProfile?.seasons,
-        generationConfig,
-        allowSolarExport,
-        annualElectricityInflationRate: financials.annualElectricityInflationRate,
-        annualBatteryDegradationRate: financials.annualBatteryDegradationRate,
-      });
-      return {
-        activeGenerationOperationalProjection: projection,
-        generationProjectionError: null,
-      };
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : typeof err === 'string'
-          ? err
-          : 'Failed to calculate generation operational projection.';
-      return {
-        activeGenerationOperationalProjection: null,
-        generationProjectionError: message,
-      };
-    }
-  }, [
-    isSuitableForAnnual,
-    csvResult,
-    activeUnifiedResult,
-    tiers,
-    scheduleMatrix,
-    activeProfile,
-    activeTouProfile,
-    generationConfig,
-    allowSolarExport,
-    financials.annualElectricityInflationRate,
-    financials.annualBatteryDegradationRate,
-  ]);
-
-  // 1d. Lifecycle Financial Analysis for active generation project (Milestone G4C)
-  const { activeGenerationAnalysis, generationFinancialError } = useMemo(() => {
-    if (
-      !activeGenerationOperationalProjection ||
-      !isSuitableForAnnual ||
-      !activeUnifiedResult ||
-      activeUnifiedResult.mode !== 'generation-aware'
-    ) {
-      return {
-        activeGenerationAnalysis: null as GenerationFinancialAnalysis | null,
-        generationFinancialError: null as string | null,
-      };
-    }
-
-    try {
-      const analysis = calculateGenerationAwareFinancials({
-        batteryProfile: activeProfile,
-        operationalProjection: activeGenerationOperationalProjection,
-        projectCosts: generationProjectCosts,
-        financials,
-      });
-      return {
-        activeGenerationAnalysis: analysis,
-        generationFinancialError: null,
-      };
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : typeof err === 'string'
-          ? err
-          : 'Failed to calculate generation financial lifecycle analysis.';
-      return {
-        activeGenerationAnalysis: null,
-        generationFinancialError: message,
-      };
-    }
-  }, [
-    activeGenerationOperationalProjection,
-    isSuitableForAnnual,
-    activeUnifiedResult,
-    activeProfile,
-    generationProjectCosts,
-    financials,
-  ]);
-
   const generationAnalysisError = generationProjectionError || generationFinancialError;
-
-  // 2. Compute 25-year financial projections ONLY if dataset is suitable for annual projection
-  // AND simulation mode is 'legacy' (G4A Safety Gate: generation-aware results do not enter legacy financials)
-  const allAnalyses = useMemo<ProfileFinancialAnalysis[]>(() => {
-    if (
-      !isSuitableForAnnual ||
-      !csvResult ||
-      !csvResult.schemaValid ||
-      !csvResult.chronologicallyValid ||
-      !isSuitableForAnnual ||
-      csvResult.data.length === 0 ||
-      Object.keys(allSimulationSummaries).length === 0
-    ) {
-      return [];
-    }
-
-    return profiles.flatMap((profile) => {
-      const unifiedResult = unifiedResults[profile.id];
-      if (!unifiedResult || !shouldCalculateLegacyFinancials(isSuitableForAnnual, unifiedResult.mode)) {
-        return [];
-      }
-      const annualSummary = allSimulationSummaries[profile.id];
-      if (!annualSummary) return [];
-      return [calculate15YearFinancials(profile, annualSummary, financials)];
-    });
-  }, [isSuitableForAnnual, csvResult, profiles, unifiedResults, allSimulationSummaries, financials]);
 
   // Active Profile Analysis (null for partial/unsuitable datasets and generation-aware mode)
   const activeAnalysis = useMemo<ProfileFinancialAnalysis | null>(() => {
@@ -524,6 +421,14 @@ export default function App() {
             </div>
           ) : null}
         </div>
+
+        {simulationPending && (
+          <div role="status" aria-live="polite" className="mb-4 flex items-center gap-3 rounded-xl border border-sky-500/30 bg-sky-950/25 px-4 py-3 text-sm text-sky-100">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" aria-hidden="true" />
+            <span className="font-medium">Updating simulation in the background</span>
+            <span className="ml-auto text-xs text-sky-300">{currentSimulationState?.stage || 'Preparing calculation'} · {currentSimulationState?.progress ?? 0}%</span>
+          </div>
+        )}
 
         {/* Simulation Configuration Error Callout */}
         {simulationError && (

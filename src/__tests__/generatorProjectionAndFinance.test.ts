@@ -188,6 +188,26 @@ describe('G6D — Multi-Year Projection & Lifecycle Financial Integration', () =
   // Group 1: Multi-Year Operational Projection
   // ==========================================================================
   describe('Multi-Year Operational Projection', () => {
+    it('isolates one absolute projection year for worker-sized projection jobs', () => {
+      const params = {
+        dataPoints: createHourlyDataPoints(24, 3.0),
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: { site: baseSite, assets: [createTestGenerator('year-slice-generator')] },
+        allowRenewableExport: false,
+        horizonYears: 5,
+        allowIncompleteYearForTesting: true,
+      };
+      const full = calculateGenerationOperationalProjection(params);
+      const yearFour = calculateGenerationOperationalProjection({ ...params, projectionStartYear: 4, projectionEndYear: 4 });
+
+      expect(yearFour.horizonYears).toBe(5);
+      expect(yearFour.years).toHaveLength(1);
+      expect(yearFour.years[0]).toEqual(full.years[3]);
+    });
+
     it('1. Generator-only full-year projection succeeds and populates compact metrics', () => {
       const dataPoints = createHourlyDataPoints(24, 3.0);
       const config: GenerationConfig = {

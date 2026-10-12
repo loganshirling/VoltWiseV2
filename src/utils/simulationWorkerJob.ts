@@ -1,0 +1,178 @@
+import {
+  AnnualSimulationSummary,
+  BatteryProfile,
+  GenerationConfig,
+  GenerationFinancialAnalysis,
+  GenerationOperationalYear,
+  MacroFinancials,
+  ProfileFinancialAnalysis,
+  RateTier,
+  TouSeason,
+} from '../types/energy';
+import { calculate15YearFinancials } from './simulationEngine';
+import { runUnifiedSimulation, UnifiedSimulationResult } from './simulationRouter';
+import {
+  aggregateGenerationProjectCosts,
+  calculateGenerationAwareFinancials,
+  shouldCalculateLegacyFinancials,
+} from './generationFinancials';
+import { calculateGenerationOperationalProjection } from './generationProjection';
+
+export interface SimulationJobInput {
+  dataPoints: import('../types/energy').IntervalDataPoint[];
+  intervalHours: number;
+  profiles: BatteryProfile[];
+  activeProfileId: string;
+  tiers: RateTier[];
+  scheduleMatrix: string[][];
+  seasons?: TouSeason[];
+  generationConfig: GenerationConfig;
+  allowSolarExport: boolean;
+  annualProjectionEligible: boolean;
+  preflightError: string | null;
+  financials: MacroFinancials;
+}
+
+export interface SimulationJobResult {
+  activeUnifiedResult: UnifiedSimulationResult | null;
+  allSimulationSummaries: Record<string, AnnualSimulationSummary>;
+  allAnalyses: ProfileFinancialAnalysis[];
+  simulationError: string | null;
+  activeGenerationOperationalProjection: ReturnType<typeof calculateGenerationOperationalProjection> | null;
+  generationProjectionError: string | null;
+  activeGenerationAnalysis: GenerationFinancialAnalysis | null;
+  generationFinancialError: string | null;
+}
+
+export interface SimulationWorkerRunMessage {
+  type: 'run';
+  requestId: number;
+  input: SimulationJobInput;
+}
+
+export interface SimulationWorkerProjectionYearMessage {
+  type: 'projection-year';
+  requestId: number;
+  input: SimulationJobInput;
+  year: number;
+}
+
+export type SimulationWorkerRequestMessage = SimulationWorkerRunMessage | SimulationWorkerProjectionYearMessage;
+
+export type SimulationWorkerResponseMessage =
+  | { type: 'progress'; requestId: number; percent: number; stage: string }
+  | { type: 'success'; requestId: number; result: SimulationJobResult }
+  | { type: 'projection-year'; requestId: number; year: GenerationOperationalYear }
+  | { type: 'error'; requestId: number; message: string };
+
+const emptyResult = (): SimulationJobResult => ({
+  activeUnifiedResult: null,
+  allSimulationSummaries: {},
+  allAnalyses: [],
+  simulationError: null,
+  activeGenerationOperationalProjection: null,
+  generationProjectionError: null,
+  activeGenerationAnalysis: null,
+  generationFinancialError: null,
+});
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === 'string' ? error : fallback;
+}
+
+/** Runs the existing authoritative engines and retains full interval detail only for the selected profile. */
+export function executeSimulationJob(
+  input: SimulationJobInput,
+  onProgress: (percent: number, stage: string) => void = () => undefined
+): SimulationJobResult {
+  const result = emptyResult();
+  if (input.preflightError) {
+    result.simulationError = input.preflightError;
+    onProgress(100, 'blocked');
+    return result;
+  }
+  if (input.dataPoints.length === 0 || input.profiles.length === 0) {
+    onProgress(100, 'idle');
+    return result;
+  }
+
+  const modeByProfile = new Map<string, UnifiedSimulationResult['mode']>();
+  try {
+    input.profiles.forEach((profile, index) => {
+      const unified = runUnifiedSimulation({
+        dataPoints: input.dataPoints,
+        intervalHours: input.intervalHours,
+        tiers: input.tiers,
+        scheduleMatrix: input.scheduleMatrix,
+        batteryProfile: profile,
+        seasons: input.seasons,
+        generationConfig: input.generationConfig,
+        allowSolarExport: input.allowSolarExport,
+      });
+      modeByProfile.set(profile.id, unified.mode);
+      result.allSimulationSummaries[profile.id] = profile.id === input.activeProfileId
+        ? unified.annualSummary
+        : { ...unified.annualSummary, intervalResults: [] };
+      if (profile.id === input.activeProfileId) result.activeUnifiedResult = unified;
+      onProgress(Math.round(((index + 1) / input.profiles.length) * 55), `simulating ${index + 1}/${input.profiles.length} profiles`);
+    });
+  } catch (error) {
+    result.simulationError = errorMessage(error, 'Simulation error encountered with current settings.');
+    onProgress(100, 'error');
+    return result;
+  }
+
+  if (input.annualProjectionEligible) {
+    result.allAnalyses = input.profiles.flatMap((profile) => {
+      const summary = result.allSimulationSummaries[profile.id];
+      const mode = modeByProfile.get(profile.id);
+      if (!summary || !mode || !shouldCalculateLegacyFinancials(input.annualProjectionEligible, mode)) return [];
+      return [calculate15YearFinancials(profile, summary, input.financials)];
+    });
+  }
+  onProgress(55, 'interval simulations ready');
+  return result;
+}
+
+/** Calculates one absolute projection year; each short-lived worker can release its interval arrays afterwards. */
+export function executeGenerationProjectionYear(input: SimulationJobInput, year: number): GenerationOperationalYear {
+  const batteryProfile = input.profiles.find((profile) => profile.id === input.activeProfileId) ?? input.profiles[0];
+  const projection = calculateGenerationOperationalProjection({
+    dataPoints: input.dataPoints,
+    intervalHours: input.intervalHours,
+    tiers: input.tiers,
+    scheduleMatrix: input.scheduleMatrix,
+    batteryProfile,
+    seasons: input.seasons,
+    generationConfig: input.generationConfig,
+    allowSolarExport: input.allowSolarExport,
+    annualElectricityInflationRate: input.financials.annualElectricityInflationRate,
+    annualBatteryDegradationRate: input.financials.annualBatteryDegradationRate,
+    projectionYears: 25,
+    projectionStartYear: year,
+    projectionEndYear: year,
+    isSuitableForAnnual: true,
+  });
+  return projection.years[0];
+}
+
+export function attachGenerationProjection(
+  result: SimulationJobResult,
+  input: SimulationJobInput,
+  years: GenerationOperationalYear[]
+): SimulationJobResult {
+  const projection = Object.assign([...years], { horizonYears: 25, years }) as ReturnType<typeof calculateGenerationOperationalProjection>;
+  result.activeGenerationOperationalProjection = projection;
+  try {
+    result.activeGenerationAnalysis = calculateGenerationAwareFinancials({
+      batteryProfile: input.profiles.find((profile) => profile.id === input.activeProfileId) ?? input.profiles[0],
+      operationalProjection: projection,
+      projectCosts: aggregateGenerationProjectCosts(input.generationConfig),
+      financials: input.financials,
+    });
+  } catch (error) {
+    result.generationFinancialError = errorMessage(error, 'Failed to calculate generation financial lifecycle analysis.');
+  }
+  return result;
+}

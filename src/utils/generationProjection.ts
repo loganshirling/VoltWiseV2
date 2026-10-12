@@ -62,6 +62,9 @@ export interface GenerationOperationalProjectionParams {
 
   projectionYears?: number;
   horizonYears?: number;
+  /** Optional inclusive slice used to isolate yearly work in short-lived workers. */
+  projectionStartYear?: number;
+  projectionEndYear?: number;
 
   isSuitableForAnnual?: boolean;
   completeness?: DatasetCompleteness | null;
@@ -306,6 +309,11 @@ export function calculateGenerationOperationalProjection(
       `Projection horizon must be an integer between 1 and 25 years. Received: ${horizon}`
     );
   }
+  const startYear = params.projectionStartYear ?? 1;
+  const endYear = params.projectionEndYear ?? horizon;
+  if (!Number.isInteger(startYear) || !Number.isInteger(endYear) || startYear < 1 || endYear > horizon || startYear > endYear) {
+    throw new Error(`Projection year range must be an inclusive range between 1 and ${horizon}.`);
+  }
 
   // Verify generation asset configuration
   const assets = generationConfig?.assets;
@@ -390,7 +398,7 @@ export function calculateGenerationOperationalProjection(
 
   const years: GenerationOperationalYear[] = [];
 
-  for (let y = 1; y <= horizon; y++) {
+  for (let y = startYear; y <= endYear; y++) {
     // 1. Derive physically evolved Year-N inputs
     const yearGen = deriveGenerationConfigForProjectionYear(generationConfig, y);
     const yearBattery = deriveBatteryProfileForProjectionYear(
