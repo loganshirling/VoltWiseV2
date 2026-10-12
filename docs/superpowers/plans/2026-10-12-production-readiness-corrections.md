@@ -116,11 +116,11 @@ The following audit claims were spot-checked against current code and remain ope
 - Export `serializeProjectArchive(state) -> Blob` and `parseProjectArchive(input) -> ValidatedProjectState`; parser validates fully before the caller replaces current state.
 - Keep analytical JSON export separate from project archive serialization.
 
-- [ ] Add tests for save/open round-trip, deterministic re-simulation inputs, missing fields, malformed JSON, corrupt resource content, unknown future schema, and migration from the first supported schema.
-- [ ] Implement schema validation and migration in `projectArchive.ts`; reject invalid/future archives without mutating app state.
-- [ ] Add explicit Save Project and Open Project controls with a confirmation or recoverable state before replacing an active project.
-- [ ] Document archive contents, local handling, schema versions, and how users delete project files.
-- [ ] Run project archive, app integration, resource parser, and export tests.
+- [x] Add tests for save/open round-trip, deterministic re-simulation inputs, missing fields, malformed JSON, corrupt resource content, unknown future schema, and migration from the first supported schema.
+- [x] Implement schema validation and migration in `projectArchive.ts`; reject invalid/future archives without mutating app state.
+- [x] Add explicit Save Project and Open Project controls with a confirmation or recoverable state before replacing an active project.
+- [x] Document archive contents, local handling, schema versions, and how users delete project files.
+- [x] Run project archive, app integration, resource parser, and export tests.
 
 ### Task 5: Measure and isolate long-running simulation work
 

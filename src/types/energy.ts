@@ -361,6 +361,26 @@ export interface DatasetCompleteness {
 /** Provenance of the currently active household load dataset. */
 export type LoadDataSource = 'synthetic_sample' | 'uploaded';
 
+/** Serializable app inputs that define one complete VoltWise project. */
+export interface ProjectArchiveState {
+  profiles: BatteryProfile[];
+  activeProfileId: string;
+  touProfiles: TouProfile[];
+  activeTouProfileId: string;
+  tiers: RateTier[];
+  scheduleMatrix: string[][];
+  generationConfig: GenerationConfig;
+  allowSolarExport: boolean;
+  financials: MacroFinancials;
+  loadDataCsv: string | null;
+  loadDataSource: LoadDataSource | null;
+}
+
+/** Project inputs validated and ready to atomically install into app state. */
+export interface ValidatedProjectState extends ProjectArchiveState {
+  csvResult: CsvValidationResult | null;
+}
+
 export interface CsvValidationResult {
   /** CSV header, row shapes, values, and units satisfy a supported schema. */
   schemaValid: boolean;

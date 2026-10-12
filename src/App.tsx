@@ -24,6 +24,8 @@ import {
   GenerationOperationalProjection,
   GenerationFinancialAnalysis,
   LoadDataSource,
+  ProjectArchiveState,
+  ValidatedProjectState,
 } from './types/energy';
 import {
   DEFAULT_BATTERY_PROFILES,
@@ -73,6 +75,7 @@ export default function App() {
 
   // CSV Energy Usage Data State
   const [csvResult, setCsvResult] = useState<CsvValidationResult | null>(null);
+  const [loadDataCsv, setLoadDataCsv] = useState<string | null>(null);
   const [loadDataSource, setLoadDataSource] = useState<LoadDataSource | null>(null);
 
   // Active TOU Profile reference
@@ -85,6 +88,7 @@ export default function App() {
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
     setCsvResult(parsed);
+    setLoadDataCsv(rawCsv);
     setLoadDataSource('synthetic_sample');
   }, []);
 
@@ -95,6 +99,7 @@ export default function App() {
       const text = e.target?.result as string;
       const parsed = parseAndValidateEnergyCsv(text);
       setCsvResult(parsed);
+      setLoadDataCsv(text);
       setLoadDataSource('uploaded');
     };
     reader.readAsText(file);
@@ -105,12 +110,14 @@ export default function App() {
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
     setCsvResult(parsed);
+    setLoadDataCsv(rawCsv);
     setLoadDataSource('synthetic_sample');
   };
 
   // Reset data handler
   const handleResetData = () => {
     setCsvResult(null);
+    setLoadDataCsv(null);
     setLoadDataSource(null);
     setTouProfiles(DEFAULT_TOU_PROFILES);
     setActiveTouProfileId('california-ev2a');
@@ -373,6 +380,36 @@ export default function App() {
     );
   }, [isSuitableForAnnual, activeUnifiedResult, activeGenerationAnalysis]);
 
+  const handleProjectLoaded = (project: ValidatedProjectState) => {
+    setProfiles(project.profiles);
+    setActiveProfileId(project.activeProfileId);
+    setTouProfiles(project.touProfiles);
+    setActiveTouProfileId(project.activeTouProfileId);
+    setTiers(project.tiers);
+    setScheduleMatrix(project.scheduleMatrix as ScheduleMatrix);
+    setGenerationConfig(project.generationConfig);
+    setAllowSolarExport(project.allowSolarExport);
+    setFinancials(project.financials);
+    setLoadDataCsv(project.loadDataCsv);
+    setLoadDataSource(project.loadDataSource);
+    setCsvResult(project.csvResult);
+    setActiveTab('data');
+  };
+
+  const projectState: ProjectArchiveState = {
+    profiles,
+    activeProfileId,
+    touProfiles,
+    activeTouProfileId,
+    tiers,
+    scheduleMatrix,
+    generationConfig,
+    allowSolarExport,
+    financials,
+    loadDataCsv,
+    loadDataSource,
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-emerald-500/20 selection:text-emerald-400">
       {/* 3-Zone Top Navigation Contract */}
@@ -518,6 +555,8 @@ export default function App() {
           <DataAndRatesTab
             csvResult={csvResult}
             loadDataSource={loadDataSource}
+            projectState={projectState}
+            onProjectLoaded={handleProjectLoaded}
             siteAlignmentEligibility={siteLoadAlignmentEligibility}
             onFileUpload={handleFileUpload}
             onLoadSample={handleLoadSample}

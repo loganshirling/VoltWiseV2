@@ -29,6 +29,7 @@ import {
 import {
   CsvValidationResult,
   LoadDataSource,
+  ProjectArchiveState,
   RateTier,
   TouProfile,
   TouSeason,
@@ -40,10 +41,14 @@ import {
 import { DEFAULT_TOU_PROFILES, ScheduleMatrix } from '../utils/simulationEngine';
 import { generateStandardCsvTemplate } from '../utils/sampleData';
 import { LoadTimestampEligibility } from '../utils/loadTimeAlignment';
+import { ValidatedProjectState } from '../types/energy';
+import { ProjectFileControls } from './ProjectFileControls';
 
 interface DataAndRatesTabProps {
   csvResult: CsvValidationResult | null;
   loadDataSource: LoadDataSource | null;
+  projectState: ProjectArchiveState;
+  onProjectLoaded: (project: ValidatedProjectState) => void;
   siteAlignmentEligibility?: LoadTimestampEligibility | null;
   onFileUpload: (file: File) => void;
   onLoadSample: () => void;
@@ -117,6 +122,8 @@ const SEASON_THEMES = [
 export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   csvResult,
   loadDataSource,
+  projectState,
+  onProjectLoaded,
   siteAlignmentEligibility,
   onFileUpload,
   onLoadSample,
@@ -763,6 +770,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
 
   return (
     <div className="space-y-10" onMouseUp={handleMouseUp}>
+      <ProjectFileControls projectState={projectState} onProjectLoaded={onProjectLoaded} />
       <div role="status" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
         {loadDataSource === 'synthetic_sample' ? (
           <><strong className="text-amber-300">Illustrative synthetic sample.</strong> These generated intervals are not your household measurements. Upload your own CSV to replace them.</>
