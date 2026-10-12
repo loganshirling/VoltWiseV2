@@ -97,10 +97,10 @@ The following audit claims were spot-checked against current code and remain ope
 - Add a source discriminator to project state (for example `demo` or `uploaded`) and include it in the existing JSON analysis export metadata.
 - Keep sample generation deterministic; make the initial sample visibly illustrative and provide a deliberate transition to uploaded input.
 
-- [ ] Test that a fresh app state and its export identify synthetic sample data; importing user data changes provenance and the export records that provenance.
-- [ ] Show a persistent sample/illustrative notice on results and exports; identify tariff and finance assumptions as user inputs.
-- [ ] Ensure reset behavior states whether load/resource files are cleared and never silently relabel uploaded data as a sample.
-- [ ] Run app integration and JSON export tests.
+- [x] Test that a fresh app state and its export identify synthetic sample data; importing user data changes provenance and the export records that provenance.
+- [x] Show a persistent sample/illustrative notice on results and exports; identify tariff and finance assumptions as user inputs.
+- [x] Ensure reset behavior states whether load/resource files are cleared and never silently relabel uploaded data as a sample.
+- [x] Run app integration and JSON export tests.
 
 ### Task 4: Implement versioned local Save/Open Project archives
 

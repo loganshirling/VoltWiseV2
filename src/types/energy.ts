@@ -358,6 +358,9 @@ export interface DatasetCompleteness {
   unsuitabilityReason?: string;
 }
 
+/** Provenance of the currently active household load dataset. */
+export type LoadDataSource = 'synthetic_sample' | 'uploaded';
+
 export interface CsvValidationResult {
   /** CSV header, row shapes, values, and units satisfy a supported schema. */
   schemaValid: boolean;

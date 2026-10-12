@@ -72,7 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition-colors whitespace-nowrap shadow-sm shadow-emerald-950/40"
             >
               <FileSpreadsheet className="h-3.5 w-3.5" />
-              <span>Load 8,760h Sample</span>
+              <span>Load synthetic 8,760h sample</span>
             </button>
           ) : (
             <div className="flex items-center gap-2">
@@ -84,7 +84,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
               <button
                 onClick={onResetData}
-                title="Reset simulation data"
+                title="Reset all project data, including load and solar/wind resource files"
+                aria-label="Reset all project data, including load and solar/wind resource files"
                 className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-900 hover:bg-slate-800 rounded-lg border border-slate-800 transition-colors whitespace-nowrap"
               >
                 <RefreshCw className="h-3 w-3" />

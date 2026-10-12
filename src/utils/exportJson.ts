@@ -21,6 +21,7 @@ import {
   GeneratorFuelUnit,
   GeneratorDispatchMode,
   YearProjection,
+  LoadDataSource,
 } from '../types/energy';
 import { APP_VERSION } from '../version';
 import { deriveHorizonFinancialSummary } from './simulationEngine';
@@ -35,6 +36,7 @@ export interface ExportLlmJsonParams {
   activeTouProfile?: TouProfile;
   financials: MacroFinancials;
   csvResult?: CsvValidationResult | null;
+  loadDataSource?: LoadDataSource | null;
 }
 
 export interface LlmExportPayload {
@@ -53,6 +55,11 @@ export interface LlmExportPayload {
       total_home_load_kwh: number;
       is_suitable_for_annual_projection: boolean;
       completeness_reason: string | null;
+    };
+    load_data_source: LoadDataSource | 'unspecified';
+    input_disclosure: {
+      tariff_rates: 'user_configured_inputs';
+      financial_assumptions: 'user_configured_inputs';
     };
   };
   battery_configuration: {
@@ -189,6 +196,7 @@ export function buildExportLlmJson(params: ExportLlmJsonParams): LlmExportPayloa
     activeTouProfile,
     financials,
     csvResult,
+    loadDataSource,
   } = params;
 
   if (csvResult && !csvResult.annualProjectionEligible) {
@@ -284,6 +292,11 @@ export function buildExportLlmJson(params: ExportLlmJsonParams): LlmExportPayloa
         total_home_load_kwh: annualSummary.totalHomeLoadKwh,
         is_suitable_for_annual_projection: csvResult?.annualProjectionEligible ?? false,
         completeness_reason: completeness?.reason ?? null,
+      },
+      load_data_source: loadDataSource ?? 'unspecified',
+      input_disclosure: {
+        tariff_rates: 'user_configured_inputs',
+        financial_assumptions: 'user_configured_inputs',
       },
     },
     battery_configuration: {
@@ -627,6 +640,11 @@ export interface GenerationLlmExportPayload {
       is_suitable_for_annual_projection: boolean;
       completeness_reason: string | null;
     };
+    load_data_source: LoadDataSource | 'unspecified';
+    input_disclosure: {
+      tariff_rates: 'user_configured_inputs';
+      financial_assumptions: 'user_configured_inputs';
+    };
   };
   battery_configuration: {
     profile_name: string;
@@ -839,6 +857,7 @@ export interface BuildGenerationExportLlmJsonParams {
   activeTouProfile?: TouProfile;
   financials: MacroFinancials;
   csvResult?: CsvValidationResult | null;
+  loadDataSource?: LoadDataSource | null;
 }
 
 export interface CanExportGenerationProjectionsJsonParams {
@@ -930,6 +949,7 @@ export function buildGenerationExportLlmJson(
     activeTouProfile,
     financials,
     csvResult,
+    loadDataSource,
   } = params;
 
   if (csvResult && !csvResult.annualProjectionEligible) {
@@ -1203,6 +1223,11 @@ export function buildGenerationExportLlmJson(
         is_suitable_for_annual_projection: csvResult?.annualProjectionEligible ?? false,
         completeness_reason: completeness?.reason ?? null,
       },
+      load_data_source: loadDataSource ?? 'unspecified',
+      input_disclosure: {
+        tariff_rates: 'user_configured_inputs',
+        financial_assumptions: 'user_configured_inputs',
+      },
     },
     battery_configuration: {
       profile_name: batteryProfile.name,
@@ -1426,6 +1451,7 @@ export interface BuildGenerationPeriodExportJsonParams {
   activeTouProfile?: TouProfile;
   financials?: MacroFinancials;
   allowRenewableExport?: boolean;
+  loadDataSource?: LoadDataSource | null;
 }
 
 /**
@@ -1441,6 +1467,7 @@ export function buildGenerationPeriodExportJson({
   activeTouProfile,
   financials,
   allowRenewableExport,
+  loadDataSource,
 }: BuildGenerationPeriodExportJsonParams) {
   if (!generationConfig || !generationAwareResult) {
     throw new Error('Generation configuration and period simulation results are required.');
@@ -1456,6 +1483,13 @@ export function buildGenerationPeriodExportJson({
   return {
     schema_version: '1.0',
     analysis_scope: 'simulated_period' as const,
+    metadata: {
+      load_data_source: loadDataSource ?? 'unspecified',
+      input_disclosure: {
+        tariff_rates: 'user_configured_inputs' as const,
+        financial_assumptions: 'user_configured_inputs' as const,
+      },
+    },
     period: {
       start_timestamp_utc: timestamps[0].timestampUtc,
       end_timestamp_utc: timestamps[timestamps.length - 1].timestampUtc,

@@ -48,6 +48,7 @@ import {
   GenerationFinancialAnalysis,
   GenerationOperationalProjection,
   GenerationProjectCostSummary,
+  LoadDataSource,
   GenerationHorizonFinancialSummary,
 } from '../types/energy';
 import { GenerationAwareSimulationResult } from '../utils/generationAwareSimulation';
@@ -86,6 +87,7 @@ export interface ResultsAnalyticsTabProps {
   activeTouProfile?: TouProfile;
   financials: MacroFinancials;
   csvResult?: CsvValidationResult | null;
+  loadDataSource?: LoadDataSource | null;
   analysisState?: AnalysisState;
 
   // G4D Generation props:
@@ -110,6 +112,7 @@ interface ResultsAnalyticsContentProps {
   activeTouProfile?: TouProfile;
   financials: MacroFinancials;
   csvResult?: CsvValidationResult | null;
+  loadDataSource?: LoadDataSource | null;
   analysisState?: AnalysisState;
 
   // G4D Generation props:
@@ -134,6 +137,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
   activeTouProfile,
   financials,
   csvResult,
+  loadDataSource,
   analysisState,
   activeGenerationAnalysis,
   activeGenerationOperationalProjection,
@@ -518,6 +522,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
         activeTouProfile,
         financials,
         csvResult,
+        loadDataSource,
       });
 
       const jsonString = JSON.stringify(exportPayload, null, 2);
@@ -547,6 +552,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
       activeTouProfile,
       financials,
       csvResult,
+      loadDataSource,
     });
 
     const jsonString = JSON.stringify(exportPayload, null, 2);
@@ -575,6 +581,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
       activeTouProfile,
       financials,
       allowRenewableExport: Boolean(allowSolarExport),
+      loadDataSource,
     });
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -1000,6 +1007,16 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
 
   return (
     <div className="space-y-8">
+      <aside aria-label="Analysis data and assumptions" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
+        {loadDataSource === 'synthetic_sample' ? (
+          <p><strong className="text-amber-300">Illustrative synthetic sample.</strong> These generated intervals are not household measurements; replace them with your own CSV before using results for a real project.</p>
+        ) : loadDataSource === 'uploaded' ? (
+          <p><strong className="text-emerald-300">Uploaded load data.</strong> Results use the intervals from your selected CSV.</p>
+        ) : (
+          <p><strong className="text-slate-100">Load data source unspecified.</strong> Confirm the active dataset before relying on these results.</p>
+        )}
+        <p className="mt-1 text-xs text-slate-400">Tariff rates and financial assumptions are configurable user inputs; results and exports reflect the current selections.</p>
+      </aside>
       {/* HEADER BAR */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div>
@@ -4566,6 +4583,7 @@ export const ResultsAnalyticsTab: React.FC<ResultsAnalyticsTabProps> = ({
   activeTouProfile,
   financials,
   csvResult,
+  loadDataSource,
   analysisState,
   activeGenerationAnalysis,
   activeGenerationOperationalProjection,
@@ -4601,6 +4619,7 @@ export const ResultsAnalyticsTab: React.FC<ResultsAnalyticsTabProps> = ({
       activeTouProfile={activeTouProfile}
       financials={financials}
       csvResult={csvResult}
+      loadDataSource={loadDataSource}
       analysisState={analysisState}
       activeGenerationAnalysis={activeGenerationAnalysis}
       activeGenerationOperationalProjection={activeGenerationOperationalProjection}

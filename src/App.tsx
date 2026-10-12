@@ -23,6 +23,7 @@ import {
   GenerationProjectCostSummary,
   GenerationOperationalProjection,
   GenerationFinancialAnalysis,
+  LoadDataSource,
 } from './types/energy';
 import {
   DEFAULT_BATTERY_PROFILES,
@@ -72,6 +73,7 @@ export default function App() {
 
   // CSV Energy Usage Data State
   const [csvResult, setCsvResult] = useState<CsvValidationResult | null>(null);
+  const [loadDataSource, setLoadDataSource] = useState<LoadDataSource | null>(null);
 
   // Active TOU Profile reference
   const activeTouProfile = useMemo(() => {
@@ -83,6 +85,7 @@ export default function App() {
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
     setCsvResult(parsed);
+    setLoadDataSource('synthetic_sample');
   }, []);
 
   // Handle User CSV Upload
@@ -92,6 +95,7 @@ export default function App() {
       const text = e.target?.result as string;
       const parsed = parseAndValidateEnergyCsv(text);
       setCsvResult(parsed);
+      setLoadDataSource('uploaded');
     };
     reader.readAsText(file);
   };
@@ -101,11 +105,13 @@ export default function App() {
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
     setCsvResult(parsed);
+    setLoadDataSource('synthetic_sample');
   };
 
   // Reset data handler
   const handleResetData = () => {
     setCsvResult(null);
+    setLoadDataSource(null);
     setTouProfiles(DEFAULT_TOU_PROFILES);
     setActiveTouProfileId('california-ev2a');
     setTiers(DEFAULT_TOU_PROFILES[0].tiers);
@@ -511,6 +517,7 @@ export default function App() {
         {activeTab === 'data' && (
           <DataAndRatesTab
             csvResult={csvResult}
+            loadDataSource={loadDataSource}
             siteAlignmentEligibility={siteLoadAlignmentEligibility}
             onFileUpload={handleFileUpload}
             onLoadSample={handleLoadSample}
@@ -569,6 +576,7 @@ export default function App() {
             activeTouProfile={activeTouProfile}
             financials={financials}
             csvResult={csvResult}
+            loadDataSource={loadDataSource}
             analysisState={analysisState}
             activeGenerationAnalysis={activeGenerationAnalysis}
             activeGenerationOperationalProjection={activeGenerationOperationalProjection}

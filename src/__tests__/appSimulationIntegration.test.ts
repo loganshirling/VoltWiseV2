@@ -37,6 +37,21 @@ import {
   WindGenerationAsset,
   WindPowerCurvePoint,
 } from '../types/energy';
+import { generateRealistic8760Dataset } from '../utils/sampleData';
+import { parseAndValidateEnergyCsv } from '../utils/csvParser';
+
+describe('load-data provenance integration', () => {
+  it('starts from a deterministic, valid synthetic dataset suitable for an illustrative sample export', () => {
+    const first = generateRealistic8760Dataset();
+    const second = generateRealistic8760Dataset();
+    const parsed = parseAndValidateEnergyCsv(first.rawCsv);
+
+    expect(first.rawCsv).toBe(second.rawCsv);
+    expect(parsed.schemaValid).toBe(true);
+    expect(parsed.annualProjectionEligible).toBe(true);
+    expect(parsed.data).toHaveLength(8760);
+  });
+});
 
 describe('G3S — Application Integration & Final G3 Gate', () => {
   const validSite: GenerationSite = {

@@ -174,6 +174,7 @@ describe('Issue 4 — JSON Export Correctness and Consistency', () => {
       activeTouProfile: touProfile,
       financials: DEFAULT_MACRO_FINANCIALS,
       csvResult: mockCsvResult,
+      loadDataSource: 'synthetic_sample',
     });
 
     // Dataset Metadata
@@ -182,6 +183,22 @@ describe('Issue 4 — JSON Export Correctness and Consistency', () => {
     expect(exportData.metadata.dataset_summary.total_intervals).toBe(8760);
     expect(exportData.metadata.dataset_summary.duration_days).toBe(365);
     expect(exportData.metadata.dataset_summary.is_suitable_for_annual_projection).toBe(true);
+    expect(exportData.metadata.load_data_source).toBe('synthetic_sample');
+    expect(exportData.metadata.input_disclosure).toEqual({
+      tariff_rates: 'user_configured_inputs',
+      financial_assumptions: 'user_configured_inputs',
+    });
+
+    const uploadedExport = buildExportLlmJson({
+      activeAnalysis: analysis,
+      projectionHorizon: 15,
+      tiers,
+      activeTouProfile: touProfile,
+      financials: DEFAULT_MACRO_FINANCIALS,
+      csvResult: mockCsvResult,
+      loadDataSource: 'uploaded',
+    });
+    expect(uploadedExport.metadata.load_data_source).toBe('uploaded');
 
     // Battery Configuration
     expect(exportData.battery_configuration.profile_name).toBe(profile.name);
@@ -383,9 +400,14 @@ describe('Generation period export', () => {
       gridFlows: { intervals: [] }, tariffCosts: { intervals: [] },
     } as unknown as GenerationAwareSimulationResult;
 
-    const payload = buildGenerationPeriodExportJson({ generationConfig, generationAwareResult, intervalHours: 1 });
+    const payload = buildGenerationPeriodExportJson({ generationConfig, generationAwareResult, intervalHours: 1, loadDataSource: 'uploaded' });
 
     expect(payload.analysis_scope).toBe('simulated_period');
+    expect(payload.metadata.load_data_source).toBe('uploaded');
+    expect(payload.metadata.input_disclosure).toEqual({
+      tariff_rates: 'user_configured_inputs',
+      financial_assumptions: 'user_configured_inputs',
+    });
     expect(payload.period).toEqual({
       start_timestamp_utc: resource.startTimestampUtc,
       end_timestamp_utc: resource.endTimestampUtc,
@@ -613,6 +635,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
         activeTouProfile: touProfile,
         financials: sampleFinancials,
         csvResult: mockCsvResult,
+        loadDataSource: 'synthetic_sample',
       });
 
       expect(exportData.generation_configuration).toBeDefined();
@@ -631,12 +654,18 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
         activeTouProfile: touProfile,
         financials: sampleFinancials,
         csvResult: mockCsvResult,
+        loadDataSource: 'synthetic_sample',
       });
 
       expect(exportData.metadata.dataset_summary.total_intervals).toBe(8760);
       expect(exportData.metadata.dataset_summary.interval_duration_hours).toBe(1);
       expect(exportData.metadata.dataset_summary.duration_days).toBe(365);
       expect(exportData.metadata.dataset_summary.is_suitable_for_annual_projection).toBe(true);
+      expect(exportData.metadata.load_data_source).toBe('synthetic_sample');
+      expect(exportData.metadata.input_disclosure).toEqual({
+        tariff_rates: 'user_configured_inputs',
+        financial_assumptions: 'user_configured_inputs',
+      });
     });
 
     it('2. Site values match GenerationConfig', () => {

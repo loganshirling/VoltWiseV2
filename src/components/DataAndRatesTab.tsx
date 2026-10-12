@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import {
   CsvValidationResult,
+  LoadDataSource,
   RateTier,
   TouProfile,
   TouSeason,
@@ -42,6 +43,7 @@ import { LoadTimestampEligibility } from '../utils/loadTimeAlignment';
 
 interface DataAndRatesTabProps {
   csvResult: CsvValidationResult | null;
+  loadDataSource: LoadDataSource | null;
   siteAlignmentEligibility?: LoadTimestampEligibility | null;
   onFileUpload: (file: File) => void;
   onLoadSample: () => void;
@@ -114,6 +116,7 @@ const SEASON_THEMES = [
 
 export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   csvResult,
+  loadDataSource,
   siteAlignmentEligibility,
   onFileUpload,
   onLoadSample,
@@ -760,6 +763,15 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
 
   return (
     <div className="space-y-10" onMouseUp={handleMouseUp}>
+      <div role="status" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
+        {loadDataSource === 'synthetic_sample' ? (
+          <><strong className="text-amber-300">Illustrative synthetic sample.</strong> These generated intervals are not your household measurements. Upload your own CSV to replace them.</>
+        ) : loadDataSource === 'uploaded' ? (
+          <><strong className="text-emerald-300">Uploaded load data.</strong> The active dataset came from a CSV you selected.</>
+        ) : (
+          <><strong className="text-slate-100">No load dataset is active.</strong> Reset cleared the load data and solar/wind resource files. Upload a CSV or deliberately load the synthetic sample.</>
+        )}
+      </div>
       {/* SECTION 1: CSV DATA INGESTION & VALIDATION */}
       <section className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
@@ -785,7 +797,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/30 rounded-lg transition-colors whitespace-nowrap"
             >
               <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Load 8,760h Household Profile</span>
+              <span>Load synthetic 8,760h sample</span>
             </button>
           </div>
         </div>
