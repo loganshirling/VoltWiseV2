@@ -323,13 +323,22 @@ export function calculateGenerationOperationalProjection(
     );
   }
 
-  // Reject enabled wind assets with interval_file resource mode
+  const enabledMeasuredSolar = enabledAssets.filter(
+    (a) => a.type === 'solar' && (a as SolarGenerationAsset).resourceMode === 'weather_file'
+  );
+  if (enabledMeasuredSolar.length > 0) {
+    throw new Error(
+      'Measured solar resource data supports its imported interval period only; multi-year projection requires clear-sky or monthly peak sun hours mode.'
+    );
+  }
+
+  // Interval wind measurements likewise do not provide future projection years.
   const enabledIntervalWind = enabledAssets.filter(
     (a) => a.type === 'wind' && (a as WindGenerationAsset).resourceMode === 'interval_file'
   );
   if (enabledIntervalWind.length > 0) {
     throw new Error(
-      'Wind assets with resourceMode "interval_file" are unsupported in multi-year operational projection.'
+      'Measured wind resource data supports its imported interval period only; multi-year projection requires annual or monthly average mode.'
     );
   }
 

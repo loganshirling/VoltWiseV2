@@ -168,6 +168,24 @@ describe('G7A — External Resource Exact Load Alignment', () => {
     }).toThrowError(/Interval duration mismatch/);
   });
 
+  it('rejects duplicate resource timestamps instead of silently replacing one row', () => {
+    const malformed = {
+      ...solarDataset,
+      records: [solarDataset.records[0], solarDataset.records[0], ...solarDataset.records.slice(2)],
+    };
+    expect(() => alignExternalResourceToLoad(malformed, ['2026-06-01T12:00:00.000Z'], 1))
+      .toThrow(/duplicate resource timestamp/i);
+  });
+
+  it('rejects out-of-order resource timestamps', () => {
+    const malformed = {
+      ...windDataset,
+      records: [windDataset.records[1], windDataset.records[0], windDataset.records[2]],
+    };
+    expect(() => alignExternalResourceToLoad(malformed, ['2026-06-01T12:00:00.000Z'], 1))
+      .toThrow(/resource timestamps must be strictly increasing/i);
+  });
+
   it('does not mutate caller resource dataset or load array (input immutability)', () => {
     const recordsSnapshot = [...solarDataset.records];
     const alignedLoad = Object.freeze(['2026-06-01T12:00:00.000Z', '2026-06-01T13:00:00.000Z']);

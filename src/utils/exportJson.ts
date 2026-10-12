@@ -889,6 +889,7 @@ export function canExportGenerationProjectionsJson(
   if (generationConfig?.assets && Array.isArray(generationConfig.assets)) {
     const hasUnsupportedAsset = generationConfig.assets.some((a) => {
       if (!a || !a.enabled) return false;
+      if (a.type === 'solar' && (a as SolarGenerationAsset).resourceMode === 'weather_file') return true;
       if (a.type === 'wind') {
         const windAsset = a as WindGenerationAsset;
         if (windAsset.resourceMode === 'interval_file') return true;
@@ -951,12 +952,16 @@ export function buildGenerationExportLlmJson(
     if (asset.type === 'wind') {
       const windAsset = asset as WindGenerationAsset;
       if (windAsset.resourceMode === 'interval_file') {
-        throw new Error('Enabled wind assets with interval_file resource mode are not supported for generation export.');
+        throw new Error('Measured wind intervals support simulation for the imported period only, not multi-year generation export.');
       }
       if (windAsset.resourceMode !== 'annual_average' && windAsset.resourceMode !== 'monthly_average') {
         throw new Error(`Unsupported wind resource mode: ${windAsset.resourceMode}`);
       }
     }
+  }
+
+  if (enabledAssets.some((asset) => asset.type === 'solar' && asset.resourceMode === 'weather_file')) {
+    throw new Error('Measured solar intervals support simulation for the imported period only, not multi-year generation export.');
   }
 
   const enabledSolarAssets = enabledAssets.filter(
@@ -1409,5 +1414,88 @@ export function buildGenerationExportLlmJson(
       project_vs_opportunity_cost_usd: horizonSummary.opportunityCostDiff,
     },
     generation_annual_projection: annualProjection,
+  };
+}
+
+export interface BuildGenerationPeriodExportJsonParams {
+  generationConfig: GenerationConfig;
+  generationAwareResult: GenerationAwareSimulationResult;
+  intervalHours: number;
+  batteryProfile?: BatteryProfile;
+  tiers?: RateTier[];
+  activeTouProfile?: TouProfile;
+  financials?: MacroFinancials;
+  allowRenewableExport?: boolean;
+}
+
+/**
+ * Exports authoritative generation results for their observed/simulated period.
+ * This payload deliberately contains no annualization or multi-year extrapolation.
+ */
+export function buildGenerationPeriodExportJson({
+  generationConfig,
+  generationAwareResult,
+  intervalHours,
+  batteryProfile,
+  tiers,
+  activeTouProfile,
+  financials,
+  allowRenewableExport,
+}: BuildGenerationPeriodExportJsonParams) {
+  if (!generationConfig || !generationAwareResult) {
+    throw new Error('Generation configuration and period simulation results are required.');
+  }
+  if (!Number.isFinite(intervalHours) || intervalHours <= 0) {
+    throw new Error('Period export requires a positive finite interval duration.');
+  }
+  const timestamps = generationAwareResult.alignedTimestamps ?? [];
+  if (timestamps.length === 0) {
+    throw new Error('Period export requires at least one aligned simulation timestamp.');
+  }
+
+  return {
+    schema_version: '1.0',
+    analysis_scope: 'simulated_period' as const,
+    period: {
+      start_timestamp_utc: timestamps[0].timestampUtc,
+      end_timestamp_utc: timestamps[timestamps.length - 1].timestampUtc,
+      interval_count: timestamps.length,
+      interval_duration_hours: intervalHours,
+    },
+    inputs: {
+      site: { ...generationConfig.site },
+      assets: generationConfig.assets.map((asset) => ({ ...asset })),
+      external_resources: (generationConfig.externalResources ?? []).map((resource) => ({
+        ...resource,
+        records: resource.records.map((record) => ({ ...record })),
+      })),
+      battery_profile: batteryProfile ? { ...batteryProfile } : undefined,
+      tariff_tiers: tiers?.map((tier) => ({ ...tier })),
+      tou_profile: activeTouProfile ? { ...activeTouProfile } : undefined,
+      financial_assumptions: financials ? { ...financials } : undefined,
+      allow_renewable_export: allowRenewableExport,
+    },
+    results: {
+      total_home_load_kwh: generationAwareResult.totalHomeLoadKwh,
+      total_solar_generation_kwh: generationAwareResult.totalSolarGenerationKwh,
+      total_wind_generation_kwh: generationAwareResult.totalWindGenerationKwh,
+      total_generator_generation_kwh: generationAwareResult.totalGeneratorGenerationKwh ?? generationAwareResult.generatorGeneratedKwh ?? 0,
+      total_grid_import_kwh: generationAwareResult.totalGridImportKwh,
+      total_grid_export_kwh: generationAwareResult.totalGridExportKwh,
+      baseline_cost_usd: generationAwareResult.baselineCost,
+      simulated_cost_usd: generationAwareResult.simulatedCost,
+      net_savings_usd: generationAwareResult.netSavings,
+      interval_count: timestamps.length,
+      interval_results: timestamps.map((timestamp, index) => ({
+        timestamp_utc: timestamp.timestampUtc,
+        home_load: generationAwareResult.renewableLoadFlow[index],
+        solar: generationAwareResult.solarFleetProfile[index],
+        wind: generationAwareResult.windFleetProfile[index],
+        generator: generationAwareResult.generatorFleetRecords?.[index],
+        battery: generationAwareResult.exportAwareBatteryFlow.intervals[index],
+        grid: generationAwareResult.gridFlows.intervals[index],
+        tariff: generationAwareResult.tariffCosts.intervals[index],
+      })),
+    },
   };
 }

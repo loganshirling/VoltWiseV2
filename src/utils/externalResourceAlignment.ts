@@ -96,6 +96,10 @@ export function alignExternalResourceToLoad<T extends ExternalResourceDataset>(
     );
   }
 
+  if (!Number.isFinite(dataset.intervalHours) || dataset.intervalHours <= 0) {
+    throw new Error(`External resource intervalHours must be a positive finite number. Received: ${dataset.intervalHours}`);
+  }
+
   // Verify interval duration compatibility (exact match, no resampling)
   if (Math.abs(dataset.intervalHours - loadIntervalHours) > INTERVAL_FLOAT_TOLERANCE) {
     throw new Error(
@@ -105,7 +109,29 @@ export function alignExternalResourceToLoad<T extends ExternalResourceDataset>(
 
   // Index resource records by UTC timestamp string for O(1) exact lookup
   const recordMap = new Map<string, T['records'][number]>();
-  for (const record of dataset.records) {
+  const expectedResourceStepMs = Math.round(dataset.intervalHours * 3600 * 1000);
+  let previousResourceInstantMs: number | undefined;
+  for (let index = 0; index < dataset.records.length; index++) {
+    const record = dataset.records[index];
+    const instantMs = typeof record.timestampUtc === 'string'
+      ? new Date(record.timestampUtc).getTime()
+      : Number.NaN;
+    if (!Number.isFinite(instantMs)) {
+      throw new Error(`Invalid resource timestamp at index ${index}: "${record.timestampUtc}".`);
+    }
+    if (previousResourceInstantMs !== undefined) {
+      const spacingMs = instantMs - previousResourceInstantMs;
+      if (spacingMs === 0) {
+        throw new Error(`Duplicate resource timestamp at index ${index}: "${record.timestampUtc}".`);
+      }
+      if (spacingMs < 0) {
+        throw new Error('Resource timestamps must be strictly increasing; found an out-of-order timestamp at index ' + index + '.');
+      }
+      if (Math.abs(spacingMs - expectedResourceStepMs) > 1) {
+        throw new Error(`Irregular resource timestamp spacing at index ${index}: expected ${dataset.intervalHours}h intervals.`);
+      }
+    }
+    previousResourceInstantMs = instantMs;
     recordMap.set(record.timestampUtc, record);
     try {
       const canonicalIso = new Date(record.timestampUtc).toISOString();

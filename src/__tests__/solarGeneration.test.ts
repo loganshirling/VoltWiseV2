@@ -148,18 +148,93 @@ describe('G2C Milestone — Unified Solar Profile API & Multi-Array Aggregation'
   });
 
   // --------------------------------------------------------------------------
-  // D. Unsupported weather mode
+  // D. Measured weather mode
   // --------------------------------------------------------------------------
-  it('D. throws clear error when resourceMode is weather_file', () => {
+  it('D. converts exact aligned weather records into an AC/DC profile', () => {
     const weatherAsset: SolarGenerationAsset = {
       ...clearSkyAsset,
       resourceMode: 'weather_file',
+      externalResourceId: 'weather-1',
     };
-    const dates = generateDateSequence(new Date('2026-07-15T07:00:00Z'), 6, 1.0);
+    const dates = [new Date('2026-07-15T19:00:00Z'), new Date('2026-07-15T20:00:00Z')];
+    const resource = {
+      id: 'weather-1', name: 'Measured', kind: 'solar_irradiance' as const,
+      sourceTimeZone: 'UTC', intervalHours: 1, rowCount: 2,
+      startTimestampUtc: dates[0].toISOString(), endTimestampUtc: dates[1].toISOString(),
+      records: dates.map((date) => ({ timestampUtc: date.toISOString(), ghiWm2: 800, dniWm2: 650, dhiWm2: 150 })),
+    };
 
-    expect(() =>
-      generateSolarAssetProfile(dates, 1.0, baseSite, weatherAsset)
-    ).toThrow(/weather-file resource mode is not implemented yet/i);
+    const profile = generateSolarAssetProfile(dates, 1.0, baseSite, weatherAsset, [resource]);
+    expect(profile).toHaveLength(2);
+    expect(profile[0].resourceMode).toBe('weather_file');
+    expect(profile[0].ghiKwPerM2).toBe(0.8);
+    expect(profile[0].acEnergyKwh).toBeGreaterThan(0);
+    expect(profile[0].dcEnergyKwh).toBeGreaterThanOrEqual(profile[0].acEnergyKwh);
+    expect(() => generateSolarAssetProfile(dates, 1.0, baseSite, weatherAsset)).toThrow(/attached solar irradiance resource/);
+  });
+
+  it('rejects non-finite or negative irradiance in a directly supplied dataset', () => {
+    const asset = { ...clearSkyAsset, resourceMode: 'weather_file' as const, externalResourceId: 'bad-solar' };
+    const instant = new Date('2026-07-15T19:00:00Z');
+    const dataset = {
+      id: 'bad-solar', name: 'Bad measurements', kind: 'solar_irradiance' as const,
+      sourceTimeZone: 'UTC', intervalHours: 1, rowCount: 1,
+      startTimestampUtc: instant.toISOString(), endTimestampUtc: instant.toISOString(),
+      records: [{ timestampUtc: instant.toISOString(), ghiWm2: Number.NaN, dniWm2: -1, dhiWm2: 0 }],
+    };
+    expect(() => generateSolarAssetProfile([instant], 1, baseSite, asset, [dataset]))
+      .toThrow(/irradiance values must be finite and non-negative/i);
+  });
+
+  it('rejects a resource ID that resolves to the wrong resource kind', () => {
+    const instant = new Date('2026-07-15T19:00:00Z');
+    const windResource = {
+      id: 'wrong-kind', name: 'Wind data', kind: 'wind_speed' as const,
+      sourceTimeZone: 'UTC', intervalHours: 1, rowCount: 1,
+      startTimestampUtc: instant.toISOString(), endTimestampUtc: instant.toISOString(),
+      records: [{ timestampUtc: instant.toISOString(), windSpeedMps: 8 }],
+    };
+    const asset = { ...clearSkyAsset, resourceMode: 'weather_file' as const, externalResourceId: 'wrong-kind' };
+    expect(() => generateSolarAssetProfile([instant], 1, baseSite, asset, [windResource]))
+      .toThrow(/requires an attached solar irradiance resource/i);
+  });
+
+  it('converts POA with array orientation, losses and inverter clipping; nighttime input makes zero energy', () => {
+    const instant = new Date('2026-07-15T19:00:00Z');
+    const resource = {
+      id: 'solar-physics', name: 'Solar physics', kind: 'solar_irradiance' as const,
+      sourceTimeZone: 'UTC', intervalHours: 1, rowCount: 1,
+      startTimestampUtc: instant.toISOString(), endTimestampUtc: instant.toISOString(),
+      records: [{ timestampUtc: instant.toISOString(), ghiWm2: 1000, dniWm2: 900, dhiWm2: 100 }],
+    };
+    const south = generateSolarAssetProfile([instant], 1, baseSite, {
+      ...clearSkyAsset, resourceMode: 'weather_file', externalResourceId: resource.id,
+      dcCapacityKw: 10, inverterAcCapacityKw: 1, inverterEfficiencyPercent: 90,
+      tiltDegrees: 45, azimuthDegrees: 180, shadingLossPercent: 5, systemLossPercent: 10,
+    }, [resource])[0];
+    const north = generateSolarAssetProfile([instant], 1, baseSite, {
+      ...clearSkyAsset, resourceMode: 'weather_file', externalResourceId: resource.id,
+      dcCapacityKw: 10, inverterAcCapacityKw: 1, inverterEfficiencyPercent: 90,
+      tiltDegrees: 45, azimuthDegrees: 0, shadingLossPercent: 5, systemLossPercent: 10,
+    }, [resource])[0];
+
+    expect(south.poaKwPerM2).toBeGreaterThan(north.poaKwPerM2);
+    expect(south.dcPowerAfterLossesKw).toBeLessThan(south.rawDcPowerKw);
+    expect(south.acPowerKw).toBe(1);
+    expect(south.clippedEnergyKwh).toBeGreaterThan(0);
+    expect(south.dcEnergyKwh).toBeCloseTo(south.dcPowerAfterLossesKw, 8);
+    expect(south.acEnergyKwh).toBeCloseTo(south.acPowerKw, 8);
+
+    const night = new Date('2026-07-16T08:00:00Z');
+    const nightResource = {
+      ...resource, id: 'solar-night', startTimestampUtc: night.toISOString(), endTimestampUtc: night.toISOString(),
+      records: [{ timestampUtc: night.toISOString(), ghiWm2: 100, dniWm2: 0, dhiWm2: 100 }],
+    };
+    const nightInterval = generateSolarAssetProfile([night], 1, baseSite, {
+      ...clearSkyAsset, resourceMode: 'weather_file', externalResourceId: nightResource.id,
+    }, [nightResource])[0];
+    expect(nightInterval.acEnergyKwh).toBe(0);
+    expect(nightInterval.dcEnergyKwh).toBe(0);
   });
 
   // --------------------------------------------------------------------------

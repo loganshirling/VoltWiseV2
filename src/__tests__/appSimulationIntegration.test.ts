@@ -757,6 +757,6 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
         generationConfig: configWithInterval,
         allowSolarExport: false,
       });
-    }).toThrow(/interval_file/i);
+    }).toThrow(/attached wind-speed resource/i);
   });
 });

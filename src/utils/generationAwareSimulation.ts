@@ -3,7 +3,7 @@
  *
  * Single pure orchestration entry point composing authoritative stages:
  *   1. Load timestamp alignment to site timezone (alignLoadTimestampsToSite)
- *   2. Generation asset filtering & validation (solar and wind enabled, reject generator/interval_file)
+ *   2. Generation asset filtering & validation (solar, wind, and generator assets)
  *   3. Multi-array solar fleet profile generation (generateSolarFleetProfile)
  *   4. Multi-turbine wind fleet profile generation (generateWindFleetProfile)
  *   5. Shared source-aware renewable load flow accounting (calculateRenewableLoadFlow)
@@ -252,14 +252,16 @@ export function runGenerationAwareSimulation(
     alignedTimestamps.map((x) => x.instantUtc),
     intervalHours,
     generationConfig.site,
-    enabledSolarAssets
+    enabledSolarAssets,
+    generationConfig.externalResources ?? []
   );
 
   const windFleetProfile = generateWindFleetProfile(
     alignedTimestamps,
     intervalHours,
     enabledWindAssets,
-    generationConfig.site
+    generationConfig.site,
+    generationConfig.externalResources ?? []
   );
 
   // 5. Stage 5: Calculate shared source-aware renewable load flow

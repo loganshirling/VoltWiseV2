@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   buildExportLlmJson,
   buildGenerationExportLlmJson,
+  buildGenerationPeriodExportJson,
   canExportGenerationProjectionsJson,
   canExportProjectionsJson,
 } from '../utils/exportJson';
@@ -348,6 +349,48 @@ describe('Issue 4 — JSON Export Correctness and Consistency', () => {
     expect(payloadAny.generation_project_costs).toBeUndefined();
     expect(payloadAny.generation_horizon_summary_kpis).toBeUndefined();
     expect(payloadAny.generation_annual_projection).toBeUndefined();
+  });
+});
+
+describe('Generation period export', () => {
+  it('exports the exact period result together with reproducible measured resource inputs', () => {
+    const resource = {
+      id: 'solar-period', name: 'June solar', kind: 'solar_irradiance' as const,
+      sourceTimeZone: 'America/Los_Angeles', intervalHours: 1, rowCount: 2,
+      startTimestampUtc: '2026-06-01T12:00:00.000Z', endTimestampUtc: '2026-06-01T13:00:00.000Z',
+      records: [
+        { timestampUtc: '2026-06-01T12:00:00.000Z', ghiWm2: 800, dniWm2: 650, dhiWm2: 150 },
+        { timestampUtc: '2026-06-01T13:00:00.000Z', ghiWm2: 700, dniWm2: 550, dhiWm2: 150 },
+      ],
+    };
+    const generationConfig = {
+      site: { latitude: 34, longitude: -118, timeZone: 'America/Los_Angeles', elevationM: 0 },
+      assets: [], externalResources: [resource],
+    } as GenerationConfig;
+    const generationAwareResult = {
+      alignedTimestamps: [{ timestampUtc: resource.startTimestampUtc }, { timestampUtc: resource.endTimestampUtc }],
+      totalIntervals: 2, totalHomeLoadKwh: 4, totalSolarGenerationKwh: 3,
+      totalWindGenerationKwh: 0, totalGeneratorGenerationKwh: 0,
+      totalGridImportKwh: 1, totalGridExportKwh: 0, baselineCost: 1.2,
+      simulatedCost: 0.8, netSavings: 0.4,
+      renewableLoadFlow: [{ timestampUtc: resource.startTimestampUtc }, { timestampUtc: resource.endTimestampUtc }],
+      solarFleetProfile: [{ timestampUtc: resource.startTimestampUtc }, { timestampUtc: resource.endTimestampUtc }],
+      windFleetProfile: [], exportAwareBatteryFlow: { intervals: [] },
+      gridFlows: { intervals: [] }, tariffCosts: { intervals: [] },
+    } as unknown as GenerationAwareSimulationResult;
+
+    const payload = buildGenerationPeriodExportJson({ generationConfig, generationAwareResult, intervalHours: 1 });
+
+    expect(payload.analysis_scope).toBe('simulated_period');
+    expect(payload.period).toEqual({
+      start_timestamp_utc: resource.startTimestampUtc,
+      end_timestamp_utc: resource.endTimestampUtc,
+      interval_count: 2,
+      interval_duration_hours: 1,
+    });
+    expect(payload.inputs.external_resources[0]).toEqual(resource);
+    expect(payload.results.total_solar_generation_kwh).toBe(3);
+    expect(payload.results.interval_count).toBe(2);
   });
 });
 
@@ -2453,7 +2496,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
           financials: sampleFinancials,
           csvResult: mockCsvResult,
         })
-      ).toThrow('Enabled wind assets with interval_file resource mode are not supported for generation export.');
+      ).toThrow('Measured wind intervals support simulation for the imported period only, not multi-year generation export.');
     });
 
     it('30. Disabled unsupported assets do not block supported export', () => {

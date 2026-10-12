@@ -683,21 +683,91 @@ describe('G5B — Wind Generation Profile & Fleet Aggregation', () => {
       expect(fleetCombined).toEqual(fleetOnlyWind);
     });
 
-    it('27. enabled interval_file wind fails explicitly via G5A validation boundary', () => {
+    it('27. enabled interval_file wind generates power from exact aligned records', () => {
       const invalidAsset = createValidWindAsset({
-        id: 'invalid_interval_file',
-        resourceMode: 'interval_file' as any,
+        id: 'interval_file',
+        resourceMode: 'interval_file',
+        externalResourceId: 'wind-resource',
       });
 
       const timestamps = createHourlyDateRange('2026-05-01T00:00:00.000Z', 1);
+      const resource = {
+        id: 'wind-resource', name: 'Measured wind', kind: 'wind_speed' as const,
+        sourceTimeZone: 'UTC', intervalHours: 1, rowCount: 1,
+        startTimestampUtc: timestamps[0].toISOString(), endTimestampUtc: timestamps[0].toISOString(),
+        records: [{ timestampUtc: timestamps[0].toISOString(), windSpeedMps: 9 }],
+      };
 
-      expect(() => {
-        generateWindAssetProfile(timestamps, 1, invalidAsset, createSampleSite());
-      }).toThrow(/interval_file/);
+      const profile = generateWindAssetProfile(timestamps, 1, invalidAsset, createSampleSite(), [resource]);
+      expect(profile).toHaveLength(1);
+      expect(profile[0].resourceMode).toBe('interval_file');
+      expect(profile[0].resourceMeanWindSpeedMps).toBe(9);
+      expect(profile[0].expectedNetPowerKw).toBeGreaterThan(0);
+      expect(profile[0].energyKwh).toBeCloseTo(profile[0].expectedNetPowerKw, 8);
 
       expect(() => {
         generateWindFleetProfile(timestamps, 1, [invalidAsset], createSampleSite());
-      }).toThrow(/interval_file/);
+      }).toThrow(/attached wind-speed resource/);
+    });
+
+    it('rejects non-finite or negative speeds in directly supplied interval data', () => {
+      const asset = createValidWindAsset({
+        resourceMode: 'interval_file', externalResourceId: 'bad-wind',
+      });
+      const timestamp = new Date('2026-05-01T00:00:00.000Z');
+      const resource = {
+        id: 'bad-wind', name: 'Bad measurements', kind: 'wind_speed' as const,
+        sourceTimeZone: 'UTC', intervalHours: 1, rowCount: 1,
+        startTimestampUtc: timestamp.toISOString(), endTimestampUtc: timestamp.toISOString(),
+        records: [{ timestampUtc: timestamp.toISOString(), windSpeedMps: Number.NaN }],
+      };
+      expect(() => generateWindAssetProfile([timestamp], 1, asset, createSampleSite(), [resource]))
+        .toThrow(/Invalid windSpeedMps: NaN.*non-negative finite number/i);
+    });
+
+    it('applies measured cut-in, rated and cut-out behavior plus availability, losses and sub-hour energy', () => {
+      const asset = createValidWindAsset({
+        resourceMode: 'interval_file', externalResourceId: 'curve-wind',
+        hubHeightM: 10, measurementHeightM: 10,
+        availabilityPercent: 80, systemLossPercent: 10,
+      });
+      const start = new Date('2026-05-01T00:00:00.000Z');
+      const halfHourTimestamps = [start, new Date(start.getTime() + 1800000), new Date(start.getTime() + 3600000)];
+      const resource = {
+        id: 'curve-wind', name: 'Curve checks', kind: 'wind_speed' as const,
+        sourceTimeZone: 'UTC', intervalHours: 0.5, rowCount: 3,
+        startTimestampUtc: halfHourTimestamps[0].toISOString(), endTimestampUtc: halfHourTimestamps[2].toISOString(),
+        records: halfHourTimestamps.map((timestampUtc, index) => ({
+          timestampUtc: timestampUtc.toISOString(), windSpeedMps: [2, 12, 26][index],
+        })),
+      };
+      const profile = generateWindAssetProfile(halfHourTimestamps, 0.5, asset, createSampleSite({ elevationM: 0 }), [resource]);
+
+      expect(profile[0].expectedNetPowerKw).toBe(0);
+      expect(profile[1].expectedNetPowerKw).toBeCloseTo(7.2, 8);
+      expect(profile[1].energyKwh).toBeCloseTo(3.6, 8);
+      expect(profile[2].expectedNetPowerKw).toBe(0);
+      expect(profile[2].energyKwh).toBe(0);
+    });
+
+    it('corrects measured speed for hub height and site elevation before the power curve', () => {
+      const start = new Date('2026-05-01T00:00:00.000Z');
+      const asset = createValidWindAsset({
+        resourceMode: 'interval_file', externalResourceId: 'height-wind',
+        hubHeightM: 30, measurementHeightM: 10, windShearExponent: 0.2,
+      });
+      const resource = {
+        id: 'height-wind', name: 'Height checks', kind: 'wind_speed' as const,
+        sourceTimeZone: 'UTC', intervalHours: 1, rowCount: 1,
+        startTimestampUtc: start.toISOString(), endTimestampUtc: start.toISOString(),
+        records: [{ timestampUtc: start.toISOString(), windSpeedMps: 7 }],
+      };
+      const seaLevel = generateWindAssetProfile([start], 1, asset, createSampleSite({ elevationM: 0 }), [resource])[0];
+      const elevated = generateWindAssetProfile([start], 1, asset, createSampleSite({ elevationM: 1500 }), [resource])[0];
+
+      expect(seaLevel.hubHeightMeanWindSpeedMps).toBeGreaterThan(7);
+      expect(elevated.hubHeightMeanWindSpeedMps).toBeCloseTo(seaLevel.hubHeightMeanWindSpeedMps, 8);
+      expect(elevated.expectedNetPowerKw).toBeLessThan(seaLevel.expectedNetPowerKw);
     });
 
     it('28. empty wind fleet returns a zero profile with the correct interval count', () => {

@@ -539,7 +539,7 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
       expect(result.annualSummary.intervalResults).toHaveLength(24);
     });
 
-    it('13. enabled wind routes generation-aware while generator and interval_file reject', () => {
+    it('13. enabled wind routes generation-aware while generator routing and resource attachment are validated', () => {
       const dataPoints = createHourlyDataPoints(24);
       const schedule = createScheduleMatrix();
       const battery = createTestBattery();
@@ -584,7 +584,7 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
       expect(windResult.annualSummary).toBeDefined();
       expect(windResult.generationAwareResult?.totalWindGenerationKwh).toBeGreaterThan(0);
 
-      // Enabled wind interval_file mode rejects
+      // Enabled wind interval_file mode requires an attached wind resource
       const windIntervalFileConfig: GenerationConfig = {
         site: baseSite,
         assets: [
@@ -606,7 +606,7 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
           generationConfig: windIntervalFileConfig,
           allowSolarExport: false,
         })
-      ).toThrow(/interval_file/i);
+      ).toThrow(/attached wind-speed resource/i);
 
       const genConfig: GenerationConfig = {
         site: baseSite,

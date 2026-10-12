@@ -63,6 +63,7 @@ import {
   canExportProjectionsJson,
   canExportProjectionsCsv,
   buildGenerationExportLlmJson,
+  buildGenerationPeriodExportJson,
   canExportGenerationProjectionsJson,
 } from '../utils/exportJson';
 import {
@@ -565,6 +566,29 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
     setTimeout(() => setHasExportedJson(false), 3000);
   };
 
+  const handleExportGenerationPeriodJson = () => {
+    if (!generationConfig || !activeGenerationAwareResult || !csvResult?.intervalHours) return;
+    const payload = buildGenerationPeriodExportJson({
+      generationConfig,
+      generationAwareResult: activeGenerationAwareResult,
+      intervalHours: csvResult.intervalHours,
+      batteryProfile: activeProfile,
+      tiers,
+      activeTouProfile,
+      financials,
+      allowRenewableExport: Boolean(allowSolarExport),
+    });
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'generation_period_results.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // SVG Chart Dimensions for Crossover Chart
   const chartW = 760;
   const chartH = 340;
@@ -1004,6 +1028,18 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {isGenerationAware && (
+            <button
+              type="button"
+              onClick={handleExportGenerationPeriodJson}
+              disabled={!generationConfig || !csvResult?.intervalHours}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-sky-500/40 bg-sky-950/50 text-sky-200 hover:bg-sky-900/70 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+              title="Export this simulation period, its generation inputs, measured resource records, and assumptions without annualizing or projecting them"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export Period Results (.json)</span>
+            </button>
+          )}
           <button
             onClick={handleExportLlmJson}
             disabled={!canExportJson}
@@ -3498,10 +3534,10 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               </div>
 
               {/* Hours Labels */}
-              <div className="flex justify-between text-[10px] text-slate-500 font-mono px-0.5">
+              <div className="flex min-w-0 justify-between overflow-hidden text-[10px] text-slate-500 font-mono px-0.5">
                 {Array.from({ length: 24 }).map((_, h) => (
-                  <span key={h} className={h % 3 === 0 ? 'text-slate-400' : 'opacity-0'}>
-                    {h}:00
+                  <span key={h} className="min-w-0 flex-1 text-center text-slate-400">
+                    {h % 3 === 0 ? `${h}:00` : ''}
                   </span>
                 ))}
               </div>
