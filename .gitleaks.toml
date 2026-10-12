@@ -1,0 +1,7 @@
+title = "VoltWise secret scanning"
+
+[[allowlists]]
+description = "SHA-256 file-integrity values in the vendored skill lock manifest"
+paths = ['''\.agents/skills-lock\.json$''']
+regexTarget = "line"
+regexes = ['''"[^"]+": "[a-f0-9]{64}"''']

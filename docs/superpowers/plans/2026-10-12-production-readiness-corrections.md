@@ -170,11 +170,11 @@ The following audit claims were spot-checked against current code and remain ope
 - CI installs the exact Bun version and uses the checked-in lockfile; CI must not silently update dependencies.
 - Required PR checks: `bun install --frozen-lockfile`, `npm run lint`, `npm test -- --maxWorkers=4`, `npm run build`, and Task 6 browser smoke suite.
 
-- [ ] Add pull-request and main-branch checks with dependency caching and retained actionable logs.
-- [ ] Add dependency review/audit and secret scanning using repository-supported tooling; triage findings instead of automatically applying upgrades.
-- [ ] Document required branch protection settings, which cannot be proven by workflow YAML alone.
-- [ ] Define version/tag, deploy preview/staging smoke, rollback, and release-SHA verification steps.
-- [ ] Verify workflow syntax and run the same commands locally from a clean install.
+- [x] Add pull-request and main-branch checks with dependency caching and retained actionable logs.
+- [x] Add dependency review/audit and secret scanning using repository-supported tooling; triage findings instead of automatically applying upgrades.
+- [x] Document required branch protection settings, which cannot be proven by workflow YAML alone.
+- [x] Define version/tag, deploy preview/staging smoke, rollback, and release-SHA verification steps.
+- [x] Verify workflow syntax and run the same commands locally from a clean install.
 
 ### Task 8: Publish bounded model scope, privacy, and project documentation
 
