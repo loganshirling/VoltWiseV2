@@ -16,46 +16,42 @@ import {
   ArrowRight,
   Sparkles,
 } from 'lucide-react';
-import { BatteryProfile, MacroFinancials } from '../types/energy';
+import { BatteryProfile, GenerationProjectCostSummary, MacroFinancials } from '../types/energy';
+import { calculateProjectFinancialInputs } from '../utils/generationFinancials';
 import { calculateOpportunityCostBenchmark } from '../utils/opportunityCost';
 
 interface FinancialSettingsTabProps {
   financials: MacroFinancials;
   setFinancials: React.Dispatch<React.SetStateAction<MacroFinancials>>;
   activeProfile: BatteryProfile;
+  generationProjectCosts: GenerationProjectCostSummary | null;
 }
 
 export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
   financials,
   setFinancials,
   activeProfile,
+  generationProjectCosts,
 }) => {
   const handleUpdate = <K extends keyof MacroFinancials>(field: K, val: MacroFinancials[K]) => {
     setFinancials((prev) => ({ ...prev, [field]: val }));
   };
 
-  const grossCost = activeProfile.installedCost;
-  const flatRebate = Math.max(0, financials.localRebateFlat);
-  const immediateRebates = Math.min(grossCost, flatRebate);
-  const upfrontNetCost = Math.max(0, grossCost - immediateRebates);
-  const taxCreditDollars = Math.round(grossCost * (Math.max(0, financials.federalTaxCreditPercent) / 100));
-  const totalIncentives = Math.min(grossCost, immediateRebates + taxCreditDollars);
-  const netInstalledCost = Math.max(0, grossCost - totalIncentives);
-
-  // Financing calculation for preview:
-  // Loan principal is based on upfront capital needed (upfrontNetCost - downPayment).
-  // The deferred tax credit arrives as a future cash flow in Year 1+ and does not reduce loan principal.
-  const downPaymentAmount = financials.isFinanced
-    ? Math.round(upfrontNetCost * (financials.loanDownPaymentPercent / 100))
-    : upfrontNetCost;
-  const loanPrincipal = financials.isFinanced ? Math.max(0, upfrontNetCost - downPaymentAmount) : 0;
-  const monthlyRate = (financials.loanAprPercent / 100) / 12;
-  const numMonths = financials.loanTermYears * 12;
-  const monthlyLoanPayment = financials.isFinanced && loanPrincipal > 0
-    ? (monthlyRate > 0
-        ? Math.round((loanPrincipal * (monthlyRate * Math.pow(1 + monthlyRate, numMonths)) / (Math.pow(1 + monthlyRate, numMonths) - 1)) * 100) / 100
-        : Math.round((loanPrincipal / numMonths) * 100) / 100)
-    : 0;
+  const projectInputs = calculateProjectFinancialInputs(
+    activeProfile.installedCost,
+    generationProjectCosts?.generationCapexUsd ?? 0,
+    financials
+  );
+  const grossCost = projectInputs.grossProjectCapexUsd;
+  const generationCost = projectInputs.generationCapexUsd;
+  const immediateRebates = projectInputs.immediateRebateUsd;
+  const upfrontNetCost = projectInputs.upfrontProjectBasisUsd;
+  const taxCreditDollars = projectInputs.deferredFederalTaxCreditUsd;
+  const netInstalledCost = projectInputs.netInstalledProjectCostUsd;
+  const downPaymentAmount = projectInputs.upfrontOutOfPocketUsd;
+  const loanPrincipal = projectInputs.loanPrincipalUsd;
+  const monthlyLoanPayment = projectInputs.monthlyLoanPaymentUsd;
+  const totalLoanPayments = projectInputs.totalLoanPaymentsUsd;
 
   // Degradation projection preview
   const usableKwhInitial = activeProfile.totalCapacityKwh * (activeProfile.usableDodPercent / 100);
@@ -72,7 +68,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
 
   // Opportunity cost benchmark calculation preview (unified methodology)
   const oppYears = 15;
-  const upfrontContribution = financials.isFinanced ? downPaymentAmount : upfrontNetCost;
+  const upfrontContribution = projectInputs.upfrontOutOfPocketUsd;
   const oppBenchmark = calculateOpportunityCostBenchmark({
     horizonYears: oppYears,
     annualRatePercent: financials.opportunityCostRatePercent ?? 4.5,
@@ -110,7 +106,9 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               1. Upfront Capital Incentives & Tax Credits
             </h3>
           </div>
-          <span className="text-xs font-mono text-slate-400">Active Profile: {activeProfile.name}</span>
+          <span className="text-xs font-mono text-slate-400">
+            Active project: {activeProfile.name} + ${generationCost.toLocaleString()} enabled generation
+          </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -123,6 +121,9 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
                 </label>
                 <span className="text-[11px] text-slate-400">
                   User-specified percentage (defaults to 0%; e.g., 30% if eligible)
+                </span>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  Applied to combined battery and enabled generation gross CAPEX; realized later and excluded from loan principal.
                 </span>
               </div>
               <span className="text-sm font-bold text-emerald-400 font-mono tabular-nums">
@@ -198,11 +199,14 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
         {/* Calculation Bridge Breakdown */}
         <div className="bg-slate-950 rounded-xl p-4 border border-slate-800/80">
           <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-3">
-            Capital Investment & Incentive Reconciliation ({activeProfile.name})
+            Project Capital & Incentive Reconciliation
           </span>
+          <p className="text-[11px] text-slate-400 mb-3">
+            Battery ${activeProfile.installedCost.toLocaleString()} + enabled generation ${generationCost.toLocaleString()} CAPEX.
+          </p>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-mono">
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-              <span className="text-[10px] text-slate-400 block font-sans">Gross Installed</span>
+              <span className="text-[10px] text-slate-400 block font-sans">Gross Project CAPEX</span>
               <span className="text-sm font-bold text-slate-200 tabular-nums">
                 ${grossCost.toLocaleString()}
               </span>
@@ -223,7 +227,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
             </div>
 
             <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-              <span className="text-[10px] text-slate-400 block font-sans">Tax Credit (Yr {financials.federalTaxCreditRealizationYear ?? 1})</span>
+              <span className="text-[10px] text-slate-400 block font-sans">Tax Credit (Yr {financials.federalTaxCreditRealizationYear ?? 1}; gross basis)</span>
               <span className="text-sm font-bold text-emerald-400 tabular-nums">
                 -${taxCreditDollars.toLocaleString()}
               </span>
@@ -377,7 +381,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
                 <div>
                   <span className="text-[10px] text-slate-400 block font-sans">Total Debt Service</span>
                   <span className="text-sm font-bold text-slate-300 tabular-nums">
-                    ${(monthlyLoanPayment * numMonths).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    ${totalLoanPayments.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </span>
                 </div>
               </div>

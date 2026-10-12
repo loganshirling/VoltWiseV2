@@ -4,6 +4,7 @@ import {
   calculateGenerationProjectCosts,
   calculateGenerationAwareFinancials,
   calculateGenerationFinancials,
+  calculateProjectFinancialInputs,
   deriveAnalysisState,
   deriveGenerationHorizonFinancialSummary,
   deriveHorizonGenerationFinancialSummary,
@@ -598,6 +599,61 @@ describe('G4A — Financial Safety Gate & Generation Project Cost Contracts', ()
     // Group E: Project CAPEX & Cost Basis
     // ========================================================================
     describe('Group E: Project CAPEX & Cost Basis', () => {
+      it.each([
+        { label: 'battery-only', generationCapexUsd: 0, gross: 10000 },
+        { label: 'mixed generation', generationCapexUsd: 15000, gross: 25000 },
+      ])('shares authoritative preview economics for $label projects', ({ generationCapexUsd, gross }) => {
+        const financials = {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: true,
+          loanDownPaymentPercent: 20,
+          localRebateFlat: 2000,
+          federalTaxCreditPercent: 30,
+          federalTaxCreditRealizationYear: 1,
+        };
+        const projectCosts: GenerationProjectCostSummary = {
+          generationCapexUsd,
+          annualGenerationMaintenanceUsd: 0,
+          byAsset: [],
+          byType: [] as any,
+          solarMetadata: [],
+        };
+        const preview = calculateProjectFinancialInputs(
+          mockBatteryProfile.installedCost,
+          projectCosts.generationCapexUsd,
+          financials
+        );
+        const analysis = calculateGenerationAwareFinancials({
+          batteryProfile: mockBatteryProfile,
+          operationalProjection: createMockProjection(2, 1000),
+          projectCosts,
+          financials,
+        });
+
+        expect(preview.grossProjectCapexUsd).toBe(gross);
+        expect(preview.immediateRebateUsd).toBe(2000);
+        expect(preview.taxCreditBasisUsd).toBe(gross);
+        expect(preview.deferredFederalTaxCreditUsd).toBe(gross * 0.3);
+        expect(preview.loanPrincipalUsd).toBe(gross * 0.8 - 2000 * 0.8);
+        expect(preview.netInstalledProjectCostUsd).toBe(gross - Math.min(gross, gross * 0.3 + 2000));
+        expect(preview.grossProjectCapexUsd).toBe(analysis.grossProjectCapexUsd);
+        expect(preview.immediateRebateUsd).toBe(analysis.immediateRebateUsd);
+        expect(preview.deferredFederalTaxCreditUsd).toBe(analysis.deferredFederalTaxCreditUsd);
+        expect(preview.loanPrincipalUsd).toBe(analysis.loanPrincipalUsd);
+        expect(preview.netInstalledProjectCostUsd).toBe(analysis.netInstalledProjectCostUsd);
+        expect(preview.upfrontOutOfPocketUsd).toBe(analysis.upfrontOutOfPocketUsd);
+      });
+
+      it('preserves the zero-default user tax-credit assumption in the preview', () => {
+        const preview = calculateProjectFinancialInputs(
+          mockBatteryProfile.installedCost,
+          0,
+          DEFAULT_MACRO_FINANCIALS
+        );
+        expect(preview.taxCreditBasisUsd).toBe(mockBatteryProfile.installedCost);
+        expect(preview.deferredFederalTaxCreditUsd).toBe(0);
+      });
+
       it('1. Battery CAPEX + enabled solar CAPEX are counted exactly once', () => {
         const costs: GenerationProjectCostSummary = {
           generationCapexUsd: 18500,

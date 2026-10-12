@@ -49,6 +49,118 @@ export interface CalculateGenerationAwareFinancialsParams {
   financials: MacroFinancials;
 }
 
+export interface ProjectFinancialInputs {
+  batteryCapexUsd: number;
+  generationCapexUsd: number;
+  grossProjectCapexUsd: number;
+  immediateRebateUsd: number;
+  upfrontProjectBasisUsd: number;
+  taxCreditBasisUsd: number;
+  deferredFederalTaxCreditUsd: number;
+  incentivesAmountUsd: number;
+  netInstalledProjectCostUsd: number;
+  upfrontOutOfPocketUsd: number;
+  isFinanced: boolean;
+  loanPrincipalUsd: number;
+  loanTermMonths: number;
+  monthlyLoanPaymentUsd: number;
+  totalLoanPaymentsUsd: number;
+  totalLoanInterestUsd: number;
+}
+
+/**
+ * Authoritative project CAPEX, incentive, and financing inputs shared by the
+ * settings preview and the lifecycle analysis. Tax credits are deferred and
+ * do not reduce the upfront loan basis.
+ */
+export function calculateProjectFinancialInputs(
+  batteryInstalledCostUsd: number,
+  generationCapexAmountUsd: number,
+  financials: MacroFinancials
+): ProjectFinancialInputs {
+  if (!Number.isFinite(batteryInstalledCostUsd) || batteryInstalledCostUsd < 0) {
+    throw new Error('Battery installed cost must be a finite, non-negative number.');
+  }
+  if (!Number.isFinite(generationCapexAmountUsd) || generationCapexAmountUsd < 0) {
+    throw new Error('Generation CAPEX must be a finite, non-negative number.');
+  }
+
+  const batteryCapexUsd = Math.round(batteryInstalledCostUsd * 100) / 100;
+  const generationCapexUsd = Math.round(generationCapexAmountUsd * 100) / 100;
+  const grossProjectCapexUsd = Math.round((batteryCapexUsd + generationCapexUsd) * 100) / 100;
+  const flatRebate = Math.max(0, financials.localRebateFlat ?? 0);
+  const immediateRebateUsd = Math.round(Math.min(grossProjectCapexUsd, flatRebate) * 100) / 100;
+  const upfrontProjectBasisUsd = Math.max(
+    0,
+    Math.round((grossProjectCapexUsd - immediateRebateUsd) * 100) / 100
+  );
+  const taxCreditPercent = Math.max(0, financials.federalTaxCreditPercent ?? 0);
+  const taxCreditBasisUsd = grossProjectCapexUsd;
+  const deferredFederalTaxCreditUsd =
+    Math.round((taxCreditBasisUsd * (taxCreditPercent / 100)) * 100) / 100;
+  const incentivesAmountUsd = Math.round(
+    Math.min(grossProjectCapexUsd, immediateRebateUsd + deferredFederalTaxCreditUsd) * 100
+  ) / 100;
+  const netInstalledProjectCostUsd = Math.max(
+    0,
+    Math.round((grossProjectCapexUsd - incentivesAmountUsd) * 100) / 100
+  );
+
+  const isFinanced = Boolean(financials.isFinanced);
+  const loanTermMonths = Math.max(12, Math.round((financials.loanTermYears ?? 1) * 12));
+  let upfrontOutOfPocketUsd = upfrontProjectBasisUsd;
+  let loanPrincipalUsd = 0;
+  let monthlyLoanPaymentUsd = 0;
+  let totalLoanPaymentsUsd = 0;
+  let totalLoanInterestUsd = 0;
+
+  if (isFinanced) {
+    const downPaymentRatio = Math.max(
+      0,
+      Math.min(1, (financials.loanDownPaymentPercent ?? 0) / 100)
+    );
+    upfrontOutOfPocketUsd = Math.round((upfrontProjectBasisUsd * downPaymentRatio) * 100) / 100;
+    loanPrincipalUsd = Math.round(
+      Math.max(0, upfrontProjectBasisUsd - upfrontOutOfPocketUsd) * 100
+    ) / 100;
+
+    const monthlyRate = Math.max(0, financials.loanAprPercent ?? 0) / 100 / 12;
+    if (loanPrincipalUsd > 0) {
+      if (monthlyRate > 0) {
+        monthlyLoanPaymentUsd =
+          (loanPrincipalUsd * (monthlyRate * Math.pow(1 + monthlyRate, loanTermMonths))) /
+          (Math.pow(1 + monthlyRate, loanTermMonths) - 1);
+      } else {
+        monthlyLoanPaymentUsd = loanPrincipalUsd / loanTermMonths;
+      }
+      monthlyLoanPaymentUsd = Math.round(monthlyLoanPaymentUsd * 100) / 100;
+      totalLoanPaymentsUsd = Math.round((monthlyLoanPaymentUsd * loanTermMonths) * 100) / 100;
+      totalLoanInterestUsd = Math.round(
+        Math.max(0, totalLoanPaymentsUsd - loanPrincipalUsd) * 100
+      ) / 100;
+    }
+  }
+
+  return {
+    batteryCapexUsd,
+    generationCapexUsd,
+    grossProjectCapexUsd,
+    immediateRebateUsd,
+    upfrontProjectBasisUsd,
+    taxCreditBasisUsd,
+    deferredFederalTaxCreditUsd,
+    incentivesAmountUsd,
+    netInstalledProjectCostUsd,
+    upfrontOutOfPocketUsd,
+    isFinanced,
+    loanPrincipalUsd,
+    loanTermMonths,
+    monthlyLoanPaymentUsd,
+    totalLoanPaymentsUsd,
+    totalLoanInterestUsd,
+  };
+}
+
 /**
  * Aggregates CAPEX and annual O&M for all enabled generation assets.
  * Disabled assets contribute zero.
@@ -338,63 +450,27 @@ export function calculateGenerationAwareFinancials(
     }
   }
 
-  // 1. Combined project CAPEX
-  const batteryCapexUsd = Math.round(batteryProfile.installedCost * 100) / 100;
-  const generationCapexUsd = Math.round(projectCosts.generationCapexUsd * 100) / 100;
-  const grossProjectCapexUsd = Math.round((batteryCapexUsd + generationCapexUsd) * 100) / 100;
-
-  // 2. Incentive semantics
-  const flatRebate = Math.max(0, financials.localRebateFlat ?? 0);
-  const immediateRebateUsd = Math.round(Math.min(grossProjectCapexUsd, flatRebate) * 100) / 100;
-  const upfrontProjectBasis = Math.max(
-    0,
-    Math.round((grossProjectCapexUsd - immediateRebateUsd) * 100) / 100
+  const projectInputs = calculateProjectFinancialInputs(
+    batteryProfile.installedCost,
+    projectCosts.generationCapexUsd,
+    financials
   );
-
-  const taxCreditPercent = Math.max(0, financials.federalTaxCreditPercent ?? 0);
-  const deferredFederalTaxCreditUsd =
-    Math.round((grossProjectCapexUsd * (taxCreditPercent / 100)) * 100) / 100;
+  const {
+    batteryCapexUsd,
+    generationCapexUsd,
+    grossProjectCapexUsd,
+    immediateRebateUsd,
+    deferredFederalTaxCreditUsd,
+    incentivesAmountUsd,
+    netInstalledProjectCostUsd,
+    upfrontOutOfPocketUsd,
+    isFinanced,
+    loanPrincipalUsd,
+    monthlyLoanPaymentUsd,
+    totalLoanPaymentsUsd,
+    totalLoanInterestUsd,
+  } = projectInputs;
   const taxCreditRealizationYear = Math.max(1, financials.federalTaxCreditRealizationYear ?? 1);
-
-  const incentivesAmountUsd =
-    Math.round(
-      Math.min(grossProjectCapexUsd, immediateRebateUsd + deferredFederalTaxCreditUsd) * 100
-    ) / 100;
-  const netInstalledProjectCostUsd =
-    Math.max(0, Math.round((grossProjectCapexUsd - incentivesAmountUsd) * 100) / 100);
-
-  // 3. Financing basis
-  const isFinanced = Boolean(financials.isFinanced);
-  let loanPrincipalUsd = 0;
-  let monthlyLoanPaymentUsd = 0;
-  let upfrontOutOfPocketUsd = upfrontProjectBasis;
-  let totalLoanPaymentsUsd = 0;
-  let totalLoanInterestUsd = 0;
-
-  if (isFinanced) {
-    const downPaymentPercent = financials.loanDownPaymentPercent ?? 0;
-    const downPaymentRatio = Math.max(0, Math.min(1.0, downPaymentPercent / 100));
-    const downPaymentAmount = Math.round((upfrontProjectBasis * downPaymentRatio) * 100) / 100;
-    loanPrincipalUsd = Math.round(Math.max(0, upfrontProjectBasis - downPaymentAmount) * 100) / 100;
-    upfrontOutOfPocketUsd = downPaymentAmount;
-
-    const apr = Math.max(0, financials.loanAprPercent ?? 0);
-    const monthlyRate = apr / 100 / 12;
-    const numMonths = Math.max(12, Math.round((financials.loanTermYears ?? 1) * 12));
-
-    if (loanPrincipalUsd > 0) {
-      if (monthlyRate > 0) {
-        monthlyLoanPaymentUsd =
-          (loanPrincipalUsd * (monthlyRate * Math.pow(1 + monthlyRate, numMonths))) /
-          (Math.pow(1 + monthlyRate, numMonths) - 1);
-      } else {
-        monthlyLoanPaymentUsd = loanPrincipalUsd / numMonths;
-      }
-      monthlyLoanPaymentUsd = Math.round(monthlyLoanPaymentUsd * 100) / 100;
-      totalLoanPaymentsUsd = Math.round((monthlyLoanPaymentUsd * numMonths) * 100) / 100;
-      totalLoanInterestUsd = Math.round(Math.max(0, totalLoanPaymentsUsd - loanPrincipalUsd) * 100) / 100;
-    }
-  }
 
   // 4. Annual generation O&M (constant nominal annual expense)
   const annualGenerationMaintenanceUsd =

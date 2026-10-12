@@ -552,6 +552,7 @@ export default function App() {
             financials={financials}
             setFinancials={setFinancials}
             activeProfile={activeProfile}
+            generationProjectCosts={generationProjectCosts}
           />
         )}
 

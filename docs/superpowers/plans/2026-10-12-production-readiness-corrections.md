@@ -81,9 +81,9 @@ The following audit claims were spot-checked against current code and remain ope
 - Pass the Financial Settings component the authoritative `GenerationProjectCostSummary | null` (and active project gross cost, defined as battery installed cost plus enabled generation CAPEX exactly once).
 - Reuse the financial engine’s rebate, tax-credit, upfront-cost, and financing conventions; do not duplicate different equations in the component.
 
-- [ ] Add battery-only and mixed-generation tests asserting preview gross CAPEX, immediate rebate, tax-credit basis, loan principal, and net installed cost equal the authoritative analysis inputs.
-- [ ] Update component props and shared calculation adapter while preserving the user-supplied/zero-default tax-credit assumption.
-- [ ] Run financial preview, generation financial, financing/tax-credit, and integration tests.
+- [x] Add battery-only and mixed-generation tests asserting preview gross CAPEX, immediate rebate, tax-credit basis, loan principal, and net installed cost equal the authoritative analysis inputs.
+- [x] Update component props and shared calculation adapter while preserving the user-supplied/zero-default tax-credit assumption.
+- [x] Run financial preview, generation financial, financing/tax-credit, and integration tests.
 
 ### Task 3: Add explicit sample provenance and truthful result/export labeling
 
