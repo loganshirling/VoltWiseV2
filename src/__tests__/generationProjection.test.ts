@@ -15,10 +15,13 @@ import {
   IntervalDataPoint,
   RateTier,
   SolarGenerationAsset,
+  SolarIrradianceDataset,
   TouSeason,
+  WindSpeedDataset,
   WindGenerationAsset,
 } from '../types/energy';
 import { createDefaultSolarAsset } from '../utils/generationDefaults';
+import { runUnifiedSimulation } from '../utils/simulationRouter';
 
 describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
   const baseSite: GenerationSite = {
@@ -730,43 +733,8 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
       ).toThrow(/requires at least one enabled/i);
     });
 
-    it('28. Existing unsupported enabled generator and wind interval_file remain unsupported rather than falling back to legacy', () => {
+    it('28. Unsupported enabled asset types remain rejected rather than falling back to legacy', () => {
       const dataPoints = createHourlyDataPoints(24, 1.0);
-      const windIntervalConfig: GenerationConfig = {
-        site: baseSite,
-        assets: [
-          createClearSkyAsset('s1'),
-          {
-            id: 'wind-1',
-            name: 'Wind Turbine',
-            type: 'wind',
-            enabled: true,
-            resourceMode: 'interval_file',
-            ratedPowerKw: 10,
-            hubHeightMeters: 30,
-            rotorDiameterMeters: 12,
-            cutInWindSpeedMps: 3,
-            ratedWindSpeedMps: 11,
-            cutOutWindSpeedMps: 25,
-            installedCostUsd: 10000,
-            annualMaintenanceCostUsd: 200,
-          } as unknown as WindGenerationAsset,
-        ],
-      };
-
-      expect(() =>
-        calculateGenerationOperationalProjection({
-          dataPoints,
-          intervalHours: 1,
-          tiers: defaultTiers,
-          scheduleMatrix: createScheduleMatrix(),
-          batteryProfile: createTestBattery(),
-          generationConfig: windIntervalConfig,
-          allowSolarExport: true,
-          allowIncompleteYearForTesting: true,
-        })
-      ).toThrow(/Measured wind resource data supports its imported interval period only/i);
-
       const hydroConfig: GenerationConfig = {
         site: baseSite,
         assets: [
@@ -921,6 +889,105 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
         ...overrides,
       };
     }
+
+    function createFullYearMeasuredInputs() {
+      const start = Date.UTC(2025, 0, 1);
+      const dataPoints: IntervalDataPoint[] = [];
+      const solarRecords: SolarIrradianceDataset['records'] = [];
+      const windRecords: WindSpeedDataset['records'] = [];
+      for (let i = 0; i < 8760; i += 1) {
+        const date = new Date(start + i * 60 * 60 * 1000);
+        const timestampUtc = date.toISOString();
+        const timestamp = timestampUtc.slice(0, 16).replace('T', ' ');
+        dataPoints.push({
+          timestamp,
+          date,
+          hour: date.getUTCHours(),
+          dayOfWeek: date.getUTCDay(),
+          month: date.getUTCMonth(),
+          usageKwh: 1.25,
+        });
+        solarRecords.push({ timestampUtc, ghiWm2: 700, dniWm2: 500, dhiWm2: 100 });
+        windRecords.push({ timestampUtc, windSpeedMps: 8 });
+      }
+      const solarResource: SolarIrradianceDataset = {
+        id: 'measured-solar-year',
+        name: 'Measured Solar Year',
+        kind: 'solar_irradiance',
+        sourceTimeZone: 'UTC',
+        intervalHours: 1,
+        rowCount: solarRecords.length,
+        startTimestampUtc: solarRecords[0].timestampUtc,
+        endTimestampUtc: solarRecords.at(-1)!.timestampUtc,
+        records: solarRecords,
+      };
+      const windResource: WindSpeedDataset = {
+        id: 'measured-wind-year',
+        name: 'Measured Wind Year',
+        kind: 'wind_speed',
+        sourceTimeZone: 'UTC',
+        intervalHours: 1,
+        rowCount: windRecords.length,
+        startTimestampUtc: windRecords[0].timestampUtc,
+        endTimestampUtc: windRecords.at(-1)!.timestampUtc,
+        records: windRecords,
+      };
+      return { dataPoints, solarResource, windResource };
+    }
+
+    it('projects aligned full-year measured solar and wind without changing the source series', () => {
+      const { dataPoints, solarResource, windResource } = createFullYearMeasuredInputs();
+      const solarAsset = createClearSkyAsset('measured-solar', {
+        resourceMode: 'weather_file',
+        externalResourceId: solarResource.id,
+        annualDegradationPercent: 5,
+      });
+      const windAsset = createTestWindAsset('measured-wind', {
+        resourceMode: 'interval_file',
+        externalResourceId: windResource.id,
+      });
+      const generationConfig: GenerationConfig = {
+        site: { ...baseSite, timeZone: 'UTC' },
+        assets: [solarAsset, windAsset],
+        externalResources: [solarResource, windResource],
+      };
+      const inputsBeforeProjection = JSON.stringify({ dataPoints, generationConfig });
+      const yearOneRun = runUnifiedSimulation({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig,
+        allowSolarExport: true,
+      });
+
+      const projection = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig,
+        allowRenewableExport: true,
+        projectionYears: 2,
+      });
+
+      expect(yearOneRun.mode).toBe('generation-aware');
+      expect(projection.years).toHaveLength(2);
+      expect(projection.years[0].solarGeneratedKwh).toBeCloseTo(
+        yearOneRun.generationAwareResult!.totalSolarGenerationKwh,
+        8
+      );
+      expect(projection.years[0].windGeneratedKwh).toBeCloseTo(
+        yearOneRun.generationAwareResult!.totalWindGenerationKwh,
+        8
+      );
+      expect(projection.years[1].solarGeneratedKwh).toBeLessThan(projection.years[0].solarGeneratedKwh);
+      expect(projection.years[1].windGeneratedKwh).toBeCloseTo(projection.years[0].windGeneratedKwh, 8);
+      expect(projection.years[0]).not.toHaveProperty('intervalResults');
+      expect(JSON.stringify({ dataPoints, generationConfig })).toBe(inputsBeforeProjection);
+    });
 
     it('1. Wind-only Year-1 projection succeeds and produces authoritative wind metrics', () => {
       const dataPoints = createHourlyDataPoints(24, 1.5);

@@ -261,6 +261,7 @@ test('explains the modeled scope at tariff, generation, and results steps', asyn
   await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/interval-by-interval/i);
   await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/does not simulate chronological outages/i);
   await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/does not fetch weather services or support TMY3\/EPW files/i);
+  await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/complete aligned measured year can be replayed as a representative resource year/i);
 
   await openTab(page, '5. Results & Analytics');
   await expect(page.getByRole('region', { name: 'Analysis scope' })).toContainText(/estimates, not a utility bill or a guarantee/i);

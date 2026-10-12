@@ -542,7 +542,7 @@ export interface GenerationExportSolarArray {
 export interface GenerationExportWindTurbine {
   id: string;
   name: string;
-  resource_mode: 'annual_average' | 'monthly_average';
+  resource_mode: 'annual_average' | 'monthly_average' | 'interval_file';
   rated_power_kw: number;
   hub_height_m: number;
   rotor_diameter_m: number;
@@ -935,13 +935,12 @@ export function canExportGenerationProjectionsJson(
   if (generationConfig?.assets && Array.isArray(generationConfig.assets)) {
     const hasUnsupportedAsset = generationConfig.assets.some((a) => {
       if (!a || !a.enabled) return false;
-      if (a.type === 'solar' && (a as SolarGenerationAsset).resourceMode === 'weather_file') return true;
       if (a.type === 'wind') {
         const windAsset = a as WindGenerationAsset;
-        if (windAsset.resourceMode === 'interval_file') return true;
         if (
           windAsset.resourceMode !== 'annual_average' &&
-          windAsset.resourceMode !== 'monthly_average'
+          windAsset.resourceMode !== 'monthly_average' &&
+          windAsset.resourceMode !== 'interval_file'
         ) {
           return true;
         }
@@ -998,17 +997,14 @@ export function buildGenerationExportLlmJson(
   for (const asset of enabledAssets) {
     if (asset.type === 'wind') {
       const windAsset = asset as WindGenerationAsset;
-      if (windAsset.resourceMode === 'interval_file') {
-        throw new Error('Measured wind intervals support simulation for the imported period only, not multi-year generation export.');
-      }
-      if (windAsset.resourceMode !== 'annual_average' && windAsset.resourceMode !== 'monthly_average') {
+      if (
+        windAsset.resourceMode !== 'annual_average' &&
+        windAsset.resourceMode !== 'monthly_average' &&
+        windAsset.resourceMode !== 'interval_file'
+      ) {
         throw new Error(`Unsupported wind resource mode: ${windAsset.resourceMode}`);
       }
     }
-  }
-
-  if (enabledAssets.some((asset) => asset.type === 'solar' && asset.resourceMode === 'weather_file')) {
-    throw new Error('Measured solar intervals support simulation for the imported period only, not multi-year generation export.');
   }
 
   const enabledSolarAssets = enabledAssets.filter(

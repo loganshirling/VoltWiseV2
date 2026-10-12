@@ -75,7 +75,8 @@ export interface GenerationOperationalProjectionParams {
  * Derives a cloned GenerationConfig for a given projection year.
  * Degrades enabled solar asset DC capacity independently based on its annualDegradationPercent.
  * Preserves inverterAcCapacityKw and all other asset settings unchanged.
- * Enabled wind assets are preserved without degradation; nested arrays/objects are cloned.
+ * Enabled wind assets and measured resource series are preserved without degradation;
+ * nested arrays/objects are cloned.
  * Disabled generation assets remain disabled and contribute nothing.
  */
 export function deriveGenerationConfigForProjectionYear(
@@ -156,6 +157,12 @@ export function deriveGenerationConfigForProjectionYear(
     generationConfig: {
       site: { ...baseConfig.site },
       assets: clonedAssets,
+      externalResources: baseConfig.externalResources?.map((resource) => {
+        if (resource.kind === 'solar_irradiance') {
+          return { ...resource, records: resource.records.map((record) => ({ ...record })) };
+        }
+        return { ...resource, records: resource.records.map((record) => ({ ...record })) };
+      }),
     },
     solarAssets,
   };
@@ -331,31 +338,12 @@ export function calculateGenerationOperationalProjection(
     );
   }
 
-  const enabledMeasuredSolar = enabledAssets.filter(
-    (a) => a.type === 'solar' && (a as SolarGenerationAsset).resourceMode === 'weather_file'
-  );
-  if (enabledMeasuredSolar.length > 0) {
-    throw new Error(
-      'Measured solar resource data supports its imported interval period only; multi-year projection requires clear-sky or monthly peak sun hours mode.'
-    );
-  }
-
-  // Interval wind measurements likewise do not provide future projection years.
-  const enabledIntervalWind = enabledAssets.filter(
-    (a) => a.type === 'wind' && (a as WindGenerationAsset).resourceMode === 'interval_file'
-  );
-  if (enabledIntervalWind.length > 0) {
-    throw new Error(
-      'Measured wind resource data supports its imported interval period only; multi-year projection requires annual or monthly average mode.'
-    );
-  }
-
-  // At least one enabled supported generation asset (solar, wind, or generator) is required
+  // At least one enabled supported generation asset (solar, wind, or generator) is required.
+  // Measured-resource assets replay the same validated representative-year series for each
+  // projection year; solar hardware degrades through its DC capacity, while resource records
+  // and wind configuration remain unchanged.
   const enabledSupportedAssets = enabledAssets.filter(
-    (a) =>
-      a.type === 'solar' ||
-      (a.type === 'wind' && (a as WindGenerationAsset).resourceMode !== 'interval_file') ||
-      a.type === 'generator'
+    (a) => a.type === 'solar' || a.type === 'wind' || a.type === 'generator'
   );
 
   if (enabledSupportedAssets.length === 0) {

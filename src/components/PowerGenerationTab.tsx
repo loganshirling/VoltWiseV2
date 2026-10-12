@@ -310,7 +310,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
       </div>
 
       <aside role="region" aria-label="Generation model scope" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-xs leading-relaxed text-slate-300">
-        Modeled solar and wind use clear-sky or monthly inputs, or measured CSV for its imported period. VoltWise does not fetch weather services or support TMY3/EPW files. Economic generator dispatch makes a deterministic interval-by-interval decision, not a global optimization. Standby mode does not simulate chronological outages.
+        Modeled solar and wind use clear-sky or monthly inputs, or measured CSV for its matched intervals. A complete aligned measured year can be replayed as a representative resource year for lifecycle projections; future weather can differ. VoltWise does not fetch weather services or support TMY3/EPW files. Economic generator dispatch makes a deterministic interval-by-interval decision, not a global optimization. Standby mode does not simulate chronological outages.
       </aside>
 
       {activeAsset && activeAsset.type !== 'generator' && (
@@ -999,7 +999,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
             {
               id: 'weather_file' as SolarResourceMode,
               title: 'Measured Irradiance CSV',
-              desc: 'Use imported GHI, DNI, and DHI records for this matching period only.',
+              desc: 'Use aligned GHI, DNI, and DHI records. A complete measured year can be replayed as representative weather in lifecycle projections.',
             },
           ].map((mode) => {
             const isSelected = asset.resourceMode === mode.id;
@@ -1330,7 +1330,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
             {
               id: 'interval_file' as WindResourceMode,
               title: 'Measured Wind-Speed CSV',
-              desc: 'Measured wind speed at each resource interval; timestamps must match the load data exactly.',
+              desc: 'Measured wind speed at each aligned interval. A complete measured year can be replayed unchanged in lifecycle projections.',
               disabled: false,
             },
           ].map((mode) => {

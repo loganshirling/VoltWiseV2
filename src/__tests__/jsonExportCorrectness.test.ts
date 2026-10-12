@@ -2511,17 +2511,17 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
       ).toBe(true);
     });
 
-    it('29. Enabled wind interval_file cannot masquerade as supported export', () => {
+    it('29. Enabled measured solar and wind retain eligible lifecycle projection exports', () => {
       const configWithIntervalFileWind: GenerationConfig = {
         site: sampleMixedConfig.site,
         assets: [
+          { ...solarArray1, resourceMode: 'weather_file' },
           {
             ...sampleWindTurbineAnnual,
             resourceMode: 'interval_file',
           },
         ],
       };
-
       expect(
         canExportGenerationProjectionsJson({
           generationAnalysis: windOnlyFinancialAnalysis,
@@ -2531,10 +2531,9 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
           generationConfig: configWithIntervalFileWind,
           csvResult: mockCsvResult,
         })
-      ).toBe(false);
+      ).toBe(true);
 
-      expect(() =>
-        buildGenerationExportLlmJson({
+      const payload = buildGenerationExportLlmJson({
           generationConfig: configWithIntervalFileWind,
           allowRenewableExport: true,
           generationAwareResult: mockWindOnlyGenerationAwareResult,
@@ -2546,8 +2545,10 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
           activeTouProfile: touProfile,
           financials: sampleFinancials,
           csvResult: mockCsvResult,
-        })
-      ).toThrow('Measured wind intervals support simulation for the imported period only, not multi-year generation export.');
+        });
+      expect(payload.generation_annual_projection).toHaveLength(15);
+      expect(payload.generation_configuration.solar_arrays.map((asset) => asset.resource_mode)).toContain('weather_file');
+      expect(payload.generation_configuration.wind_turbines?.map((asset) => asset.resource_mode)).toContain('interval_file');
     });
 
     it('30. Disabled unsupported assets do not block supported export', () => {
