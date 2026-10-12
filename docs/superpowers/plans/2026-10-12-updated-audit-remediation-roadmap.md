@@ -78,11 +78,11 @@
 - The import flow records `sourceTimeZone` independently from `generationConfig.site.timeZone`; explicit-offset rows retain their absolute instant.
 - Removing an attached file changes resource attachment state only. It does not silently switch `weather_file`/`interval_file` to a modeled mode.
 
-- [ ] Add failing tests for a resource whose source wall-clock zone differs from the site zone, an explicit-offset resource, DST ambiguous/nonexistent source times, removal, reattachment, and project archive round-trip.
-- [ ] Add a labeled source-zone input for zone-free CSV timestamps and show source zone and site zone in the import summary.
-- [ ] On removal, preserve the selected resource mode and show an actionable unbound state that prevents dispatch until reattachment or an explicit modeled-mode selection.
-- [ ] Validate/migrate the new metadata in project archives without losing older supported archive versions.
-- [ ] Run focused parser, exact-alignment, asset UI, archive, and E2E regression tests.
+- [x] Add failing tests for a resource whose source wall-clock zone differs from the site zone, an explicit-offset resource, DST ambiguous/nonexistent source times, removal, reattachment, and project archive round-trip.
+- [x] Add a labeled source-zone input for zone-free CSV timestamps and show source zone and site zone in the import summary.
+- [x] On removal, preserve the selected resource mode and show an actionable unbound state that prevents dispatch until reattachment or an explicit modeled-mode selection.
+- [x] Validate/migrate the new metadata in project archives without losing older supported archive versions.
+- [x] Run focused parser, exact-alignment, asset UI, archive, and E2E regression tests.
 
 **Acceptance:** Source instants are unambiguous and preserved; file removal cannot silently yield synthetic modeled generation.
 

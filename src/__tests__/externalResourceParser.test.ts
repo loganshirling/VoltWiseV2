@@ -285,10 +285,11 @@ describe('G7A — External Resource CSV Parser', () => {
         '2026-11-01T01:30:00-05:00,6.0',
       ].join('\n');
 
-      const result = parseWindSpeedCsv(csv, { sourceTimeZone: 'America/New_York' });
+      const result = parseWindSpeedCsv(csv, { sourceTimeZone: 'America/Los_Angeles' });
       expect(result.isValid).toBe(true);
       expect(result.dataset?.records[0].timestampUtc).toBe('2026-11-01T05:30:00.000Z');
       expect(result.dataset?.records[1].timestampUtc).toBe('2026-11-01T06:30:00.000Z');
+      expect(result.dataset?.sourceTimeZone).toBe('America/Los_Angeles');
     });
   });
 

@@ -167,6 +167,30 @@ test('cancels resource reads after asset edits, selection changes, and removal',
   expect(pageErrors).toEqual([]);
 });
 
+test('keeps measured resource source timezone independent and removal explicitly unbound', async ({ page }) => {
+  await openGenerationWithSolar(page);
+  await page.getByLabel('Site timezone (IANA)').fill('America/New_York');
+  await page.getByLabel('Resource source timezone (IANA)').fill('America/Los_Angeles');
+  const resourceCsv = [
+    'timestamp,ghi_wm2,dni_wm2,dhi_wm2',
+    '2025-01-01 08:00,800,650,150',
+    '2025-01-01 09:00,850,700,150',
+  ].join('\n');
+  await page.locator('input[aria-label="Import measured resource CSV"]').setInputFiles({
+    name: 'west-coast-solar.csv', mimeType: 'text/csv', buffer: Buffer.from(resourceCsv),
+  });
+  await expect(page.getByRole('status').filter({ hasText: /Loaded 2 intervals.*source zone: America\/Los_Angeles.*site zone: America\/New_York/i })).toBeVisible();
+  await expect(page.getByText(/2025-01-01T16:00:00\.000Z/)).toBeVisible();
+  await expect(page.getByText(/Site time zone:.*America\/New_York/)).toBeVisible();
+  await page.getByRole('button', { name: 'Remove measured resource' }).click();
+  await expect(page.getByRole('alert')).toContainText(/measured solar mode has no attached resource/i);
+  await expect(page.getByRole('radio', { name: 'Measured Irradiance CSV' })).toBeChecked();
+  await page.locator('input[aria-label="Import measured resource CSV"]').setInputFiles({
+    name: 'west-coast-solar.csv', mimeType: 'text/csv', buffer: Buffer.from(resourceCsv),
+  });
+  await expect(page.getByText('Attached: west-coast-solar.csv')).toBeVisible();
+});
+
 test('gives numeric controls accessible names across data, batteries, and every generation asset type', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));

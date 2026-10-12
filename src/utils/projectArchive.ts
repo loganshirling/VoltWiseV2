@@ -256,7 +256,9 @@ function validateExternalResource(value: unknown, path: string): ExternalResourc
   if (resource.kind !== 'solar_irradiance' && resource.kind !== 'wind_speed') {
     fail(`${path}.kind`, 'must be solar_irradiance or wind_speed');
   }
-  requireTimeZone(resource.sourceTimeZone, `${path}.sourceTimeZone`, true);
+  const sourceTimeZone = resource.sourceTimeZone === undefined
+    ? null
+    : requireTimeZone(resource.sourceTimeZone, `${path}.sourceTimeZone`, true);
   const intervalHours = requireFiniteNumber(resource.intervalHours, `${path}.intervalHours`)!;
   if (intervalHours <= 0) fail(`${path}.intervalHours`, 'must be positive');
   const rowCount = requireFiniteNumber(resource.rowCount, `${path}.rowCount`)!;
@@ -293,7 +295,7 @@ function validateExternalResource(value: unknown, path: string): ExternalResourc
       fail(`${path}.records[${index}]`, 'does not align to the resource interval');
     }
   }
-  return resource as unknown as ExternalResourceDataset;
+  return { ...resource, sourceTimeZone } as unknown as ExternalResourceDataset;
 }
 
 function validateGenerationConfig(value: unknown): GenerationConfig {
@@ -325,7 +327,10 @@ function validateGenerationConfig(value: unknown): GenerationConfig {
         : null;
     if (!expectedKind) return;
     const resourceId = asset.externalResourceId;
-    if (!resourceId || !resourceById.has(resourceId)) {
+    // A deliberately unbound measured mode is a valid saved configuration;
+    // simulation remains blocked until the user reattaches data or changes mode.
+    if (!resourceId) return;
+    if (!resourceById.has(resourceId)) {
       fail(`project.generationConfig.assets[${index}].externalResourceId`, `must reference an available ${expectedKind} resource`);
     }
     if (resourceById.get(resourceId)!.kind !== expectedKind) {

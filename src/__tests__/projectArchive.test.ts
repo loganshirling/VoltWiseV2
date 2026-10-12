@@ -25,7 +25,7 @@ function makeProjectState(): ProjectArchiveState {
   generationConfig.site = {
     latitude: 37.7749,
     longitude: -122.4194,
-    timeZone: 'America/Los_Angeles',
+    timeZone: 'America/New_York',
     elevationM: 16,
   };
   generationConfig.assets = [
@@ -75,7 +75,22 @@ describe('versioned local project archives', () => {
     expect(restored).toMatchObject(state);
     expect(restored.csvResult?.data).toHaveLength(48);
     expect(restored.generationConfig.externalResources).toEqual(state.generationConfig.externalResources);
+    expect(restored.generationConfig.externalResources?.[0].sourceTimeZone).toBe('America/Los_Angeles');
+    expect(restored.generationConfig.externalResources?.[0].records[0].timestampUtc).toBe('2025-09-22T07:00:00.000Z');
     expect(restored.loadDataSource).toBe('uploaded');
+  });
+
+  it('preserves an intentionally unbound measured mode across project archive round-trip', async () => {
+    const state = makeProjectState();
+    const solar = state.generationConfig.assets.find((asset) => asset.type === 'solar')!;
+    solar.resourceMode = 'weather_file';
+    solar.externalResourceId = undefined;
+    state.generationConfig.externalResources = [];
+    const restored = await parseProjectArchive(await encodeArchive(state));
+    const restoredSolar = restored.generationConfig.assets.find((asset) => asset.type === 'solar')!;
+    expect(restoredSolar.resourceMode).toBe('weather_file');
+    expect(restoredSolar.externalResourceId).toBeUndefined();
+    expect(restored.generationConfig.externalResources).toEqual([]);
   });
 
   it('restores identical re-simulation inputs and deterministic battery results', async () => {
@@ -192,5 +207,15 @@ describe('versioned local project archives', () => {
     expect(restored.loadDataCsv).toBe(makeProjectState().loadDataCsv);
     expect(restored.loadDataSource).toBeNull();
     expect(restored.csvResult?.data).toHaveLength(48);
+  });
+
+  it('migrates legacy resource archives without a source timezone as unknown', async () => {
+    const archive = JSON.parse(await encodeArchive());
+    archive.schemaVersion = 1;
+    archive.project.loadDataCsv = archive.project.loadData.csv;
+    delete archive.project.loadData;
+    delete archive.project.generationConfig.externalResources[0].sourceTimeZone;
+    const restored = await parseProjectArchive(JSON.stringify(archive));
+    expect(restored.generationConfig.externalResources?.[0].sourceTimeZone).toBeNull();
   });
 });
