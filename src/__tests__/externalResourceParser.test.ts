@@ -4,8 +4,16 @@ import {
   parseSolarIrradianceCsv,
   parseWindSpeedCsv,
 } from '../utils/externalResourceParser';
+import { MAX_INTERVALS_PER_DATASET } from '../utils/importLimits';
 
 describe('G7A — External Resource CSV Parser', () => {
+  it('rejects resource curves above the supported interval ceiling before row parsing', () => {
+    const csv = ['timestamp,wind_speed_mps', ...Array.from({ length: MAX_INTERVALS_PER_DATASET + 1 }, () => 'row')].join('\n');
+    const result = parseWindSpeedCsv(csv);
+    expect(result.isValid).toBe(false);
+    expect(result.dataset).toBeUndefined();
+    expect(result.errors.join(' ')).toMatch(/35,040 intervals/i);
+  });
   describe('1. Valid Ingestion & Schema Support', () => {
     it('parses a valid solar CSV with hourly intervals', () => {
       const csv = [

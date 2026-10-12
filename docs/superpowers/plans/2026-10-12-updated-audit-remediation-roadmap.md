@@ -115,12 +115,12 @@
 - Every asynchronous load import has a request generation/identity; only the latest intentional request may update active project state.
 - File byte limits and parsed interval/asset limits are explicit constants shared by UI validation and docs. Reject by `File.size` before reading text.
 
-- [ ] Add controlled delayed-reader tests for: upload A then B; upload then load sample; upload then reset; upload then open project; upload then unmount; reader error and abort. Verify old valid state remains if new input fails.
-- [ ] Implement cancellation/request invalidation and explicit `onerror`/`onabort` handling; invalidate pending load reads on all whole-project transitions.
-- [ ] Measure representative CSV/archive memory and import time on the reference browser/device; derive conservative supported byte, interval, resource, and asset limits from observed budget and worker copying.
-- [ ] Enforce each limit before file content read or expensive parse, with accessible actionable feedback and no partial state mutation.
-- [ ] Exercise at-limit and over-limit cases in the browser and confirm normal imports still work.
-- [ ] Update documentation with tested limits and known browser/device constraints.
+- [x] Add controlled delayed-reader tests for upload A then B, then sample, reset, or open project; test reader error and abort. App cleanup invalidates pending reads on unmount. Verify old valid state remains if new input fails.
+- [x] Implement cancellation/request invalidation and explicit `onerror`/`onabort` handling; invalidate pending load reads on all whole-project transitions.
+- [x] Measure representative CSV/archive memory and import time on the reference browser/device; derive conservative supported byte, interval, resource, and asset limits from observed budget and worker copying.
+- [x] Enforce each limit before file content read or expensive parse, with accessible actionable feedback and no partial state mutation.
+- [x] Exercise at-limit and over-limit cases in the browser and confirm normal imports still work.
+- [x] Update documentation with tested limits and known browser/device constraints.
 
 **Acceptance:** Only the latest intentional import can replace state; failure and over-limit inputs preserve current project data and show a recoverable message.
 

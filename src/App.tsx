@@ -41,6 +41,7 @@ import {
 } from './utils/generationFinancials';
 import { generateRealistic8760Dataset } from './utils/sampleData';
 import { parseAndValidateEnergyCsv } from './utils/csvParser';
+import { MAX_LOAD_CSV_BYTES, MAX_INTERVALS_PER_DATASET } from './utils/importLimits';
 import {
   evaluateAnnualProjectionEligibility,
   evaluateLoadTimestampEligibility,
@@ -74,6 +75,10 @@ export default function App() {
   const [csvResult, setCsvResult] = useState<CsvValidationResult | null>(null);
   const [loadDataCsv, setLoadDataCsv] = useState<string | null>(null);
   const [loadDataSource, setLoadDataSource] = useState<LoadDataSource | null>(null);
+  const [loadImportError, setLoadImportError] = useState<string | null>(null);
+  const [isReadingLoadFile, setIsReadingLoadFile] = useState(false);
+  const loadImportGeneration = useRef(0);
+  const activeLoadReader = useRef<FileReader | null>(null);
   const [simulationWorkerClient] = useState(() => createSimulationWorkerClient());
   const simulationRequestId = useRef(0);
   const [simulationWorkerState, setSimulationWorkerState] = useState<{
@@ -99,21 +104,76 @@ export default function App() {
     setLoadDataSource('synthetic_sample');
   }, []);
 
+  const invalidatePendingLoadRead = () => {
+    loadImportGeneration.current += 1;
+    const reader = activeLoadReader.current;
+    activeLoadReader.current = null;
+    if (reader?.readyState === FileReader.LOADING) reader.abort();
+    setIsReadingLoadFile(false);
+  };
+
+  useEffect(() => () => {
+    loadImportGeneration.current += 1;
+    if (activeLoadReader.current?.readyState === FileReader.LOADING) activeLoadReader.current.abort();
+  }, []);
+
   // Handle User CSV Upload
   const handleFileUpload = (file: File) => {
+    invalidatePendingLoadRead();
+    const requestId = loadImportGeneration.current;
+    setLoadImportError(null);
+    if (file.size > MAX_LOAD_CSV_BYTES) {
+      setLoadImportError(`Load CSV exceeds the ${(MAX_LOAD_CSV_BYTES / (1024 * 1024)).toFixed(0)} MiB limit. Split the data into smaller files; your active dataset is unchanged.`);
+      return;
+    }
     const reader = new FileReader();
+    activeLoadReader.current = reader;
+    setIsReadingLoadFile(true);
     reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const parsed = parseAndValidateEnergyCsv(text);
-      setCsvResult(parsed);
-      setLoadDataCsv(text);
-      setLoadDataSource('uploaded');
+      if (loadImportGeneration.current !== requestId) return;
+      try {
+        const text = e.target?.result as string;
+        const parsed = parseAndValidateEnergyCsv(text);
+        if (!parsed.schemaValid || !parsed.chronologicallyValid) {
+          setLoadImportError(`${parsed.errors.join(' ')} The active dataset is unchanged.`);
+          return;
+        }
+        if (parsed.data.length > MAX_INTERVALS_PER_DATASET) {
+          setLoadImportError(`Load CSV exceeds the ${MAX_INTERVALS_PER_DATASET.toLocaleString()} interval limit. Split the data into smaller files; your active dataset is unchanged.`);
+          return;
+        }
+        setCsvResult(parsed);
+        setLoadDataCsv(text);
+        setLoadDataSource('uploaded');
+        setLoadImportError(null);
+      } catch (error) {
+        setLoadImportError(`${error instanceof Error ? error.message : 'Load CSV could not be parsed.'} The active dataset is unchanged.`);
+      } finally {
+        if (loadImportGeneration.current === requestId) {
+          activeLoadReader.current = null;
+          setIsReadingLoadFile(false);
+        }
+      }
+    };
+    reader.onerror = () => {
+      if (loadImportGeneration.current !== requestId) return;
+      activeLoadReader.current = null;
+      setIsReadingLoadFile(false);
+      setLoadImportError(`Could not read ${file.name}. Choose a readable CSV; your active dataset is unchanged.`);
+    };
+    reader.onabort = () => {
+      if (loadImportGeneration.current !== requestId) return;
+      activeLoadReader.current = null;
+      setIsReadingLoadFile(false);
+      setLoadImportError(`Reading ${file.name} was canceled. Your active dataset is unchanged.`);
     };
     reader.readAsText(file);
   };
 
   // Quick load 8,760h realistic sample
   const handleLoadSample = () => {
+    invalidatePendingLoadRead();
+    setLoadImportError(null);
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
     setCsvResult(parsed);
@@ -123,6 +183,8 @@ export default function App() {
 
   // Reset data handler
   const handleResetData = () => {
+    invalidatePendingLoadRead();
+    setLoadImportError(null);
     setCsvResult(null);
     setLoadDataCsv(null);
     setLoadDataSource(null);
@@ -297,6 +359,7 @@ export default function App() {
   }, [isSuitableForAnnual, activeUnifiedResult, activeGenerationAnalysis]);
 
   const handleProjectLoaded = (project: ValidatedProjectState) => {
+    invalidatePendingLoadRead();
     setProfiles(project.profiles);
     setActiveProfileId(project.activeProfileId);
     setTouProfiles(project.touProfiles);
@@ -485,6 +548,9 @@ export default function App() {
             annualProjectionEligible={annualProjectionEligibility.eligible}
             annualProjectionReason={annualProjectionEligibility.reason}
             onFileUpload={handleFileUpload}
+              onProjectOpening={invalidatePendingLoadRead}
+              loadImportError={loadImportError}
+              isReadingLoadFile={isReadingLoadFile}
             onLoadSample={handleLoadSample}
             touProfiles={touProfiles}
             setTouProfiles={setTouProfiles}

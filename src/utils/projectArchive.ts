@@ -15,6 +15,7 @@ import {
 import { parseAndValidateEnergyCsv } from './csvParser';
 import { validateGeneratorAsset } from './generatorModel';
 import { validateWindGenerationAsset } from './windModel';
+import { MAX_GENERATION_ASSETS, MAX_INTERVALS_PER_DATASET, MAX_LOAD_CSV_BYTES, MAX_PROJECT_ARCHIVE_BYTES } from './importLimits';
 
 export type { ProjectArchiveState, ValidatedProjectState } from '../types/energy';
 
@@ -305,6 +306,7 @@ function validateExternalResource(value: unknown, path: string): ExternalResourc
   const start = requireString(resource.startTimestampUtc, `${path}.startTimestampUtc`);
   const end = requireString(resource.endTimestampUtc, `${path}.endTimestampUtc`);
   const records = requireArray(resource.records, `${path}.records`);
+  if (records.length > MAX_INTERVALS_PER_DATASET) fail(`${path}.records`, `cannot exceed ${MAX_INTERVALS_PER_DATASET.toLocaleString()} intervals`);
   if (records.length !== rowCount) fail(`${path}.records`, 'count does not match rowCount');
   const timestamps: number[] = [];
   records.forEach((entry, index) => {
@@ -346,7 +348,9 @@ function validateGenerationConfig(value: unknown): GenerationConfig {
   if (longitude !== null && (longitude < -180 || longitude > 180)) fail('project.generationConfig.site.longitude', 'must be between -180 and 180');
   requireFiniteNumber(site.elevationM, 'project.generationConfig.site.elevationM', true);
   requireTimeZone(site.timeZone, 'project.generationConfig.site.timeZone');
-  const assets = requireArray(config.assets, 'project.generationConfig.assets').map((asset, index) =>
+  const assetValues = requireArray(config.assets, 'project.generationConfig.assets');
+  if (assetValues.length > MAX_GENERATION_ASSETS) fail('project.generationConfig.assets', `cannot contain more than ${MAX_GENERATION_ASSETS} assets`);
+  const assets = assetValues.map((asset, index) =>
     validateGenerationAsset(asset, `project.generationConfig.assets[${index}]`)
   );
   requireUniqueIds(assets, 'project.generationConfig.assets');
@@ -355,6 +359,7 @@ function validateGenerationConfig(value: unknown): GenerationConfig {
     : requireArray(config.externalResources, 'project.generationConfig.externalResources').map((resource, index) =>
         validateExternalResource(resource, `project.generationConfig.externalResources[${index}]`)
       );
+  if (resources.length > MAX_GENERATION_ASSETS) fail('project.generationConfig.externalResources', `cannot contain more than ${MAX_GENERATION_ASSETS} resources`);
   const resourceIds = resources.map((resource) => resource.id);
   if (new Set(resourceIds).size !== resourceIds.length) fail('project.generationConfig.externalResources', 'contains duplicate ids');
   const resourceById = new Map(resources.map((resource) => [resource.id, resource]));
@@ -467,6 +472,9 @@ function validateStateFields(projectValue: unknown, legacyV1: boolean): Validate
   let csvResult: CsvValidationResult | null = null;
   if (loadDataCsv !== null) {
     try {
+      if (new TextEncoder().encode(loadDataCsv).byteLength > MAX_LOAD_CSV_BYTES) {
+        fail('project.loadData.csv', `cannot exceed ${MAX_LOAD_CSV_BYTES / (1024 * 1024)} MiB`);
+      }
       csvResult = parseAndValidateEnergyCsv(loadDataCsv);
       if (!csvResult.schemaValid || !csvResult.chronologicallyValid) {
         fail('project.loadData.csv', 'failed schema or chronology validation');
@@ -515,19 +523,32 @@ export function serializeProjectArchive(state: ProjectArchiveState): Blob {
     },
   };
   validateStateFields(archive.project, false);
-  return new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json;charset=utf-8' });
+  const serialized = JSON.stringify(archive, null, 2);
+  if (new TextEncoder().encode(serialized).byteLength > MAX_PROJECT_ARCHIVE_BYTES) {
+    fail('project archive', `cannot exceed ${MAX_PROJECT_ARCHIVE_BYTES / (1024 * 1024)} MiB`);
+  }
+  return new Blob([serialized], { type: 'application/json;charset=utf-8' });
 }
 
 export async function parseProjectArchive(input: string | Blob | ArrayBuffer): Promise<ValidatedProjectState> {
   let rawText: string;
   try {
+    if (typeof input === 'string' && new TextEncoder().encode(input).byteLength > MAX_PROJECT_ARCHIVE_BYTES) {
+      throw new Error('Project archive exceeds the supported file size.');
+    }
+    if (input instanceof Blob && input.size > MAX_PROJECT_ARCHIVE_BYTES) {
+      throw new Error('Project archive exceeds the supported file size.');
+    }
+    if (input instanceof ArrayBuffer && input.byteLength > MAX_PROJECT_ARCHIVE_BYTES) {
+      throw new Error('Project archive exceeds the supported file size.');
+    }
     rawText = typeof input === 'string'
       ? input
       : input instanceof Blob
       ? await input.text()
       : new TextDecoder().decode(input);
   } catch {
-    throw new Error('Project archive could not be read. Choose a readable VoltWise project JSON file.');
+    throw new Error('Project archive could not be read or exceeds the supported 12 MiB limit. Choose a readable VoltWise project JSON file.');
   }
 
   let parsed: unknown;

@@ -6,6 +6,7 @@
  * 09/22/2025, 12:00 AM, 1.018, 25.075, kWh
  */
 import { CsvValidationResult, DatasetCompleteness, IntervalDataPoint } from '../types/energy';
+import { MAX_INTERVALS_PER_DATASET } from './importLimits';
 
 interface ParsedDay {
   year: number;
@@ -185,6 +186,24 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       errors: ['File must contain a header row and at least one data row.'],
       warnings: [],
       totalRows: lines.length,
+      validRows: 0,
+      totalKwh: 0,
+      intervalHours: 1,
+      peakKw: 0,
+      data: [],
+    };
+  }
+
+  if (lines.length - 1 > MAX_INTERVALS_PER_DATASET) {
+    return {
+      schemaValid: false,
+      chronologicallyValid: false,
+      operationallySimulatable: false,
+      annualProjectionEligible: false,
+      isValid: false,
+      errors: [`The file contains ${lines.length - 1} intervals; the supported maximum is ${MAX_INTERVALS_PER_DATASET.toLocaleString()}. Split the data into smaller files.`],
+      warnings: [],
+      totalRows: lines.length - 1,
       validRows: 0,
       totalKwh: 0,
       intervalHours: 1,

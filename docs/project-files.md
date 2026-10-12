@@ -6,6 +6,8 @@ A project archive contains battery profiles and selected profile, saved tariff p
 
 Archives are processed in the browser and downloaded or read from the file you choose. VoltWise does not upload them. They may contain household electricity use and detailed site/resource data, so store and share the downloaded file accordingly. To delete a saved project, remove it from the download location or folder where you stored it; VoltWise keeps no separate project-file copy.
 
+An archive is limited to 12 MiB. Embedded load CSV data is limited to 2 MiB and 35,040 intervals; generation projects support up to 10 assets and 10 imported resource datasets, each with at most 35,040 intervals. File-size limits are checked before content is read, and domain and interval limits are checked before project state changes. These supported ceilings are based on the repository's reference-runner interval and memory measurements; slower or lower-memory browsers may need smaller inputs.
+
 The current writer emits schema version 2. The first schema version stored the raw load CSV directly and did not record its source. Version 2 groups the CSV with provenance. When an older archive has no resource source timezone, it is migrated as unknown rather than inferred from the installation site's timezone. When a version 1 archive is opened, its CSV and settings are migrated, and the missing load source remains unspecified rather than being guessed. Unsupported future versions, malformed JSON, incomplete project state, invalid timestamps, and corrupt solar/wind records are rejected.
 
 Project archives are separate from analytical JSON and CSV exports. Analytical exports contain results and their assumptions; project archives contain editable inputs for reopening and re-simulation.

@@ -40,6 +40,7 @@ import {
   createDefaultGenerationConfig,
 } from '../utils/generationDefaults';
 import { parseExternalResourceCsv } from '../utils/externalResourceParser';
+import { MAX_GENERATION_ASSETS, MAX_RESOURCE_CSV_BYTES } from '../utils/importLimits';
 
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -104,6 +105,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   const [resourceImportError, setResourceImportError] = useState('');
   const [isImportingResource, setIsImportingResource] = useState(false);
   const [resourceSourceTimeZone, setResourceSourceTimeZone] = useState(generationConfig.site.timeZone);
+  const [assetLimitError, setAssetLimitError] = useState('');
   const resourceImportRequestId = useRef(0);
 
   useEffect(() => () => {
@@ -161,6 +163,11 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   // Add asset
   const handleAddAsset = (type: 'solar' | 'wind' | 'generator') => {
     cancelResourceImport();
+    if (generationConfig.assets.length >= MAX_GENERATION_ASSETS) {
+      setAssetLimitError(`A project can contain up to ${MAX_GENERATION_ASSETS} generation assets. Delete an asset before adding another.`);
+      return;
+    }
+    setAssetLimitError('');
     const id = createAssetId(type);
     const newAsset = createDefaultAsset(type, id);
     setGenerationConfig((prev) => ({
@@ -173,6 +180,11 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   // Duplicate asset
   const handleDuplicateAsset = (asset: GenerationAsset) => {
     cancelResourceImport();
+    if (generationConfig.assets.length >= MAX_GENERATION_ASSETS) {
+      setAssetLimitError(`A project can contain up to ${MAX_GENERATION_ASSETS} generation assets. Delete an asset before adding another.`);
+      return;
+    }
+    setAssetLimitError('');
     const newId = createAssetId(asset.type);
     const duplicate: GenerationAsset = {
       ...asset,
@@ -232,6 +244,11 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
     setResourceImportMessage('');
     setResourceImportError('');
     setIsImportingResource(true);
+    if (file.size > MAX_RESOURCE_CSV_BYTES) {
+      setResourceImportError(`Resource CSV exceeds the ${(MAX_RESOURCE_CSV_BYTES / (1024 * 1024)).toFixed(0)} MiB limit. Split the data into smaller files.`);
+      setIsImportingResource(false);
+      return;
+    }
     if (!activeAsset || activeAsset.type === 'generator') {
       setResourceImportError('Select a solar array or wind turbine before importing a resource file.');
       setIsImportingResource(false);
@@ -294,6 +311,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   return (
     <div className="space-y-8 animate-fadeIn">
+      {assetLimitError && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-950/30 p-3 text-xs text-rose-200">{assetLimitError}</p>}
       {/* Informational Callout: Active Renewable Simulation */}
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 sm:p-5 flex items-start gap-3 sm:gap-4 shadow-sm">
         <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">

@@ -61,6 +61,9 @@ interface DataAndRatesTabProps {
   annualProjectionEligible?: boolean;
   annualProjectionReason?: string;
   onFileUpload: (file: File) => void;
+  onProjectOpening: () => void;
+  loadImportError: string | null;
+  isReadingLoadFile: boolean;
   onLoadSample: () => void;
   touProfiles: TouProfile[];
   setTouProfiles: React.Dispatch<React.SetStateAction<TouProfile[]>>;
@@ -138,6 +141,9 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   annualProjectionEligible,
   annualProjectionReason,
   onFileUpload,
+  onProjectOpening,
+  loadImportError,
+  isReadingLoadFile,
   onLoadSample,
   touProfiles,
   setTouProfiles,
@@ -779,7 +785,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
 
   return (
     <div className="space-y-10" onMouseUp={handleMouseUp}>
-      <ProjectFileControls projectState={projectState} onProjectLoaded={onProjectLoaded} />
+      <ProjectFileControls projectState={projectState} onProjectLoaded={onProjectLoaded} onProjectOpening={onProjectOpening} />
       <div role="status" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
         {loadDataSource === 'synthetic_sample' ? (
           <><strong className="text-amber-300">Illustrative synthetic sample.</strong> These generated intervals are not your household measurements. Upload your own CSV to replace them.</>
@@ -927,6 +933,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
                 onFileUpload(e.target.files[0]);
+                e.target.value = '';
               }
             }}
           />
@@ -942,6 +949,9 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
             </p>
           </div>
         </div>
+
+        {isReadingLoadFile && <p role="status" className="mt-2 text-xs text-sky-300">Reading load CSV…</p>}
+        {loadImportError && <p role="alert" className="mt-2 text-xs text-rose-300">{loadImportError}</p>}
 
         {/* Validation Feedback & Dataset Summary */}
         {csvResult && (

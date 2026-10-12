@@ -18,6 +18,7 @@ import {
   parseProjectArchive,
   serializeProjectArchive,
 } from '../utils/projectArchive';
+import { MAX_GENERATION_ASSETS, MAX_LOAD_CSV_BYTES } from '../utils/importLimits';
 
 function makeProjectState(): ProjectArchiveState {
   const touProfile = DEFAULT_TOU_PROFILES[0];
@@ -119,6 +120,18 @@ describe('versioned local project archives', () => {
     delete archive.project.financials;
 
     await expect(parseProjectArchive(JSON.stringify(archive))).rejects.toThrow(/financials/i);
+  });
+
+  it('rejects project content beyond supported load and asset limits', async () => {
+    const oversizedLoad = JSON.parse(await encodeArchive());
+    oversizedLoad.project.loadData = { csv: 'x'.repeat(MAX_LOAD_CSV_BYTES + 1), source: 'uploaded' };
+    await expect(parseProjectArchive(JSON.stringify(oversizedLoad))).rejects.toThrow(/project\.loadData\.csv.*2 MiB/i);
+
+    const tooManyAssets = JSON.parse(await encodeArchive());
+    tooManyAssets.project.generationConfig.assets = Array.from({ length: MAX_GENERATION_ASSETS + 1 }, (_, index) => ({
+      ...tooManyAssets.project.generationConfig.assets[0], id: `solar-${index}`,
+    }));
+    await expect(parseProjectArchive(JSON.stringify(tooManyAssets))).rejects.toThrow(/assets.*more than 10/i);
   });
 
   it.each([

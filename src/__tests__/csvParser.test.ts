@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseAndValidateEnergyCsv } from '../utils/csvParser';
+import { MAX_INTERVALS_PER_DATASET } from '../utils/importLimits';
 
 const header = 'Day,Hour of Day,Hourly Total,Daily Total,Unit of Measurement';
 
@@ -8,6 +9,13 @@ function csvRows(rows: string[]): string {
 }
 
 describe('load CSV validation states and units', () => {
+  it('stops parsing datasets above the supported interval ceiling', () => {
+    const csv = [header, ...Array.from({ length: MAX_INTERVALS_PER_DATASET + 1 }, () => 'row')].join('\n');
+    const parsed = parseAndValidateEnergyCsv(csv);
+    expect(parsed.schemaValid).toBe(false);
+    expect(parsed.data).toHaveLength(0);
+    expect(parsed.errors.join(' ')).toMatch(/supported maximum is 35,040/i);
+  });
   it('parses calendar fields from timestamp text without depending on the host timezone', () => {
     const csv = ['Timestamp,Usage kWh', '2025-01-01T04:00:00Z,1', '2025-01-01T05:00:00Z,1'].join('\n');
     const originalTz = process.env.TZ;

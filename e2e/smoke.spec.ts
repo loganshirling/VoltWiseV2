@@ -1,5 +1,6 @@
 import { expect, test, Page } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { MAX_GENERATION_ASSETS, MAX_LOAD_CSV_BYTES, MAX_PROJECT_ARCHIVE_BYTES, MAX_RESOURCE_CSV_BYTES } from '../src/utils/importLimits';
 
 const validLoadCsv = [
   'Day,Hour of Day,Hourly Total,Daily Total,Unit of Measurement',
@@ -50,9 +51,44 @@ async function installDelayedFileReader(page: Page) {
   });
 }
 
+async function installDelayedLoadReader(page: Page) {
+  await page.addInitScript(() => {
+    const read = FileReader.prototype.readAsText;
+    const pending: Record<string, () => void> = {};
+    (window as Window & { resolvePendingLoadRead?: (name: string) => void }).resolvePendingLoadRead = (name) => pending[name]?.();
+    FileReader.prototype.readAsText = function (file: Blob) {
+      const reader = this;
+      const name = (file as File).name;
+      pending[name] = () => read.call(reader, file);
+    };
+  });
+}
+
+async function startDelayedLoadRead(page: Page, name = 'delayed-load.csv', csv = validLoadCsv) {
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name, mimeType: 'text/csv', buffer: Buffer.from(csv),
+  });
+  await expect(page.getByText('Reading load CSV…')).toBeVisible();
+}
+
+async function completePendingLoadRead(page: Page, name = 'delayed-load.csv') {
+  await page.evaluate((requestedName) => (window as Window & { resolvePendingLoadRead?: (name: string) => void }).resolvePendingLoadRead?.(requestedName), name);
+  await page.waitForTimeout(100);
+}
+
+async function installFailingLoadReader(page: Page) {
+  await page.addInitScript(() => {
+    FileReader.prototype.readAsText = function (file: Blob) {
+      const type = (file as File).name.startsWith('abort') ? 'abort' : 'error';
+      setTimeout(() => this.dispatchEvent(new ProgressEvent(type)), 0);
+    };
+  });
+}
+
 async function openGenerationWithSolar(page: Page) {
   await page.goto('/');
   await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
   await page.locator('button[title="Add Solar Array"]').click();
 }
 
@@ -73,9 +109,25 @@ test('covers sample, imports, settings, results, local save/open, export, and re
   const loadFile = page.getByLabel('Upload interval load CSV');
   await loadFile.setInputFiles({ name: 'valid-load.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv) });
   await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  const quarterHourCsv = [
+    'timestamp,usage_kwh',
+    ...Array.from({ length: 35_040 }, (_, index) => `${new Date(Date.UTC(2025, 0, 1) + index * 15 * 60_000).toISOString()},1`),
+  ].join('\n');
+  const memoryBefore = await page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
+  const startedAt = Date.now();
+  await loadFile.setInputFiles({ name: 'maximum-intervals.csv', mimeType: 'text/csv', buffer: Buffer.from(quarterHourCsv) });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await expect(page.getByText('Exact full-calendar-year coverage is available for lifecycle projections.')).toBeVisible();
+  const importElapsedMs = Date.now() - startedAt;
+  const memoryAfter = await page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
+  console.log(`35,040 interval Chromium import: ${importElapsedMs} ms; renderer JS heap delta: ${memoryBefore !== null && memoryAfter !== null ? `${((memoryAfter - memoryBefore) / (1024 * 1024)).toFixed(1)} MiB` : 'unavailable'}`);
   await loadFile.setInputFiles({ name: 'invalid-load.csv', mimeType: 'text/csv', buffer: Buffer.from('wrong,columns\nno,data') });
-  await expect(page.getByRole('heading', { name: 'CSV Schema Validation Errors Detected' })).toBeVisible();
   await expect(page.getByRole('alert')).toContainText(/missing|header|column/i);
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
   await loadFile.setInputFiles({ name: 'valid-load.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv) });
   await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
 
@@ -86,6 +138,7 @@ test('covers sample, imports, settings, results, local save/open, export, and re
   await auditNumericNames(page);
 
   await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
   await page.locator('button[title="Add Solar Array"]').click();
   await page.getByLabel('solar asset name').fill('Test Roof Array');
   await auditNumericNames(page);
@@ -94,12 +147,12 @@ test('covers sample, imports, settings, results, local save/open, export, and re
     mimeType: 'text/csv',
     buffer: Buffer.from(validSolarCsv),
   });
-  await expect(page.getByRole('status').filter({ hasText: 'Loaded 2 intervals from measured-solar.csv.' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Loaded 2 intervals from measured-solar.csv' })).toBeVisible();
   await expect(page.getByText('Attached: measured-solar.csv')).toBeVisible();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
 
   await openTab(page, '1. Data & TOU Rates');
-  await page.getByRole('button', { name: 'Load synthetic 8,760h sample' }).click();
+  await page.getByRole('main').getByRole('button', { name: 'Load synthetic 8,760h sample' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
   await auditNumericNames(page);
   await openTab(page, '5. Results & Analytics');
@@ -119,10 +172,13 @@ test('covers sample, imports, settings, results, local save/open, export, and re
     page.getByRole('button', { name: 'Save Project' }).click(),
   ]);
   const projectPath = await projectDownload.path();
+  const archiveBytes = (await stat(projectPath!)).size;
   expect(projectPath).toBeTruthy();
   page.on('dialog', (dialog) => dialog.accept());
+  const archiveImportStartedAt = Date.now();
   await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(projectPath!);
   await expect(page.getByRole('status').filter({ hasText: /^Opened / })).toBeVisible();
+  console.log(`8,760-row project archive: ${archiveBytes} bytes; browser open/parse: ${Date.now() - archiveImportStartedAt} ms`);
 
   await page.getByRole('button', { name: 'Reset all project data, including load and solar/wind resource files' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'No load dataset is active.' })).toBeVisible();
@@ -245,6 +301,103 @@ test('rejects invalid project archives atomically and navigates a valid archive 
   expect(pageErrors).toEqual([]);
 });
 
+test('supersedes pending load reads when a sample, reset, or project opening is selected', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await installDelayedLoadReader(page);
+  await page.goto('/');
+  await openTab(page, '1. Data & TOU Rates');
+
+  const olderCsv = validLoadCsv;
+  const newerCsv = validLoadCsv.replace(',1,24,kWh', ',10,33,kWh').replace(',1.2,24,kWh', ',11,33,kWh').replace(',0.8,24,kWh', ',12,33,kWh');
+  await startDelayedLoadRead(page, 'older-load.csv', olderCsv);
+  await startDelayedLoadRead(page, 'newer-load.csv', newerCsv);
+  await completePendingLoadRead(page, 'newer-load.csv');
+  await completePendingLoadRead(page, 'older-load.csv');
+  await expect(page.getByRole('main').getByText('33 kWh', { exact: true })).toBeVisible();
+
+  await startDelayedLoadRead(page);
+  await page.getByRole('main').getByRole('button', { name: 'Load synthetic 8,760h sample' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+  await completePendingLoadRead(page);
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+  await expect(page.getByText(/active dataset is unchanged/i)).toHaveCount(0);
+
+  await startDelayedLoadRead(page);
+  await page.getByRole('button', { name: 'Reset all project data, including load and solar/wind resource files' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'No load dataset is active.' })).toBeVisible();
+  await completePendingLoadRead(page);
+  await expect(page.getByRole('status').filter({ hasText: 'No load dataset is active.' })).toBeVisible();
+
+  await page.getByRole('main').getByRole('button', { name: 'Load synthetic 8,760h sample' }).click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'), page.getByRole('button', { name: 'Save Project' }).click(),
+  ]);
+  const savedPath = await download.path();
+  page.on('dialog', (dialog) => dialog.accept());
+  await startDelayedLoadRead(page);
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(savedPath!);
+  await expect(page.getByRole('status').filter({ hasText: /^Opened / })).toBeVisible();
+  await completePendingLoadRead(page);
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+  await expect(page.getByText(/active dataset is unchanged/i)).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
+});
+
+test('enforces ingestion size limits and preserves active data for over-limit files', async ({ page }) => {
+  await page.goto('/');
+  await openTab(page, '1. Data & TOU Rates');
+  const loadFile = page.getByLabel('Upload interval load CSV');
+  const paddedLoad = Buffer.concat([Buffer.from(validLoadCsv), Buffer.alloc(MAX_LOAD_CSV_BYTES - Buffer.byteLength(validLoadCsv), 32)]);
+  await loadFile.setInputFiles({ name: 'at-limit-load.csv', mimeType: 'text/csv', buffer: paddedLoad });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await loadFile.setInputFiles({
+    name: 'over-limit-load.csv', mimeType: 'text/csv', buffer: Buffer.alloc(MAX_LOAD_CSV_BYTES + 1, 32),
+  });
+  await expect(page.getByText(/2 MiB limit.*active dataset is unchanged/i)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+
+  const oversizedProject = Buffer.alloc(MAX_PROJECT_ARCHIVE_BYTES + 1, 32);
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles({
+    name: 'too-large-project.json', mimeType: 'application/json', buffer: oversizedProject,
+  });
+  await expect(page.getByText(/12 MiB limit/i)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+
+  await openTab(page, '3. Power Generation');
+  await page.locator('button[title="Add Solar Array"]').click();
+  await page.locator('input[aria-label="Import measured resource CSV"]').setInputFiles({
+    name: 'too-large-resource.csv', mimeType: 'text/csv', buffer: Buffer.alloc(MAX_RESOURCE_CSV_BYTES + 1, 32),
+  });
+  await expect(page.getByText(/resource CSV exceeds the 2 MiB limit/i)).toBeVisible();
+  await expect(page.getByText('Attached: too-large-resource.csv')).toHaveCount(0);
+
+  for (let index = 0; index < MAX_GENERATION_ASSETS; index += 1) {
+    await page.locator('button[title="Add Solar Array"]').click();
+  }
+  await expect(page.locator('[role="button"][aria-pressed]')).toHaveCount(MAX_GENERATION_ASSETS);
+  await page.locator('button[title="Add Solar Array"]').click();
+  await expect(page.getByText(/up to 10 generation assets/i)).toBeVisible();
+  await expect(page.locator('[role="button"][aria-pressed]')).toHaveCount(MAX_GENERATION_ASSETS);
+});
+
+test('load reader errors and aborts report recoverably without discarding active data', async ({ page }) => {
+  await installFailingLoadReader(page);
+  await page.goto('/');
+  await openTab(page, '1. Data & TOU Rates');
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: 'read-error.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv),
+  });
+  await expect(page.getByText(/could not read read-error\.csv/i)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: 'abort-load.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv),
+  });
+  await expect(page.getByText(/reading abort-load\.csv was canceled/i)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+});
+
 test('gives numeric controls accessible names across data, batteries, and every generation asset type', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
@@ -279,6 +432,9 @@ test('keeps keyboard focus visible, chart table navigation accessible, and honor
   await page.setViewportSize({ width: 375, height: 812 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await page.locator('body').click({ position: { x: 1, y: 1 } });
   await page.keyboard.press('Tab');
   const focus = await page.evaluate(() => {
     const active = document.activeElement as HTMLElement;
@@ -341,6 +497,7 @@ test('explains the modeled scope at tariff, generation, and results steps', asyn
   await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/does not fetch weather services or support TMY3\/EPW files/i);
   await expect(page.getByRole('region', { name: 'Generation model scope' })).toContainText(/complete aligned measured year can be replayed as a representative resource year/i);
 
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
   await openTab(page, '5. Results & Analytics');
   await expect(page.getByRole('region', { name: 'Analysis scope' })).toContainText(/estimates, not a utility bill or a guarantee/i);
   await expect(page.getByRole('region', { name: 'Analysis scope' })).toContainText(/user-entered outage assumptions/i);
