@@ -1,4 +1,5 @@
 import { expect, test, Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 const validLoadCsv = [
   'Day,Hour of Day,Hourly Total,Daily Total,Unit of Measurement',
@@ -189,6 +190,59 @@ test('keeps measured resource source timezone independent and removal explicitly
     name: 'west-coast-solar.csv', mimeType: 'text/csv', buffer: Buffer.from(resourceCsv),
   });
   await expect(page.getByText('Attached: west-coast-solar.csv')).toBeVisible();
+});
+
+test('rejects invalid project archives atomically and navigates a valid archive across tabs', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await page.goto('/');
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: 'valid-load.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv),
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  const [projectDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Save Project' }).click(),
+  ]);
+  const archivePath = await projectDownload.path();
+  const archive = JSON.parse(await readFile(archivePath!, 'utf8'));
+  const dialogMessages: string[] = [];
+  page.on('dialog', async (dialog) => {
+    dialogMessages.push(dialog.message());
+    await dialog.accept();
+  });
+
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(archivePath!);
+  await expect(page.getByRole('status').filter({ hasText: /^Opened / })).toBeVisible();
+  await openTab(page, '4. Financials & Settings');
+  await expect(page.getByRole('heading', { name: /Macro Financials, Lifecycle Costs & Resilience/ })).toBeVisible();
+  await openTab(page, '5. Results & Analytics');
+  await expect(page.getByRole('button', { name: 'Table View' })).toBeVisible();
+
+  await openTab(page, '3. Power Generation');
+  const siteZone = page.getByLabel('Site timezone (IANA)');
+  await siteZone.fill('America/New_York');
+  archive.project.generationConfig.site.latitude = 91;
+  await openTab(page, '1. Data & TOU Rates');
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles({
+    name: 'invalid-project.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(archive)),
+  });
+  await expect(page.getByText(/latitude.*-90.*90/i)).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await openTab(page, '3. Power Generation');
+  await expect(siteZone).toHaveValue('America/New_York');
+  await openTab(page, '5. Results & Analytics');
+  await expect(page.getByRole('button', { name: 'Table View' })).toBeVisible();
+  await openTab(page, '2. Battery Profiles');
+  const batteryCapacity = page.getByLabel('Total storage capacity (kWh)');
+  await batteryCapacity.fill('0');
+  await batteryCapacity.press('Tab');
+  await expect(batteryCapacity).toHaveValue('1');
+  expect(dialogMessages).toHaveLength(1);
+  expect(pageErrors).toEqual([]);
 });
 
 test('gives numeric controls accessible names across data, batteries, and every generation asset type', async ({ page }) => {

@@ -96,12 +96,12 @@
 - Archive validation and live user forms share appropriate domain validators where the same contract applies.
 - Parsing and domain validation complete before any project state is replaced; validation errors remain recoverable and user-facing.
 
-- [ ] Add malicious-but-structurally-valid archive fixtures for negative cost, invalid capacity/efficiency/DoD, invalid coordinates, malformed or non-monotonic resource curves, and finance assumptions at/outside justified bounds.
-- [ ] For each field, derive allowed values from engine physics and UI semantics; do not invent limits just to make validation stricter.
-- [ ] Confirm each invalid archive is rejected atomically and the previously active project remains usable.
-- [ ] Open a valid archive and navigate all tabs, including Financial Settings and Results; assert no render exception and valid calculations.
-- [ ] Add live-form validation for any domain-invalid values reachable outside archive loading.
-- [ ] Run focused archive, generation-asset, financial, and app tests.
+- [x] Add malicious-but-structurally-valid archive fixtures for negative cost, invalid capacity/efficiency/DoD, invalid coordinates, malformed or non-monotonic resource curves, and finance assumptions at/outside justified bounds.
+- [x] For each field, derive allowed values from engine physics and UI semantics; do not invent limits just to make validation stricter.
+- [x] Confirm each invalid archive is rejected atomically and the previously active project remains usable.
+- [x] Open a valid archive and navigate all tabs, including Financial Settings and Results; assert no render exception and valid calculations.
+- [x] Add live-form validation for any domain-invalid values reachable outside archive loading.
+- [x] Run focused archive, generation-asset, financial, and app tests.
 
 **Acceptance:** No archive can load values that make the existing project fail during ordinary navigation or analysis; recoverable open failures preserve current state.
 

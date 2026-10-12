@@ -13,6 +13,8 @@ import {
   ValidatedProjectState,
 } from '../types/energy';
 import { parseAndValidateEnergyCsv } from './csvParser';
+import { validateGeneratorAsset } from './generatorModel';
+import { validateWindGenerationAsset } from './windModel';
 
 export type { ProjectArchiveState, ValidatedProjectState } from '../types/energy';
 
@@ -56,6 +58,18 @@ function requireFiniteNumber(value: unknown, path: string, nullable = false): nu
   if (nullable && value === null) return null;
   if (typeof value !== 'number' || !Number.isFinite(value)) fail(path, 'must be a finite number');
   return value;
+}
+
+function requireRange(value: unknown, path: string, min: number, max: number): number {
+  const number = requireFiniteNumber(value, path)!;
+  if (number < min || number > max) fail(path, `must be between ${min} and ${max}`);
+  return number;
+}
+
+function requireNonNegative(value: unknown, path: string): number {
+  const number = requireFiniteNumber(value, path)!;
+  if (number < 0) fail(path, 'cannot be negative');
+  return number;
 }
 
 function requireArray(value: unknown, path: string): unknown[] {
@@ -164,10 +178,13 @@ function validateTouProfile(value: unknown, path: string): TouProfile {
 function validateBatteryProfile(value: unknown, path: string): BatteryProfile {
   const profile = requireRecord(value, path);
   ['id', 'name', 'model'].forEach((key) => requireString(profile[key], `${path}.${key}`));
-  [
-    'totalCapacityKwh', 'usableDodPercent', 'maxContinuousOutputKw',
-    'maxContinuousChargeKw', 'roundTripEfficiencyPercent', 'ratedCycleLife', 'installedCost',
-  ].forEach((key) => requireFiniteNumber(profile[key], `${path}.${key}`));
+  requireRange(profile.totalCapacityKwh, `${path}.totalCapacityKwh`, 1, 100);
+  requireRange(profile.usableDodPercent, `${path}.usableDodPercent`, 50, 100);
+  requireRange(profile.maxContinuousOutputKw, `${path}.maxContinuousOutputKw`, 0.5, 50);
+  requireRange(profile.maxContinuousChargeKw, `${path}.maxContinuousChargeKw`, 0.5, 50);
+  requireRange(profile.roundTripEfficiencyPercent, `${path}.roundTripEfficiencyPercent`, 70, 98);
+  requireRange(profile.ratedCycleLife, `${path}.ratedCycleLife`, 1_000, 15_000);
+  requireRange(profile.installedCost, `${path}.installedCost`, 500, 100_000);
   if (profile.strategy !== 'arbitrage' && profile.strategy !== 'self_consumption') {
     fail(`${path}.strategy`, 'is not a supported battery dispatch strategy');
   }
@@ -200,10 +217,20 @@ function validateGenerationAsset(value: unknown, path: string): GenerationAsset 
       'dcCapacityKw', 'tiltDegrees', 'azimuthDegrees', 'inverterAcCapacityKw',
       'inverterEfficiencyPercent', 'systemLossPercent', 'shadingLossPercent', 'annualDegradationPercent',
     ].forEach((key) => requireFiniteNumber(asset[key], `${path}.${key}`));
+    requireNonNegative(asset.installedCostUsd, `${path}.installedCostUsd`);
+    requireNonNegative(asset.annualMaintenanceCostUsd, `${path}.annualMaintenanceCostUsd`);
+    requireNonNegative(asset.dcCapacityKw, `${path}.dcCapacityKw`);
+    requireRange(asset.tiltDegrees, `${path}.tiltDegrees`, 0, 90);
+    requireRange(asset.azimuthDegrees, `${path}.azimuthDegrees`, 0, 359);
+    requireNonNegative(asset.inverterAcCapacityKw, `${path}.inverterAcCapacityKw`);
+    requireRange(asset.inverterEfficiencyPercent, `${path}.inverterEfficiencyPercent`, 50, 100);
+    requireRange(asset.systemLossPercent, `${path}.systemLossPercent`, 0, 100);
+    requireRange(asset.shadingLossPercent, `${path}.shadingLossPercent`, 0, 100);
+    requireRange(asset.annualDegradationPercent, `${path}.annualDegradationPercent`, 0, 50);
     requireEnum(asset.resourceMode, ['clear_sky', 'monthly_peak_sun_hours', 'weather_file'], `${path}.resourceMode`);
     const monthly = requireArray(asset.monthlyPeakSunHoursPerDay, `${path}.monthlyPeakSunHoursPerDay`);
     if (monthly.length !== 12) fail(`${path}.monthlyPeakSunHoursPerDay`, 'must contain 12 months');
-    monthly.forEach((entry, index) => requireFiniteNumber(entry, `${path}.monthlyPeakSunHoursPerDay[${index}]`));
+    monthly.forEach((entry, index) => requireRange(entry, `${path}.monthlyPeakSunHoursPerDay[${index}]`, 0, 14));
     if (asset.externalResourceId != null) requireString(asset.externalResourceId, `${path}.externalResourceId`);
     return asset as unknown as GenerationAsset;
   }
@@ -213,6 +240,8 @@ function validateGenerationAsset(value: unknown, path: string): GenerationAsset 
       'ratedPowerKw', 'hubHeightM', 'rotorDiameterM', 'cutInWindSpeedMps', 'ratedWindSpeedMps',
       'cutOutWindSpeedMps', 'availabilityPercent', 'systemLossPercent', 'measurementHeightM', 'windShearExponent',
     ].forEach((key) => requireFiniteNumber(asset[key], `${path}.${key}`));
+    requireNonNegative(asset.installedCostUsd, `${path}.installedCostUsd`);
+    requireNonNegative(asset.annualMaintenanceCostUsd, `${path}.annualMaintenanceCostUsd`);
     requireFiniteNumber(asset.annualAverageWindSpeedMps, `${path}.annualAverageWindSpeedMps`, true);
     requireEnum(asset.resourceMode, ['annual_average', 'monthly_average', 'interval_file'], `${path}.resourceMode`);
     const monthly = requireArray(asset.monthlyAverageWindSpeedMps, `${path}.monthlyAverageWindSpeedMps`);
@@ -224,6 +253,10 @@ function validateGenerationAsset(value: unknown, path: string): GenerationAsset 
       requireFiniteNumber(point.outputKw, `${path}.powerCurve[${index}].outputKw`);
     });
     if (asset.externalResourceId != null) requireString(asset.externalResourceId, `${path}.externalResourceId`);
+    if (asset.enabled) {
+      try { validateWindGenerationAsset(asset as unknown as GenerationAsset & import('../types/energy').WindGenerationAsset); }
+      catch (error) { fail(path, error instanceof Error ? error.message : 'contains an invalid wind asset'); }
+    }
     return asset as unknown as GenerationAsset;
   }
 
@@ -232,6 +265,8 @@ function validateGenerationAsset(value: unknown, path: string): GenerationAsset 
       'ratedContinuousKw', 'minimumStableLoadPercent', 'fuelPricePerUnit',
       'variableMaintenanceCostPerHourUsd', 'startupFuelUnits',
     ].forEach((key) => requireFiniteNumber(asset[key], `${path}.${key}`));
+    requireNonNegative(asset.installedCostUsd, `${path}.installedCostUsd`);
+    requireNonNegative(asset.annualMaintenanceCostUsd, `${path}.annualMaintenanceCostUsd`);
     requireEnum(asset.fuelType, ['natural_gas', 'propane', 'gasoline', 'diesel', 'custom'], `${path}.fuelType`);
     requireEnum(asset.fuelUnit, ['gallon', 'therm', 'ccf', 'mmbtu', 'custom'], `${path}.fuelUnit`);
     requireEnum(asset.dispatchMode, ['standby', 'scheduled', 'economic'], `${path}.dispatchMode`);
@@ -244,6 +279,10 @@ function validateGenerationAsset(value: unknown, path: string): GenerationAsset 
       requireFiniteNumber(point.fuelUnitsPerHour, `${path}.fuelCurve[${index}].fuelUnitsPerHour`);
     });
     validateGridOf(asset.scheduledHours, `${path}.scheduledHours`, requireBoolean);
+    if (asset.enabled) {
+      try { validateGeneratorAsset(asset as unknown as import('../types/energy').GeneratorGenerationAsset); }
+      catch (error) { fail(path, error instanceof Error ? error.message : 'contains an invalid generator asset'); }
+    }
     return asset as unknown as GenerationAsset;
   }
 
@@ -301,8 +340,10 @@ function validateExternalResource(value: unknown, path: string): ExternalResourc
 function validateGenerationConfig(value: unknown): GenerationConfig {
   const config = requireRecord(value, 'project.generationConfig');
   const site = requireRecord(config.site, 'project.generationConfig.site');
-  requireFiniteNumber(site.latitude, 'project.generationConfig.site.latitude', true);
-  requireFiniteNumber(site.longitude, 'project.generationConfig.site.longitude', true);
+  const latitude = requireFiniteNumber(site.latitude, 'project.generationConfig.site.latitude', true);
+  if (latitude !== null && (latitude < -90 || latitude > 90)) fail('project.generationConfig.site.latitude', 'must be between -90 and 90');
+  const longitude = requireFiniteNumber(site.longitude, 'project.generationConfig.site.longitude', true);
+  if (longitude !== null && (longitude < -180 || longitude > 180)) fail('project.generationConfig.site.longitude', 'must be between -180 and 180');
   requireFiniteNumber(site.elevationM, 'project.generationConfig.site.elevationM', true);
   requireTimeZone(site.timeZone, 'project.generationConfig.site.timeZone');
   const assets = requireArray(config.assets, 'project.generationConfig.assets').map((asset, index) =>
@@ -350,8 +391,23 @@ function validateFinancials(value: unknown): MacroFinancials {
     'replacementCost', 'replacementYear', 'loanAprPercent', 'loanTermYears',
     'loanDownPaymentPercent', 'criticalLoadPowerKw', 'annualOutageDays', 'valueOfLostLoadPerDay',
   ].forEach((key) => requireFiniteNumber(financials[key], `project.financials.${key}`));
+  requireRange(financials.federalTaxCreditPercent, 'project.financials.federalTaxCreditPercent', 0, 50);
+  requireNonNegative(financials.localRebateFlat, 'project.financials.localRebateFlat');
+  requireRange(financials.annualElectricityInflationRate, 'project.financials.annualElectricityInflationRate', 0, 10);
+  requireRange(financials.annualBatteryDegradationRate, 'project.financials.annualBatteryDegradationRate', 0.5, 5);
+  requireRange(financials.discountRatePercent, 'project.financials.discountRatePercent', 1, 12);
+  requireRange(financials.opportunityCostRatePercent, 'project.financials.opportunityCostRatePercent', 1, 15);
+  requireRange(financials.replacementCost, 'project.financials.replacementCost', 500, 5_000);
+  requireRange(financials.replacementYear, 'project.financials.replacementYear', 5, 15);
+  requireRange(financials.loanAprPercent, 'project.financials.loanAprPercent', 0, 15);
+  if (![5, 10, 15, 20, 25].includes(financials.loanTermYears as number)) fail('project.financials.loanTermYears', 'must be one of 5, 10, 15, 20, or 25');
+  requireRange(financials.loanDownPaymentPercent, 'project.financials.loanDownPaymentPercent', 0, 50);
+  requireRange(financials.criticalLoadPowerKw, 'project.financials.criticalLoadPowerKw', 0.3, 4);
+  requireRange(financials.annualOutageDays, 'project.financials.annualOutageDays', 0.5, 14);
+  requireRange(financials.valueOfLostLoadPerDay, 'project.financials.valueOfLostLoadPerDay', 25, 300);
   if (financials.federalTaxCreditRealizationYear !== undefined) {
-    requireFiniteNumber(financials.federalTaxCreditRealizationYear, 'project.financials.federalTaxCreditRealizationYear');
+    const year = requireFiniteNumber(financials.federalTaxCreditRealizationYear, 'project.financials.federalTaxCreditRealizationYear');
+    if (year !== 1 && year !== 2) fail('project.financials.federalTaxCreditRealizationYear', 'must be 1 or 2');
   }
   requireEnum(financials.opportunityCostVehicle, ['hysa', 'index_fund', 'custom'], 'project.financials.opportunityCostVehicle');
   ['replacementEnabled', 'isFinanced', 'includeVollInRoi'].forEach((key) => requireBoolean(financials[key], `project.financials.${key}`));

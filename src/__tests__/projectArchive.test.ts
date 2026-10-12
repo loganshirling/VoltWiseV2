@@ -121,6 +121,47 @@ describe('versioned local project archives', () => {
     await expect(parseProjectArchive(JSON.stringify(archive))).rejects.toThrow(/financials/i);
   });
 
+  it.each([
+    ['negative project cost', (archive: any) => { archive.project.profiles[0].installedCost = -1; }],
+    ['battery capacity outside editor bounds', (archive: any) => { archive.project.profiles[0].totalCapacityKwh = 0; }],
+    ['battery efficiency outside editor bounds', (archive: any) => { archive.project.profiles[0].roundTripEfficiencyPercent = 101; }],
+    ['battery depth of discharge outside editor bounds', (archive: any) => { archive.project.profiles[0].usableDodPercent = 101; }],
+    ['site coordinates outside physical bounds', (archive: any) => { archive.project.generationConfig.site.latitude = 91; }],
+    ['wind power curve is non-monotonic', (archive: any) => {
+      const wind = archive.project.generationConfig.assets.find((asset: any) => asset.type === 'wind');
+      wind.enabled = true;
+      wind.ratedPowerKw = 5;
+      wind.hubHeightM = 30;
+      wind.measurementHeightM = 10;
+      wind.cutInWindSpeedMps = 3;
+      wind.ratedWindSpeedMps = 12;
+      wind.cutOutWindSpeedMps = 25;
+      wind.resourceMode = 'annual_average';
+      wind.annualAverageWindSpeedMps = 7;
+      wind.powerCurve = [
+        { windSpeedMps: 0, outputKw: 0 },
+        { windSpeedMps: 2, outputKw: 0 },
+      ];
+      wind.powerCurve[1].windSpeedMps = -1;
+    }],
+    ['generator fuel curve is non-monotonic', (archive: any) => {
+      const generator = archive.project.generationConfig.assets.find((asset: any) => asset.type === 'generator');
+      generator.enabled = true;
+      generator.ratedContinuousKw = 5;
+      generator.minimumStableLoadPercent = 25;
+      generator.fuelCurve = [
+        { loadPercent: 25, fuelUnitsPerHour: 1 },
+        { loadPercent: 20, fuelUnitsPerHour: 2 },
+        { loadPercent: 100, fuelUnitsPerHour: 5 },
+      ];
+    }],
+    ['financial assumptions outside UI bounds', (archive: any) => { archive.project.financials.federalTaxCreditPercent = 51; }],
+  ])('rejects %s before accepting the project', async (_name, corrupt) => {
+    const archive = JSON.parse(await encodeArchive());
+    corrupt(archive);
+    await expect(parseProjectArchive(JSON.stringify(archive))).rejects.toThrow(/invalid project archive/i);
+  });
+
   it('rejects active tariff schedules with empty or unresolved rate tiers', async () => {
     const emptyTiers = JSON.parse(await encodeArchive());
     emptyTiers.project.tiers = [];
