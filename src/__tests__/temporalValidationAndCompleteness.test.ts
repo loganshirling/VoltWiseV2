@@ -49,6 +49,10 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     const result = parseAndValidateEnergyCsv(csvText);
 
     expect(result.isValid).toBe(true);
+    expect(result.schemaValid).toBe(true);
+    expect(result.chronologicallyValid).toBe(true);
+    expect(result.operationallySimulatable).toBe(true);
+    expect(result.annualProjectionEligible).toBe(true);
     expect(result.errors).toHaveLength(0);
     expect(result.completeness?.isSuitableForAnnualProjection).toBe(true);
     expect(result.completeness?.isLeapYear).toBe(false);
@@ -62,6 +66,7 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     const result = parseAndValidateEnergyCsv(csvText);
 
     expect(result.isValid).toBe(true);
+    expect(result.annualProjectionEligible).toBe(true);
     expect(result.errors).toHaveLength(0);
     expect(result.completeness?.isSuitableForAnnualProjection).toBe(true);
     expect(result.completeness?.isLeapYear).toBe(true);
@@ -73,6 +78,8 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     const result = parseAndValidateEnergyCsv(csvText);
 
     expect(result.isValid).toBe(true);
+    expect(result.operationallySimulatable).toBe(true);
+    expect(result.annualProjectionEligible).toBe(false);
     expect(result.completeness?.isSuitableForAnnualProjection).toBe(false);
     expect(result.completeness?.durationDays).toBe(180);
     expect(result.completeness?.reason).toContain('covers only 180 days');
@@ -94,6 +101,8 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     const result = parseAndValidateEnergyCsv(csvText);
 
     expect(result.isValid).toBe(false);
+    expect(result.schemaValid).toBe(true);
+    expect(result.chronologicallyValid).toBe(false);
     expect(result.errors.some((e) => e.includes('Duplicate timestamp detected'))).toBe(true);
   });
 
@@ -112,6 +121,8 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     const result = parseAndValidateEnergyCsv(csvText);
 
     expect(result.isValid).toBe(false);
+    expect(result.schemaValid).toBe(true);
+    expect(result.chronologicallyValid).toBe(false);
     expect(result.errors.some((e) => e.includes('Out-of-order timestamp detected'))).toBe(true);
   });
 
@@ -124,9 +135,26 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     const result = parseAndValidateEnergyCsv(csvText);
 
     expect(result.isValid).toBe(true);
+    expect(result.operationallySimulatable).toBe(false);
+    expect(result.annualProjectionEligible).toBe(false);
     expect(result.completeness?.isSuitableForAnnualProjection).toBe(false);
     expect(result.completeness?.missingIntervalCount).toBeGreaterThanOrEqual(600);
-    expect(result.completeness?.reason).toContain('missing intervals');
+    expect(result.completeness?.reason).toContain('missing or irregular intervals');
+    expect(result.operationallySimulatable).toBe(false);
+    expect(result.annualProjectionEligible).toBe(false);
+  });
+
+  it('rejects an annual projection when even one interval is missing', () => {
+    const csvText = generateCsv(365, 2025, 0, 1, {
+      skipIntervalIndex: 1000,
+      skipIntervalCount: 1,
+    });
+    const result = parseAndValidateEnergyCsv(csvText);
+
+    expect(result.isValid).toBe(true);
+    expect(result.operationallySimulatable).toBe(false);
+    expect(result.annualProjectionEligible).toBe(false);
+    expect(result.completeness?.missingIntervalCount).toBe(1);
   });
 
   it('detects materially inconsistent interval spacing', () => {
@@ -134,6 +162,7 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     const result = parseAndValidateEnergyCsv(csvText);
 
     expect(result.isValid).toBe(true);
-    expect(result.warnings.some((w) => w.includes('Materially inconsistent interval spacing'))).toBe(true);
+    expect(result.operationallySimulatable).toBe(false);
+    expect(result.warnings.some((w) => w.includes('Inconsistent interval spacing'))).toBe(true);
   });
 });

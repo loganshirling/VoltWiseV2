@@ -191,7 +191,7 @@ export function buildExportLlmJson(params: ExportLlmJsonParams): LlmExportPayloa
     csvResult,
   } = params;
 
-  if (csvResult?.completeness && !csvResult.completeness.isSuitableForAnnualProjection) {
+  if (csvResult && !csvResult.annualProjectionEligible) {
     throw new Error('Cannot export multi-year financial projections for an incomplete or partial-period dataset.');
   }
 
@@ -282,7 +282,7 @@ export function buildExportLlmJson(params: ExportLlmJsonParams): LlmExportPayloa
         interval_duration_hours: completeness?.intervalDurationHours || annualSummary.intervalHours,
         duration_days: completeness?.durationDays || Math.round(annualSummary.totalIntervals / 24),
         total_home_load_kwh: annualSummary.totalHomeLoadKwh,
-        is_suitable_for_annual_projection: completeness?.isSuitableForAnnualProjection ?? true,
+        is_suitable_for_annual_projection: csvResult?.annualProjectionEligible ?? false,
         completeness_reason: completeness?.reason ?? null,
       },
     },
@@ -406,7 +406,7 @@ export function canExportProjectionsJson(
   csvResult?: CsvValidationResult | null
 ): boolean {
   if (!analysis) return false;
-  if (csvResult?.completeness && !csvResult.completeness.isSuitableForAnnualProjection) {
+  if (csvResult && !csvResult.annualProjectionEligible) {
     return false;
   }
   return true;
@@ -421,7 +421,7 @@ export function canExportProjectionsCsv(
   csvResult?: CsvValidationResult | null
 ): boolean {
   if (!analysis) return false;
-  if (csvResult?.completeness && !csvResult.completeness.isSuitableForAnnualProjection) {
+  if (csvResult && !csvResult.annualProjectionEligible) {
     return false;
   }
   return true;
@@ -873,7 +873,7 @@ export function canExportGenerationProjectionsJson(
     return false;
   }
 
-  if (csvResult?.completeness && !csvResult.completeness.isSuitableForAnnualProjection) {
+  if (csvResult && !csvResult.annualProjectionEligible) {
     return false;
   }
 
@@ -932,7 +932,7 @@ export function buildGenerationExportLlmJson(
     csvResult,
   } = params;
 
-  if (csvResult?.completeness && !csvResult.completeness.isSuitableForAnnualProjection) {
+  if (csvResult && !csvResult.annualProjectionEligible) {
     throw new Error('Cannot export multi-year generation projections for an incomplete or partial-period dataset.');
   }
 
@@ -1200,7 +1200,7 @@ export function buildGenerationExportLlmJson(
         interval_duration_hours: intervalDurationHours,
         duration_days: durationDays,
         total_home_load_kwh: opDisplay.totalHomeLoadKwh,
-        is_suitable_for_annual_projection: true,
+        is_suitable_for_annual_projection: csvResult?.annualProjectionEligible ?? false,
         completeness_reason: completeness?.reason ?? null,
       },
     },

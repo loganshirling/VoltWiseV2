@@ -359,6 +359,15 @@ export interface DatasetCompleteness {
 }
 
 export interface CsvValidationResult {
+  /** CSV header, row shapes, values, and units satisfy a supported schema. */
+  schemaValid: boolean;
+  /** Parsed timestamps are unique and strictly increasing. */
+  chronologicallyValid: boolean;
+  /** Parsed timestamps form a continuous regular interval sequence. Site timezone validation is separate. */
+  operationallySimulatable: boolean;
+  /** Dataset is a complete, continuous calendar year suitable for lifecycle projection. */
+  annualProjectionEligible: boolean;
+  /** Compatibility aggregate: schemaValid && chronologicallyValid. */
   isValid: boolean;
   errors: string[];
   warnings: string[];

@@ -4,6 +4,7 @@ import {
   resolveTimestampToUtc,
   isValidIanaTimeZone,
   parseTimestampString,
+  evaluateLoadTimestampEligibility,
 } from '../utils/loadTimeAlignment';
 import { IntervalDataPoint } from '../types/energy';
 
@@ -256,6 +257,38 @@ describe('G2D — Load/Solar Timestamp Alignment', () => {
       expect(() => {
         alignLoadTimestampsToSite(dataPoints, 0.5, 'UTC');
       }).toThrow(/spacing inconsistent with intervalHours/i);
+    });
+  });
+
+  describe('9. Operational eligibility', () => {
+    it('returns an actionable status for a sequence with a missing interval', () => {
+      const result = evaluateLoadTimestampEligibility([
+        createMockPoint('2026-06-01 00:00'),
+        createMockPoint('2026-06-01 02:00'),
+      ], 1, 'UTC');
+
+      expect(result.operationallySimulatable).toBe(false);
+      expect(result.reason).toMatch(/gap|spacing/i);
+    });
+
+    it('does not mark a site-local DST gap as operationally simulatable', () => {
+      const result = evaluateLoadTimestampEligibility([
+        createMockPoint('2026-03-08 01:00'),
+        createMockPoint('2026-03-08 02:00'),
+        createMockPoint('2026-03-08 03:00'),
+      ], 1, 'America/Detroit');
+
+      expect(result.operationallySimulatable).toBe(false);
+      expect(result.reason).toMatch(/nonexistent local time/i);
+    });
+
+    it('does not mark an ambiguous site-local DST timestamp as operationally simulatable', () => {
+      const result = evaluateLoadTimestampEligibility([
+        createMockPoint('2026-11-01 01:00'),
+      ], 1, 'America/Detroit');
+
+      expect(result.operationallySimulatable).toBe(false);
+      expect(result.reason).toMatch(/ambiguous local time/i);
     });
   });
 

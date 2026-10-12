@@ -144,9 +144,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
   allowSolarExport,
 }) => {
   const completeness = csvResult?.completeness;
-  const isSuitableForAnnual = Boolean(
-    completeness ? completeness.isSuitableForAnnualProjection : true
-  );
+  const isSuitableForAnnual = Boolean(csvResult?.annualProjectionEligible);
   const currentAnalysisState: AnalysisState =
     analysisState ??
     deriveAnalysisState(

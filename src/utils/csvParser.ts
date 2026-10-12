@@ -18,6 +18,20 @@ interface ParsedTime {
   minute: number; // 0-59
 }
 
+function isValidCalendarDay(day: ParsedDay): boolean {
+  const date = new Date(Date.UTC(day.year, day.month - 1, day.day));
+  return date.getUTCFullYear() === day.year &&
+    date.getUTCMonth() === day.month - 1 &&
+    date.getUTCDate() === day.day;
+}
+
+function parseFiniteNumber(raw: string): number | null {
+  const value = raw.trim();
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
  * Robust date parser supporting MM/DD/YYYY, YYYY-MM-DD, M/D/YYYY, etc.
  */
@@ -140,6 +154,10 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
   if (!csvText || !csvText.trim()) {
     return {
+      schemaValid: false,
+      chronologicallyValid: false,
+      operationallySimulatable: false,
+      annualProjectionEligible: false,
       isValid: false,
       errors: ['The uploaded file is empty.'],
       warnings: [],
@@ -157,6 +175,10 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   
   if (lines.length < 2) {
     return {
+      schemaValid: false,
+      chronologicallyValid: false,
+      operationallySimulatable: false,
+      annualProjectionEligible: false,
       isValid: false,
       errors: ['File must contain a header row and at least one data row.'],
       warnings: [],
@@ -196,6 +218,10 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
   if (!matches5ColSchema && !matchesLegacy2Col) {
     return {
+      schemaValid: false,
+      chronologicallyValid: false,
+      operationallySimulatable: false,
+      annualProjectionEligible: false,
       isValid: false,
       errors: [
         `Strict schema violation: File header does not match required schema.`,
@@ -225,6 +251,8 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   let maxUsageKwh = 0;
   const maxErrorsToCollect = 10;
   let errorCount = 0;
+  let schemaValid = true;
+  let chronologicallyValid = true;
 
   // Track daily sums to validate reported Daily Total
   const dayGroupTotals = new Map<string, { reportedDaily: number; calculatedSum: number; count: number }>();
@@ -232,6 +260,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   // Temporal validation trackers
   const seenTimestamps = new Set<string>();
   let lastTimestampMs: number | null = null;
+  const chronologyTimesMs: number[] = [];
 
   for (let i = 1; i < lines.length; i++) {
     const rowNum = i + 1;
@@ -240,6 +269,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
     if (schemaDetected === 'standard_5col') {
       if (cols.length < 5) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Expected 5 columns (Day, Hour of Day, Hourly Total, Daily Total, Unit of Measurement), found ${cols.length}: "${line}"`);
         }
@@ -252,8 +282,17 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       // 1. Validate Day
       const parsedDay = parseDayString(rawDay);
       if (!parsedDay) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Invalid Day format "${rawDay}". Expected MM/DD/YYYY (e.g. 09/22/2025).`);
+        }
+        errorCount++;
+        continue;
+      }
+      if (!isValidCalendarDay(parsedDay)) {
+        schemaValid = false;
+        if (errorCount < maxErrorsToCollect) {
+          errors.push(`Row ${rowNum}: Invalid calendar date "${rawDay}".`);
         }
         errorCount++;
         continue;
@@ -262,6 +301,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       // 2. Validate Hour of Day
       const parsedTime = parseHourOfDay(rawHour);
       if (!parsedTime) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Invalid Hour of Day format "${rawHour}". Expected format like "12:00 AM", "1:00 AM", or "2:00 PM".`);
         }
@@ -270,8 +310,9 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       }
 
       // 3. Validate Hourly Total
-      const hourlyVal = parseFloat(rawHourlyTotal);
-      if (isNaN(hourlyVal) || !isFinite(hourlyVal)) {
+      const hourlyVal = parseFiniteNumber(rawHourlyTotal);
+      if (hourlyVal === null) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Non-numeric Hourly Total "${rawHourlyTotal}". Must be a valid positive number.`);
         }
@@ -279,6 +320,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
         continue;
       }
       if (hourlyVal < 0) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Negative Hourly Total "${rawHourlyTotal}". Usage cannot be negative.`);
         }
@@ -287,8 +329,9 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       }
 
       // 4. Validate Daily Total
-      const dailyVal = parseFloat(rawDailyTotal);
-      if (isNaN(dailyVal) || !isFinite(dailyVal)) {
+      const dailyVal = parseFiniteNumber(rawDailyTotal);
+      if (dailyVal === null) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Non-numeric Daily Total "${rawDailyTotal}". Must be a valid positive number.`);
         }
@@ -296,6 +339,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
         continue;
       }
       if (dailyVal < 0) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Negative Daily Total "${rawDailyTotal}". Daily consumption cannot be negative.`);
         }
@@ -307,15 +351,19 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       const unitClean = rawUnit ? rawUnit.trim() : 'kWh';
       let multiplier = 1.0;
       const unitLower = unitClean.toLowerCase();
-      if (unitLower === 'kwh' || unitLower === 'kw') {
+      if (unitLower === 'kwh') {
         multiplier = 1.0;
       } else if (unitLower === 'wh') {
         multiplier = 0.001;
       } else if (unitLower === 'mwh') {
         multiplier = 1000.0;
       } else {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
-          errors.push(`Row ${rowNum}: Unrecognized Unit of Measurement "${rawUnit}". Expected "kWh" (or "Wh", "MWh").`);
+          const reason = unitLower === 'kw'
+            ? 'kW is a power unit and cannot be interpreted as interval energy. Use kWh, Wh, or MWh.'
+            : 'Expected "kWh" (or "Wh", "MWh").';
+          errors.push(`Row ${rowNum}: Invalid Unit of Measurement "${rawUnit}". ${reason}`);
         }
         errorCount++;
         continue;
@@ -335,10 +383,13 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       );
 
       const normalizedTs = `${parsedDay.year}-${String(parsedDay.month).padStart(2, '0')}-${String(parsedDay.day).padStart(2, '0')} ${String(parsedTime.hour).padStart(2, '0')}:${String(parsedTime.minute).padStart(2, '0')}`;
-      const timeMs = dateObj.getTime();
+      // Treat standard-schema wall-clock values as calendar coordinates here.
+      // The selected site timezone is applied later by loadTimeAlignment.
+      const timeMs = Date.UTC(parsedDay.year, parsedDay.month - 1, parsedDay.day, parsedTime.hour, parsedTime.minute);
 
       // Temporal validation: detect duplicates
       if (seenTimestamps.has(normalizedTs)) {
+        chronologicallyValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Duplicate timestamp detected: "${normalizedTs}".`);
         }
@@ -349,6 +400,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
       // Temporal validation: detect out-of-order timestamps
       if (lastTimestampMs !== null && timeMs < lastTimestampMs) {
+        chronologicallyValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Out-of-order timestamp detected. Timestamp "${normalizedTs}" is earlier than previous timestamp.`);
         }
@@ -356,6 +408,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
         continue;
       }
       lastTimestampMs = timeMs;
+      chronologyTimesMs.push(timeMs);
 
       const dayKey = `${parsedDay.year}-${String(parsedDay.month).padStart(2, '0')}-${String(parsedDay.day).padStart(2, '0')}`;
 
@@ -392,6 +445,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
     } else {
       // Legacy 2-column parser
       if (cols.length < 2) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Expected 2 values (timestamp, usage_kwh), found ${cols.length}`);
         }
@@ -404,6 +458,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       const parsedDate = new Date(normalizedTs);
 
       if (isNaN(parsedDate.getTime())) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Invalid timestamp "${rawTs}". Format must be YYYY-MM-DD HH:mm.`);
         }
@@ -415,6 +470,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       const canonicalKey = rawTs.trim();
 
       if (seenTimestamps.has(canonicalKey)) {
+        chronologicallyValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Duplicate timestamp detected: "${rawTs}".`);
         }
@@ -423,7 +479,17 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       }
       seenTimestamps.add(canonicalKey);
 
+      if (lastTimestampMs !== null && timeMs === lastTimestampMs) {
+        chronologicallyValid = false;
+        if (errorCount < maxErrorsToCollect) {
+          errors.push(`Row ${rowNum}: Duplicate timestamp instant detected: "${rawTs}" resolves to the same instant as the preceding row.`);
+        }
+        errorCount++;
+        continue;
+      }
+
       if (lastTimestampMs !== null && timeMs < lastTimestampMs) {
+        chronologicallyValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Out-of-order timestamp detected. Timestamp "${rawTs}" is earlier than previous timestamp.`);
         }
@@ -431,9 +497,11 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
         continue;
       }
       lastTimestampMs = timeMs;
+      chronologyTimesMs.push(timeMs);
 
-      const usage = Number(rawUsage);
-      if (isNaN(usage) || !isFinite(usage) || usage < 0) {
+      const usage = parseFiniteNumber(rawUsage);
+      if (usage === null || usage < 0) {
+        schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
           errors.push(`Row ${rowNum}: Invalid usage_kwh "${rawUsage}". Must be a positive number.`);
         }
@@ -472,6 +540,10 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
   if (errors.length > 0) {
     return {
+      schemaValid,
+      chronologicallyValid,
+      operationallySimulatable: false,
+      annualProjectionEligible: false,
       isValid: false,
       errors,
       warnings,
@@ -511,7 +583,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
     // Determine most common step interval (mode)
     const stepCounts = new Map<number, number>();
     for (let i = 1; i < dataPoints.length; i++) {
-      const diffMs = dataPoints[i].date.getTime() - dataPoints[i - 1].date.getTime();
+      const diffMs = chronologyTimesMs[i] - chronologyTimesMs[i - 1];
       if (diffMs > 0) {
         stepCounts.set(diffMs, (stepCounts.get(diffMs) || 0) + 1);
       }
@@ -530,12 +602,12 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
     // Analyze gaps and inconsistent spacing
     for (let i = 1; i < dataPoints.length; i++) {
-      const diffMs = dataPoints[i].date.getTime() - dataPoints[i - 1].date.getTime();
+      const diffMs = chronologyTimesMs[i] - chronologyTimesMs[i - 1];
       const ratio = diffMs / modalStepMs;
       const nearestMultiple = Math.round(ratio);
       const remainderMs = Math.abs(diffMs - nearestMultiple * modalStepMs);
 
-      if (remainderMs > 60 * 1000) {
+      if (remainderMs > 1000) {
         inconsistentIntervalsCount++;
       } else if (nearestMultiple > 1) {
         const missingInGap = nearestMultiple - 1;
@@ -551,7 +623,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
     if (inconsistentIntervalsCount > 0) {
       warnings.push(
-        `Materially inconsistent interval spacing detected across ${inconsistentIntervalsCount} intervals.`
+        `Inconsistent interval spacing detected across ${inconsistentIntervalsCount} intervals.`
       );
     }
   }
@@ -586,25 +658,34 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
 
     const expectedFullYearDays = isLeapYear ? 366 : 365;
     const expectedAnnualIntervals = Math.round((expectedFullYearDays * 24) / intervalHours);
+    const operationallySimulatable = dataPoints.length >= 2 &&
+      schemaValid && chronologicallyValid &&
+      totalMissingIntervals === 0 && inconsistentIntervalsCount === 0;
+    const beginsAtCalendarYear = firstDate.getMonth() === 0 &&
+      firstDate.getDate() === 1 && firstDate.getHours() === 0 && firstDate.getMinutes() === 0;
+    const endsAtCalendarYear = lastDate.getFullYear() === firstDate.getFullYear() &&
+      lastDate.getMonth() === 11 && lastDate.getDate() === 31 &&
+      lastDate.getHours() * 60 + lastDate.getMinutes() === 1440 - intervalHours * 60;
 
-    // Suitability check for annual financial projection
+    // Lifecycle projections require one exact, continuous calendar year.
     if (durationDays < 360) {
       isSuitableForAnnualProjection = false;
       const approxMonths = (durationDays / 30.4).toFixed(1);
-      unsuitabilityReason = `Dataset covers only ${durationDays} days (~${approxMonths} months). Annual financial projections require approximately one full year (~${expectedFullYearDays} days) of continuous data.`;
+      unsuitabilityReason = `Dataset covers only ${durationDays} days (~${approxMonths} months). Annual financial projections require one complete calendar year (${expectedFullYearDays} days) of continuous data.`;
       warnings.push(unsuitabilityReason);
     } else if (durationDays > 370) {
       isSuitableForAnnualProjection = false;
       unsuitabilityReason = `Dataset duration is ${durationDays} days, which exceeds a single annual cycle (~${expectedFullYearDays} days).`;
       warnings.push(unsuitabilityReason);
-    } else if (totalMissingIntervals > expectedAnnualIntervals * 0.05) {
+    } else if (!operationallySimulatable || totalMissingIntervals > 0) {
       isSuitableForAnnualProjection = false;
-      const missingPct = ((totalMissingIntervals / expectedAnnualIntervals) * 100).toFixed(1);
-      unsuitabilityReason = `Dataset has ${totalMissingIntervals} missing intervals (${missingPct}% missing), exceeding the 5% data gap threshold for annual financial projections.`;
+      unsuitabilityReason = `Dataset contains missing or irregular intervals. Annual financial projections require continuous, exact interval coverage.`;
       warnings.push(unsuitabilityReason);
-    } else if (inconsistentIntervalsCount > 50) {
+    } else if (!beginsAtCalendarYear || !endsAtCalendarYear ||
+      dataPoints.length !== expectedAnnualIntervals ||
+      !Number.isInteger((expectedFullYearDays * 24) / intervalHours)) {
       isSuitableForAnnualProjection = false;
-      unsuitabilityReason = `Dataset contains materially inconsistent interval spacing (${inconsistentIntervalsCount} irregular intervals).`;
+      unsuitabilityReason = `Dataset does not contain exact coverage from January 1 through the end of one complete calendar year (${expectedFullYearDays} days).`;
       warnings.push(unsuitabilityReason);
     } else {
       isSuitableForAnnualProjection = true;
@@ -631,9 +712,15 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   };
 
   const peakKw = intervalHours > 0 ? maxUsageKwh / intervalHours : maxUsageKwh;
+  const operationallySimulatable = dataPoints.length >= 2 && schemaValid &&
+    chronologicallyValid && totalMissingIntervals === 0 && inconsistentIntervalsCount === 0;
 
   return {
-    isValid: true,
+    schemaValid,
+    chronologicallyValid,
+    operationallySimulatable,
+    annualProjectionEligible: isSuitableForAnnualProjection && operationallySimulatable,
+    isValid: schemaValid && chronologicallyValid,
     errors: [],
     warnings,
     totalRows: lines.length - 1,

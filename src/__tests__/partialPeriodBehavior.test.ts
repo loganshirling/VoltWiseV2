@@ -124,6 +124,10 @@ describe('Partial-Period Behavior and Export Guards', () => {
   // --------------------------------------------------------------------------
   describe('9C, 9D, 9E — Export guards and generation refusal', () => {
     const partialCsvResult: CsvValidationResult = {
+      schemaValid: true,
+      chronologicallyValid: true,
+      operationallySimulatable: true,
+      annualProjectionEligible: false,
       isValid: true,
       errors: [],
       warnings: [],

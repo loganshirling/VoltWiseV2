@@ -369,3 +369,29 @@ export function alignLoadTimestampsToSite(
 
   return aligned;
 }
+
+export interface LoadTimestampEligibility {
+  operationallySimulatable: boolean;
+  reason?: string;
+}
+
+/**
+ * Checks whether parsed load records can be used at the selected site timezone.
+ * This is deliberately separate from CSV/schema validation because local
+ * timestamps can be nonexistent or ambiguous only after a timezone is known.
+ */
+export function evaluateLoadTimestampEligibility(
+  dataPoints: IntervalDataPoint[],
+  intervalHours: number,
+  timeZone: string
+): LoadTimestampEligibility {
+  try {
+    alignLoadTimestampsToSite(dataPoints, intervalHours, timeZone);
+    return { operationallySimulatable: true };
+  } catch (error: unknown) {
+    return {
+      operationallySimulatable: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}

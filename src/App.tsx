@@ -46,6 +46,7 @@ import {
 import { calculateGenerationOperationalProjection } from './utils/generationProjection';
 import { generateRealistic8760Dataset } from './utils/sampleData';
 import { parseAndValidateEnergyCsv } from './utils/csvParser';
+import { evaluateLoadTimestampEligibility } from './utils/loadTimeAlignment';
 import { Zap, ChevronRight, Activity, ArrowRight, Bookmark, AlertTriangle } from 'lucide-react';
 
 export default function App() {
@@ -117,19 +118,46 @@ export default function App() {
     setActiveTab('data');
   };
 
+  const siteLoadAlignmentEligibility = useMemo(() => {
+    if (
+      !csvResult?.schemaValid ||
+      !csvResult.chronologicallyValid ||
+      !csvResult.operationallySimulatable ||
+      !generationConfig.assets.some((asset) => asset.enabled)
+    ) {
+      return null;
+    }
+    return evaluateLoadTimestampEligibility(
+      csvResult.data,
+      csvResult.intervalHours,
+      generationConfig.site.timeZone
+    );
+  }, [csvResult, generationConfig]);
+
   // 1. Unified interval simulation batch for all profiles
   // Directly routes to legacy engine if no generation assets are enabled (exact parity).
   // Routes to generation-aware simulation when generation assets are enabled.
   // Catches invalid/incomplete generation configuration errors without crashing React render.
   const { unifiedResults, simulationError } = useMemo(() => {
-    if (!csvResult || !csvResult.isValid || csvResult.data.length === 0) {
+    if (!csvResult || !csvResult.schemaValid || !csvResult.chronologicallyValid || csvResult.data.length === 0) {
       return {
         unifiedResults: {} as Record<string, UnifiedSimulationResult>,
         simulationError: null as string | null,
       };
     }
 
+    if (!csvResult.operationallySimulatable) {
+      return {
+        unifiedResults: {} as Record<string, UnifiedSimulationResult>,
+        simulationError: 'Load data contains missing or irregular intervals. Upload a continuous interval sequence before running a simulation.',
+      };
+    }
+
     try {
+      if (siteLoadAlignmentEligibility && !siteLoadAlignmentEligibility.operationallySimulatable) {
+        throw new Error(siteLoadAlignmentEligibility.reason || 'Load timestamps are not valid for the selected site timezone.');
+      }
+
       const results: Record<string, UnifiedSimulationResult> = {};
       for (const profile of profiles) {
         results[profile.id] = runUnifiedSimulation({
@@ -164,6 +192,7 @@ export default function App() {
     activeTouProfile,
     generationConfig,
     allowSolarExport,
+    siteLoadAlignmentEligibility,
   ]);
 
   // Derive existing AnnualSimulationSummary map from unified results
@@ -176,7 +205,7 @@ export default function App() {
   }, [unifiedResults]);
 
   const isSuitableForAnnual = Boolean(
-    csvResult?.completeness ? csvResult.completeness.isSuitableForAnnualProjection : true
+    csvResult?.annualProjectionEligible
   );
 
   const activeProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0];
@@ -194,7 +223,9 @@ export default function App() {
     if (
       !isSuitableForAnnual ||
       !csvResult ||
-      !csvResult.isValid ||
+      !csvResult.schemaValid ||
+      !csvResult.chronologicallyValid ||
+      !csvResult.annualProjectionEligible ||
       csvResult.data.length === 0 ||
       !activeUnifiedResult ||
       activeUnifiedResult.mode !== 'generation-aware'
@@ -302,7 +333,9 @@ export default function App() {
     if (
       !isSuitableForAnnual ||
       !csvResult ||
-      !csvResult.isValid ||
+      !csvResult.schemaValid ||
+      !csvResult.chronologicallyValid ||
+      !csvResult.annualProjectionEligible ||
       csvResult.data.length === 0 ||
       Object.keys(allSimulationSummaries).length === 0
     ) {
@@ -341,7 +374,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         onLoadSampleData={handleLoadSample}
         onResetData={handleResetData}
-        hasData={!!csvResult?.isValid}
+        hasData={Boolean(csvResult?.operationallySimulatable)}
         totalKwh={csvResult?.totalKwh || 0}
       />
 
@@ -467,7 +500,7 @@ export default function App() {
                 {simulationError}
               </p>
               <p className="text-slate-400 text-[11px]">
-                Please review your generation asset configurations and site parameters in the On-Site Power Generation tab. Once valid, simulation calculations will resume automatically.
+                Review the uploaded interval data and, when generation assets are enabled, confirm the site timezone and asset settings. Calculations resume automatically when the inputs are valid.
               </p>
             </div>
           </div>
@@ -477,6 +510,7 @@ export default function App() {
         {activeTab === 'data' && (
           <DataAndRatesTab
             csvResult={csvResult}
+            siteAlignmentEligibility={siteLoadAlignmentEligibility}
             onFileUpload={handleFileUpload}
             onLoadSample={handleLoadSample}
             touProfiles={touProfiles}

@@ -56,6 +56,10 @@ describe('Issue 4 — JSON Export Correctness and Consistency', () => {
   };
 
   const mockCsvResult: CsvValidationResult = {
+    schemaValid: true,
+    chronologicallyValid: true,
+    operationallySimulatable: true,
+    annualProjectionEligible: true,
     isValid: true,
     errors: [],
     warnings: [],
@@ -418,6 +422,10 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
   };
 
   const mockCsvResult: CsvValidationResult = {
+    schemaValid: true,
+    chronologicallyValid: true,
+    operationallySimulatable: true,
+    annualProjectionEligible: true,
     isValid: true,
     errors: [],
     warnings: [],
@@ -1373,6 +1381,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
     it('41. Partial-period generation export is rejected/disabled', () => {
       const partialCsvResult: CsvValidationResult = {
         ...mockCsvResult,
+        annualProjectionEligible: false,
         completeness: {
           ...mockCsvResult.completeness!,
           isSuitableForAnnualProjection: false,
@@ -2383,6 +2392,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
     it('27. Partial-period generation lifecycle export remains blocked', () => {
       const partialCsvResult: CsvValidationResult = {
         ...mockCsvResult,
+        annualProjectionEligible: false,
         completeness: {
           ...mockCsvResult.completeness!,
           isSuitableForAnnualProjection: false,
@@ -3104,6 +3114,7 @@ describe('G4E — Generation JSON Export & Final Feature Integration', () => {
     it('9. Incomplete or partial-period dataset blocks annual projection export', () => {
       const partialCsvResult: CsvValidationResult = {
         ...mockCsvResult,
+        annualProjectionEligible: false,
         completeness: {
           ...mockCsvResult.completeness!,
           isSuitableForAnnualProjection: false,

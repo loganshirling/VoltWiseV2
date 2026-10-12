@@ -38,9 +38,11 @@ import {
 } from '../types/energy';
 import { DEFAULT_TOU_PROFILES, ScheduleMatrix } from '../utils/simulationEngine';
 import { generateStandardCsvTemplate } from '../utils/sampleData';
+import { LoadTimestampEligibility } from '../utils/loadTimeAlignment';
 
 interface DataAndRatesTabProps {
   csvResult: CsvValidationResult | null;
+  siteAlignmentEligibility?: LoadTimestampEligibility | null;
   onFileUpload: (file: File) => void;
   onLoadSample: () => void;
   touProfiles: TouProfile[];
@@ -112,6 +114,7 @@ const SEASON_THEMES = [
 
 export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   csvResult,
+  siteAlignmentEligibility,
   onFileUpload,
   onLoadSample,
   touProfiles,
@@ -123,6 +126,11 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   scheduleMatrix,
   setScheduleMatrix,
 }) => {
+  const simulationReady = Boolean(
+    csvResult?.operationallySimulatable &&
+    siteAlignmentEligibility?.operationallySimulatable !== false
+  );
+  const simulationReadinessReason = siteAlignmentEligibility?.reason;
   const currentTouProfile =
     touProfiles.find((p) => p.id === activeTouProfileId) || touProfiles[0];
 
@@ -896,14 +904,18 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
         {csvResult && (
           <div
             className={`p-4 rounded-xl border ${
-              csvResult.isValid
+              csvResult.schemaValid && csvResult.chronologicallyValid && simulationReady
                 ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
-                : 'bg-rose-950/20 border-rose-500/30 text-rose-200'
+                : csvResult.schemaValid && csvResult.chronologicallyValid
+                  ? 'bg-amber-950/20 border-amber-500/30 text-amber-100'
+                  : 'bg-rose-950/20 border-rose-500/30 text-rose-200'
             }`}
           >
             <div className="flex items-start gap-3">
-              {csvResult.isValid ? (
-                <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+              {csvResult.schemaValid && csvResult.chronologicallyValid ? (
+                simulationReady
+                  ? <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                  : <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
               ) : (
                 <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
               )}
@@ -911,11 +923,17 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
                     <span>
-                      {csvResult.isValid
-                        ? 'Interval Dataset Validated Successfully'
-                        : 'CSV Schema Validation Errors Detected'}
+                      {!csvResult.schemaValid
+                        ? 'CSV Schema Validation Errors Detected'
+                        : !csvResult.chronologicallyValid
+                          ? 'CSV Timestamp Validation Errors Detected'
+                          : simulationReady
+                            ? 'Interval Dataset Ready for Simulation'
+                            : simulationReadinessReason
+                              ? 'Timestamps Are Invalid for the Site Timezone'
+                              : 'Interval Dataset Has Gaps or Irregular Spacing'}
                     </span>
-                    {csvResult.isValid && (
+                    {csvResult.schemaValid && csvResult.chronologicallyValid && (
                       <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-emerald-900/60 text-emerald-300 border border-emerald-600/40">
                         {csvResult.schemaDetected === 'legacy_2col' ? 'Legacy 2-Col Schema' : '5-Column Utility Schema'}
                       </span>
@@ -947,18 +965,33 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                   </div>
                 )}
 
-                {csvResult.isValid && (
+                {csvResult.schemaValid && csvResult.chronologicallyValid && (
+                  <div role="status" aria-live="polite" className="mt-2 text-xs space-y-1">
+                    <p className={simulationReady ? 'text-emerald-300' : 'text-amber-200'}>
+                      {simulationReady
+                        ? 'This continuous interval dataset can be simulated for its covered period.'
+                        : simulationReadinessReason || 'This dataset cannot be simulated until missing or irregular intervals are resolved.'}
+                    </p>
+                    <p className={csvResult.annualProjectionEligible ? 'text-emerald-300' : 'text-amber-200'}>
+                      {csvResult.annualProjectionEligible
+                        ? 'Exact full-calendar-year coverage is available for lifecycle projections.'
+                        : `Lifecycle projections are unavailable: ${csvResult.completeness?.reason || 'a complete, continuous calendar year is required.'}`}
+                    </p>
+                  </div>
+                )}
+
+                {csvResult.schemaValid && csvResult.chronologicallyValid && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 mt-2 border-t border-emerald-500/20 text-xs font-mono">
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-sans">Total Annual Load</span>
+                      <span className="text-[10px] text-slate-400 block font-sans">Imported Period Usage</span>
                       <span className="text-sm font-bold text-white tabular-nums">
                         {csvResult.totalKwh.toLocaleString()} kWh
                       </span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-sans">Avg Daily Consumption</span>
+                      <span className="text-[10px] text-slate-400 block font-sans">Average per Covered Day</span>
                       <span className="text-sm font-bold text-white tabular-nums">
-                        {(csvResult.totalKwh / 365).toFixed(1)} kWh/day
+                        {(csvResult.totalKwh / Math.max(1 / 24, (csvResult.validRows * csvResult.intervalHours) / 24)).toFixed(1)} kWh/day
                       </span>
                     </div>
                     <div>
@@ -983,7 +1016,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
         )}
 
         {/* Ingested Interval Data Preview Table */}
-        {csvResult && csvResult.isValid && csvResult.data.length > 0 && (
+        {csvResult && csvResult.schemaValid && csvResult.chronologicallyValid && csvResult.data.length > 0 && (
           <div className="rounded-xl border border-slate-800 bg-slate-900/30 overflow-hidden space-y-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5 bg-slate-900/70 border-b border-slate-800">
               <div className="flex items-center gap-2">
