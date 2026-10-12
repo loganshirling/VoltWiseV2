@@ -5,6 +5,8 @@ import {
   isValidIanaTimeZone,
   parseTimestampString,
   evaluateLoadTimestampEligibility,
+  evaluateAnnualProjectionEligibility,
+  getSiteLocalCalendarCoordinates,
 } from '../utils/loadTimeAlignment';
 import { IntervalDataPoint } from '../types/energy';
 
@@ -24,6 +26,45 @@ function createMockPoint(
 }
 
 describe('G2D — Load/Solar Timestamp Alignment', () => {
+  describe('canonical annual projection eligibility', () => {
+    const yearPoints = (year: number): IntervalDataPoint[] => {
+      const start = Date.UTC(year, 0, 1);
+      const count = ((Date.UTC(year + 1, 0, 1) - start) / 3_600_000);
+      return Array.from({ length: count }, (_, index) => createMockPoint(
+        new Date(start + index * 3_600_000).toISOString()
+      ));
+    };
+    const pointsForPeriod = (start: string, count: number): IntervalDataPoint[] => {
+      const startMs = Date.parse(start);
+      return Array.from({ length: count }, (_, index) => createMockPoint(
+        new Date(startMs + index * 3_600_000).toISOString()
+      ));
+    };
+
+    it('accepts exact leap and non-leap calendar years only', () => {
+      expect(evaluateAnnualProjectionEligibility(yearPoints(2024), 1, 'UTC').eligible).toBe(true);
+      expect(evaluateAnnualProjectionEligibility(yearPoints(2025), 1, 'UTC').eligible).toBe(true);
+    });
+
+    it('rejects near-full, incomplete, and non-calendar annual periods', () => {
+      const leapYear = yearPoints(2024);
+      expect(evaluateAnnualProjectionEligibility(yearPoints(2025).slice(0, 360 * 24), 1, 'UTC').eligible).toBe(false);
+      expect(evaluateAnnualProjectionEligibility(leapYear.slice(0, 8760), 1, 'UTC').eligible).toBe(false);
+      expect(evaluateAnnualProjectionEligibility(leapYear.slice(0, -1), 1, 'UTC').eligible).toBe(false);
+      expect(evaluateAnnualProjectionEligibility(pointsForPeriod('2025-02-01T00:00:00Z', 365 * 24), 1, 'UTC').eligible).toBe(false);
+    });
+
+    it('fails closed for an empty or invalid site timezone', () => {
+      const points = yearPoints(2025);
+      expect(evaluateAnnualProjectionEligibility(points, 1, '').eligible).toBe(false);
+      expect(evaluateAnnualProjectionEligibility(points, 1, 'Mars/Olympus').eligible).toBe(false);
+    });
+
+    it('maps an absolute instant to site-local hour, weekday, and month', () => {
+      expect(getSiteLocalCalendarCoordinates(new Date('2025-01-01T04:00:00Z'), 'America/Detroit'))
+        .toEqual({ year: 2024, month: 11, day: 31, hour: 23, minute: 0, second: 0, dayOfWeek: 2 });
+    });
+  });
   describe('1. UTC wall clock', () => {
     it('resolves 2026-07-15 14:00 with timezone UTC to 2026-07-15T14:00:00.000Z', () => {
       const dataPoints: IntervalDataPoint[] = [

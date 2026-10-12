@@ -56,6 +56,7 @@ import {
 } from './renewableLoadFlow';
 import { generateBatteryDispatchPolicy } from './batteryDispatchPolicy';
 import { resolveTariffRates } from './tariffRateResolver';
+import { evaluateAlignedAnnualProjectionEligibility } from './loadTimeAlignment';
 import { routeExportAwareBatteryFlow } from './exportAwareBatteryFlow';
 import { calculateExportAwareGridFlows } from './gridFlowAccounting';
 import { calculateExportAwareTariffCosts } from './tariffCostAccounting';
@@ -80,6 +81,7 @@ export interface GenerationAwareSimulationParams {
 export interface GenerationAwareSimulationResult {
   // Authoritative stage outputs
   alignedTimestamps: AlignedLoadTimestamp[];
+  annualProjectionEligible: boolean;
   solarFleetProfile: SolarFleetGenerationInterval[];
   windFleetProfile: WindFleetGenerationInterval[];
   renewableLoadFlow: RenewableLoadFlowInterval[];
@@ -322,6 +324,11 @@ export function runGenerationAwareSimulation(
 
     return {
       alignedTimestamps,
+      annualProjectionEligible: evaluateAlignedAnnualProjectionEligibility(
+        alignedTimestamps,
+        intervalHours,
+        generationConfig.site.timeZone
+      ).eligible,
       solarFleetProfile,
       windFleetProfile,
       renewableLoadFlow: generatorFlowResult.renewableLoadFlow,
@@ -497,6 +504,11 @@ export function runGenerationAwareSimulation(
 
   return {
     alignedTimestamps,
+    annualProjectionEligible: evaluateAlignedAnnualProjectionEligibility(
+      alignedTimestamps,
+      intervalHours,
+      generationConfig.site.timeZone
+    ).eligible,
     solarFleetProfile,
     windFleetProfile,
     renewableLoadFlow,

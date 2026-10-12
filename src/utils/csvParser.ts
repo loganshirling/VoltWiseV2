@@ -549,18 +549,30 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       totalKwh += usage;
       if (usage > maxUsageKwh) maxUsageKwh = usage;
 
-      const hour12 = parsedDate.getHours() % 12 || 12;
-      const ampm = parsedDate.getHours() >= 12 ? 'PM' : 'AM';
-      const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
-      const d = String(parsedDate.getDate()).padStart(2, '0');
-      const y = parsedDate.getFullYear();
+      const timestampYear = Number(timestampParts![1]);
+      const timestampMonth = Number(timestampParts![2]);
+      const timestampDay = Number(timestampParts![3]);
+      const timestampHour = Number(timestampParts![4]);
+      const timestampMinute = Number(timestampParts![5]);
+      const timestampSecond = Number(timestampParts![6] ?? 0);
+      const wallCalendarDate = new Date(Date.UTC(timestampYear, timestampMonth - 1, timestampDay));
+      const hour12 = timestampHour % 12 || 12;
+      const ampm = timestampHour >= 12 ? 'PM' : 'AM';
+      const m = String(timestampMonth).padStart(2, '0');
+      const d = String(timestampDay).padStart(2, '0');
+      const y = timestampYear;
+      // Legacy hour/month/day fields are neutral wall-clock coordinates. The
+      // simulation router remaps them to authoritative site-local coordinates.
+      const date = hasExplicitOffset
+        ? parsedDate
+        : new Date(Date.UTC(timestampYear, timestampMonth - 1, timestampDay, timestampHour, timestampMinute, timestampSecond));
 
       dataPoints.push({
         timestamp: rawTs,
-        date: parsedDate,
-        hour: parsedDate.getHours(),
-        dayOfWeek: parsedDate.getDay(),
-        month: parsedDate.getMonth(),
+        date,
+        hour: timestampHour,
+        dayOfWeek: wallCalendarDate.getUTCDay(),
+        month: timestampMonth - 1,
         usageKwh: usage,
         dayStr: `${m}/${d}/${y}`,
         hourOfDayStr: `${hour12}:00 ${ampm}`,

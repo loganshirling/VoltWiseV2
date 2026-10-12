@@ -50,6 +50,22 @@ interface LocalParts {
   second: number;
 }
 
+export interface SiteLocalCalendarCoordinates {
+  year: number;
+  /** Zero-based month, matching tariff season contracts. */
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  dayOfWeek: number;
+}
+
+export interface AnnualProjectionEligibility {
+  eligible: boolean;
+  reason?: string;
+}
+
 // Regex matching ISO 8601 and local timestamp formats:
 // YYYY-MM-DD HH:mm[:ss[.sss]] or YYYY-MM-DDTHH:mm[:ss[.sss]] with optional Z or offset
 const TIMESTAMP_REGEX =
@@ -161,6 +177,79 @@ function getLocalParts(date: Date, dtf: Intl.DateTimeFormat): LocalParts {
   return { year, month, day, hour, minute, second };
 }
 
+/** Maps an absolute interval instant to tariff calendar coordinates for a site. */
+export function getSiteLocalCalendarCoordinates(
+  instantUtc: Date,
+  timeZone: string
+): SiteLocalCalendarCoordinates {
+  if (!(instantUtc instanceof Date) || !Number.isFinite(instantUtc.getTime())) {
+    throw new Error('A valid UTC instant is required.');
+  }
+  const zone = typeof timeZone === 'string' ? timeZone.trim() : '';
+  if (!isValidIanaTimeZone(zone)) {
+    throw new Error(`Invalid IANA timezone: "${timeZone}".`);
+  }
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
+  const local = getLocalParts(instantUtc, formatter);
+  return {
+    ...local,
+    month: local.month - 1,
+    dayOfWeek: new Date(Date.UTC(local.year, local.month - 1, local.day)).getUTCDay(),
+  };
+}
+
+/**
+ * Allows lifecycle projection only for a complete, gap-free local calendar year.
+ * Explicit-offset and local-wall timestamps are both resolved through the site zone.
+ */
+export function evaluateAnnualProjectionEligibility(
+  dataPoints: IntervalDataPoint[],
+  intervalHours: number,
+  timeZone: string
+): AnnualProjectionEligibility {
+  try {
+    const zone = typeof timeZone === 'string' ? timeZone.trim() : '';
+    if (!isValidIanaTimeZone(zone)) throw new Error('A valid site timezone is required.');
+    const aligned = alignLoadTimestampsToSite(dataPoints, intervalHours, zone);
+    return evaluateAlignedAnnualProjectionEligibility(aligned, intervalHours, zone);
+  } catch (error: unknown) {
+    return { eligible: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Exact-year check for an already cadence-validated aligned sequence. */
+export function evaluateAlignedAnnualProjectionEligibility(
+  aligned: AlignedLoadTimestamp[],
+  intervalHours: number,
+  timeZone: string
+): AnnualProjectionEligibility {
+  try {
+    const zone = typeof timeZone === 'string' ? timeZone.trim() : '';
+    if (!isValidIanaTimeZone(zone)) throw new Error('A valid site timezone is required.');
+    if (!Array.isArray(aligned) || aligned.length === 0) throw new Error('Dataset must be non-empty.');
+    const first = getSiteLocalCalendarCoordinates(aligned[0].instantUtc, zone);
+    const last = getSiteLocalCalendarCoordinates(aligned[aligned.length - 1].instantUtc, zone);
+    if (first.year !== last.year) throw new Error('Dataset must cover exactly one calendar year.');
+    const yearStart = resolveTimestampToUtc(`${first.year}-01-01T00:00:00`, 0, zone);
+    const nextYearStart = resolveTimestampToUtc(`${first.year + 1}-01-01T00:00:00`, 0, zone);
+    const stepMs = Math.round(intervalHours * 3_600_000);
+    const expectedCount = (nextYearStart.getTime() - yearStart.getTime()) / stepMs;
+    if (!Number.isInteger(expectedCount) || expectedCount <= 0) throw new Error('Interval does not divide the calendar year exactly.');
+    if (
+      Math.abs(aligned[0].instantUtc.getTime() - yearStart.getTime()) > 1000 ||
+      Math.abs(aligned[aligned.length - 1].instantUtc.getTime() - (nextYearStart.getTime() - stepMs)) > 1000 ||
+      aligned.length !== expectedCount
+    ) throw new Error('Dataset must contain every interval in one complete calendar year.');
+    return { eligible: true };
+  } catch (error: unknown) {
+    return { eligible: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /**
  * Computes the timezone offset in milliseconds at a given instant:
  * offsetMs = (local wall-clock as UTC ms) - (instant UTC ms)
@@ -186,7 +275,8 @@ export function resolveTimestampToUtc(
   raw: string,
   sourceIndex: number,
   timeZone: string,
-  formatterCache?: Map<string, Intl.DateTimeFormat>
+  formatterCache?: Map<string, Intl.DateTimeFormat>,
+  dailyOffsetCache?: Map<string, Set<number>>
 ): Date {
   const parsed = parseTimestampString(raw);
 
@@ -245,10 +335,15 @@ export function resolveTimestampToUtc(
 
   // Sample offsets around naiveUtcMs (+- 36 hours) and deduplicate
   const sampleOffsetsHours = [-36, -24, -12, 0, 12, 24, 36];
-  const uniqueOffsets = new Set<number>();
-  for (let s = 0; s < sampleOffsetsHours.length; s++) {
-    const sampleDate = new Date(naiveUtcMs + sampleOffsetsHours[s] * 3600 * 1000);
-    uniqueOffsets.add(getTimeZoneOffsetMs(sampleDate, dtf));
+  const offsetCacheKey = `${trimmedZone}:${parsed.year}-${parsed.month}-${parsed.day}`;
+  let uniqueOffsets = dailyOffsetCache?.get(offsetCacheKey);
+  if (!uniqueOffsets) {
+    uniqueOffsets = new Set<number>();
+    for (let s = 0; s < sampleOffsetsHours.length; s++) {
+      const sampleDate = new Date(naiveUtcMs + sampleOffsetsHours[s] * 3600 * 1000);
+      uniqueOffsets.add(getTimeZoneOffsetMs(sampleDate, dtf));
+    }
+    dailyOffsetCache?.set(offsetCacheKey, uniqueOffsets);
   }
 
   // Check which candidate offsets produce local components that exactly match the requested wall-clock
@@ -314,6 +409,7 @@ export function alignLoadTimestampsToSite(
   }
 
   const formatterCache = new Map<string, Intl.DateTimeFormat>();
+  const dailyOffsetCache = new Map<string, Set<number>>();
   const aligned: AlignedLoadTimestamp[] = [];
 
   for (let i = 0; i < dataPoints.length; i++) {
@@ -328,7 +424,8 @@ export function alignLoadTimestampsToSite(
       dp.timestamp,
       i,
       timeZone,
-      formatterCache
+      formatterCache,
+      dailyOffsetCache
     );
 
     aligned.push({
@@ -368,6 +465,20 @@ export function alignLoadTimestampsToSite(
   }
 
   return aligned;
+}
+
+/** Returns cloned points annotated with the site's canonical tariff coordinates. */
+export function mapLoadTimestampsToSiteCalendar(
+  dataPoints: IntervalDataPoint[],
+  intervalHours: number,
+  timeZone: string,
+  aligned = alignLoadTimestampsToSite(dataPoints, intervalHours, timeZone)
+): IntervalDataPoint[] {
+  return aligned.map(({ sourceIndex, instantUtc }) => ({
+    ...dataPoints[sourceIndex],
+    date: instantUtc,
+    ...getSiteLocalCalendarCoordinates(instantUtc, timeZone),
+  }));
 }
 
 export interface LoadTimestampEligibility {

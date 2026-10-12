@@ -147,6 +147,7 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
     const scheduleMatrix = createScheduleMatrix();
     const battery = createBattery();
     const defaultConfig = createDefaultGenerationConfig();
+    defaultConfig.site.timeZone = 'UTC';
 
     const result = runUnifiedSimulation({
       dataPoints,
@@ -170,6 +171,7 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
     const scheduleMatrix = createScheduleMatrix();
     const battery = createBattery();
     const defaultConfig = createDefaultGenerationConfig();
+    defaultConfig.site.timeZone = 'UTC';
 
     const legacyDirect = runAnnualSimulation(
       dataPoints,
@@ -435,6 +437,7 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
     }
 
     handleReset();
+    generationConfig.site.timeZone = 'UTC';
 
     expect(allowSolarExport).toBe(false);
     expect(generationConfig.assets).toHaveLength(0);
@@ -500,7 +503,7 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
       tiers: DEFAULT_RATE_TIERS,
       scheduleMatrix,
       batteryProfile: battery,
-      generationConfig: createDefaultGenerationConfig(),
+      generationConfig: { ...createDefaultGenerationConfig(), site: { ...validSite, timeZone: 'UTC' } },
       allowSolarExport: false,
     });
     expect(legacyResult.mode).toBe('legacy');

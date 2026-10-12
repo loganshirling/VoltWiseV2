@@ -59,12 +59,12 @@
 - Define one canonical mapping from each load interval instant to site-local hour, weekday, and month. Both legacy battery-only and generation-aware paths must consume the same semantics.
 - Call the canonical exact full-calendar-year eligibility validator at the projection engine boundary. UI-only preflight is not sufficient.
 
-- [ ] Write a regression test using the same explicit UTC/offset fixture under at least two host `TZ` settings, with a TOU and seasonal boundary different from the site-local hour/month.
-- [ ] Observe the failure in selected tier, applied rate, interval cost, total cost, and battery-only versus generation-aware parity before changing code.
-- [ ] Write fail-closed cases for empty/invalid site timezone and direct projection calls with no eligibility payload.
-- [ ] Cover a gapped 360-day series, one missing annual interval, exact leap-year data, exact non-leap calendar year, and a contiguous non-calendar 365-day period.
-- [ ] Replace the generation projection engine's loose default suitability heuristic with the canonical exact-year validator; preserve already-correct battery-only output and document any intentional compatibility correction.
-- [ ] Run focused parser, alignment, tariff, projection, worker-preflight, and App tests, then lint and the full test suite at the integration gate.
+- [x] Write a regression test using the same explicit UTC/offset fixture under at least two host `TZ` settings, with a TOU and seasonal boundary different from the site-local hour/month.
+- [x] Observe the failure in selected tier, applied rate, interval cost, total cost, and battery-only versus generation-aware parity before changing code.
+- [x] Write fail-closed cases for empty/invalid site timezone and direct projection calls with no eligibility payload.
+- [x] Cover a gapped 360-day series, one missing annual interval, exact leap-year data, exact non-leap calendar year, and a contiguous non-calendar 365-day period.
+- [x] Replace the generation projection engine's loose default suitability heuristic with the canonical exact-year validator; preserve already-correct battery-only output and document any intentional compatibility correction.
+- [x] Run focused parser, alignment, tariff, projection, worker-preflight, and App tests, then lint and the full test suite at the integration gate.
 
 **Acceptance:** Equivalent instants receive the same site-local tariff across host timezones; only the canonical exact-year validator allows lifecycle projection.
 

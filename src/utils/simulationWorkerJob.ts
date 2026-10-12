@@ -152,7 +152,6 @@ export function executeGenerationProjectionYear(input: SimulationJobInput, year:
     projectionYears: 25,
     projectionStartYear: year,
     projectionEndYear: year,
-    isSuitableForAnnual: true,
   });
   return projection.years[0];
 }

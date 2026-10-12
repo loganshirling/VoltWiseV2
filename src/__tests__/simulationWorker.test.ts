@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BATTERY_PROFILES, DEFAULT_TOU_PROFILES, createDefaultScheduleMatrix } from '../utils/simulationEngine';
 import { createDefaultGenerationConfig, createDefaultSolarAsset } from '../utils/generationDefaults';
-import { generateStandardCsvTemplate } from '../utils/sampleData';
+import { generateRealistic8760Dataset, generateStandardCsvTemplate } from '../utils/sampleData';
 import { parseAndValidateEnergyCsv } from '../utils/csvParser';
 import { runUnifiedSimulation } from '../utils/simulationRouter';
 import { executeGenerationProjectionYear, executeSimulationJob, SimulationJobInput } from '../utils/simulationWorkerJob';
@@ -20,7 +20,10 @@ function makeInput(): SimulationJobInput {
     tiers: tou.tiers,
     scheduleMatrix: createDefaultScheduleMatrix(),
     seasons: tou.seasons,
-    generationConfig: createDefaultGenerationConfig(),
+    generationConfig: {
+      ...createDefaultGenerationConfig(),
+      site: { ...createDefaultGenerationConfig().site, timeZone: 'UTC' },
+    },
     allowSolarExport: false,
     annualProjectionEligible: false,
     preflightError: null,
@@ -82,6 +85,8 @@ describe('simulation worker job', () => {
 
   it('matches the authoritative projection engine for an isolated absolute year', () => {
     const input = makeInput();
+    input.dataPoints = generateRealistic8760Dataset().dataPoints;
+    input.intervalHours = 1;
     const solar = createDefaultSolarAsset('worker-projection-solar');
     solar.dcCapacityKw = 5;
     solar.inverterAcCapacityKw = 5;
@@ -108,7 +113,7 @@ describe('simulation worker job', () => {
     });
 
     expect(executeGenerationProjectionYear(input, 3)).toEqual(expected.years[0]);
-  });
+  }, 15000);
 
   it('returns a recoverable preflight error without invoking simulation', () => {
     const input = { ...makeInput(), preflightError: 'Invalid site-local timestamp.' };

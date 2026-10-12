@@ -44,12 +44,22 @@ import { LoadTimestampEligibility } from '../utils/loadTimeAlignment';
 import { ValidatedProjectState } from '../types/energy';
 import { ProjectFileControls } from './ProjectFileControls';
 
+export function isLifecycleProjectionReady(
+  annualProjectionEligible: boolean | undefined,
+  siteAlignmentEligibility: LoadTimestampEligibility | null | undefined
+): boolean {
+  return annualProjectionEligible === true &&
+    siteAlignmentEligibility?.operationallySimulatable === true;
+}
+
 interface DataAndRatesTabProps {
   csvResult: CsvValidationResult | null;
   loadDataSource: LoadDataSource | null;
   projectState: ProjectArchiveState;
   onProjectLoaded: (project: ValidatedProjectState) => void;
   siteAlignmentEligibility?: LoadTimestampEligibility | null;
+  annualProjectionEligible?: boolean;
+  annualProjectionReason?: string;
   onFileUpload: (file: File) => void;
   onLoadSample: () => void;
   touProfiles: TouProfile[];
@@ -125,6 +135,8 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   projectState,
   onProjectLoaded,
   siteAlignmentEligibility,
+  annualProjectionEligible,
+  annualProjectionReason,
   onFileUpload,
   onLoadSample,
   touProfiles,
@@ -141,13 +153,10 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
     siteAlignmentEligibility?.operationallySimulatable !== false
   );
   const simulationReadinessReason = siteAlignmentEligibility?.reason;
-  const lifecycleReady = Boolean(
-    csvResult?.annualProjectionEligible &&
-    siteAlignmentEligibility?.operationallySimulatable !== false
-  );
+  const lifecycleReady = isLifecycleProjectionReady(annualProjectionEligible, siteAlignmentEligibility);
   const lifecycleReadinessReason = siteAlignmentEligibility?.operationallySimulatable === false
     ? siteAlignmentEligibility.reason
-    : csvResult?.completeness?.reason || 'a complete, continuous calendar year is required.';
+    : annualProjectionReason || csvResult?.completeness?.reason || 'a complete, continuous calendar year is required.';
   const currentTouProfile =
     touProfiles.find((p) => p.id === activeTouProfileId) || touProfiles[0];
 

@@ -764,7 +764,7 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
       ).toThrow(/Unsupported generation asset type: "hydro"/i);
     });
 
-    it('29. Rejects partial-period datasets when suitability check is not bypassed', () => {
+    it('29. Rejects partial-period datasets even if caller asserts annual suitability', () => {
       const shortDataPoints = createHourlyDataPoints(48, 1.0); // 2 days < 360 days
       const config: GenerationConfig = {
         site: baseSite,
@@ -780,8 +780,26 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
           batteryProfile: createTestBattery(),
           generationConfig: config,
           allowSolarExport: true,
+          isSuitableForAnnual: true,
+          completeness: { isSuitableForAnnualProjection: true } as any,
         })
       ).toThrow(/not suitable for annual operational projection/i);
+    });
+
+    it('rejects direct projection calls with no annual eligibility payload', () => {
+      const config: GenerationConfig = {
+        site: baseSite,
+        assets: [createClearSkyAsset('s1')],
+      };
+      expect(() => calculateGenerationOperationalProjection({
+        dataPoints: createHourlyDataPoints(360 * 24),
+        intervalHours: 1,
+        tiers: defaultTiers,
+        scheduleMatrix: createScheduleMatrix(),
+        batteryProfile: createTestBattery(),
+        generationConfig: config,
+        allowSolarExport: true,
+      })).toThrow(/not suitable for annual operational projection/i);
     });
 
     it('30. Default contract horizon is 25 years without retaining interval history', () => {

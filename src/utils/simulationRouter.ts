@@ -22,6 +22,11 @@ import {
 } from '../types/energy';
 import { runAnnualSimulation } from './simulationEngine';
 import {
+  alignLoadTimestampsToSite,
+  evaluateAlignedAnnualProjectionEligibility,
+  mapLoadTimestampsToSiteCalendar,
+} from './loadTimeAlignment';
+import {
   GenerationAwareSimulationResult,
   runGenerationAwareSimulation,
 } from './generationAwareSimulation';
@@ -73,16 +78,26 @@ export function runUnifiedSimulation(
   const enabledAssets = Array.isArray(assets)
     ? assets.filter((asset) => asset != null && asset.enabled === true)
     : [];
+  const timeZone = generationConfig?.site?.timeZone;
 
   // Permanent Invariant: When NO generation assets are enabled, execute legacy engine directly
   if (enabledAssets.length === 0) {
+    const alignedTimestamps = alignLoadTimestampsToSite(dataPoints, intervalHours, timeZone);
+    const siteCalendarDataPoints = mapLoadTimestampsToSiteCalendar(
+      dataPoints, intervalHours, timeZone, alignedTimestamps
+    );
+    const annualProjectionEligible = evaluateAlignedAnnualProjectionEligibility(
+      alignedTimestamps, intervalHours, timeZone
+    ).eligible;
     const legacySummary = runAnnualSimulation(
-      dataPoints,
+      siteCalendarDataPoints,
       intervalHours,
       tiers,
       scheduleMatrix,
       batteryProfile,
-      seasons
+      seasons,
+      timeZone,
+      annualProjectionEligible
     );
 
     return {
@@ -231,7 +246,7 @@ export function runUnifiedSimulation(
       ? Math.round((count * intervalHours) / 24)
       : Math.round(count / 24);
 
-  const isSuitableForAnnual = count >= 8760 * 0.95 && durationDays >= 360;
+  const isSuitableForAnnual = generationAwareResult.annualProjectionEligible;
 
   const annualSummary: AnnualSimulationSummary = {
     profileId: batteryProfile.id,

@@ -39,6 +39,7 @@ import {
   WindGenerationAsset,
 } from '../types/energy';
 import { runUnifiedSimulation } from './simulationRouter';
+import { evaluateAnnualProjectionEligibility } from './loadTimeAlignment';
 
 export interface GenerationOperationalProjectionParams {
   dataPoints: IntervalDataPoint[];
@@ -352,20 +353,18 @@ export function calculateGenerationOperationalProjection(
     );
   }
 
-  // Partial-period suitability gate:
-  // Operational projection represents a long-term annual projection.
-  // Incomplete datasets (< 360 days / 95% of 8,760 hours) are rejected.
-  const count = dataPoints.length;
-  const durationDays =
-    intervalHours > 0
-      ? Math.round((count * intervalHours) / 24)
-      : Math.round(count / 24);
-
-  const calculatedSuitability = count >= 8760 * 0.95 && durationDays >= 360;
-  const isSuitable =
-    params.isSuitableForAnnual ??
-    params.completeness?.isSuitableForAnnualProjection ??
-    (params.allowIncompleteYearForTesting ? true : calculatedSuitability);
+  // Caller/UI eligibility metadata may veto projection, but cannot grant it.
+  // Only the engine-boundary exact local-calendar-year check is authoritative.
+  const calculatedSuitability = evaluateAnnualProjectionEligibility(
+    dataPoints,
+    intervalHours,
+    generationConfig.site.timeZone
+  ).eligible;
+  const isSuitable = params.allowIncompleteYearForTesting === true || (
+    calculatedSuitability &&
+    params.isSuitableForAnnual !== false &&
+    params.completeness?.isSuitableForAnnualProjection !== false
+  );
 
   if (!isSuitable) {
     throw new Error(

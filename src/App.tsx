@@ -41,7 +41,10 @@ import {
 } from './utils/generationFinancials';
 import { generateRealistic8760Dataset } from './utils/sampleData';
 import { parseAndValidateEnergyCsv } from './utils/csvParser';
-import { evaluateLoadTimestampEligibility } from './utils/loadTimeAlignment';
+import {
+  evaluateAnnualProjectionEligibility,
+  evaluateLoadTimestampEligibility,
+} from './utils/loadTimeAlignment';
 import { createSimulationWorkerClient, SimulationRunResult, SimulationTaskHandle } from './utils/simulationWorkerClient';
 import { SimulationJobInput, SimulationJobResult } from './utils/simulationWorkerJob';
 import { Zap, ChevronRight, Activity, ArrowRight, Bookmark, AlertTriangle } from 'lucide-react';
@@ -151,9 +154,23 @@ export default function App() {
     );
   }, [csvResult, generationConfig]);
 
+  const annualProjectionEligibility = useMemo(() => {
+    if (!csvResult?.schemaValid || !csvResult.chronologicallyValid || !generationConfig.site.timeZone.trim()) {
+      return { eligible: false };
+    }
+    return evaluateAnnualProjectionEligibility(
+      csvResult.data,
+      csvResult.intervalHours,
+      generationConfig.site.timeZone
+    );
+  }, [csvResult, generationConfig.site.timeZone]);
+
   const isSuitableForAnnual = Boolean(
-    csvResult?.annualProjectionEligible &&
-    siteLoadAlignmentEligibility?.operationallySimulatable !== false
+    csvResult?.schemaValid &&
+    csvResult.chronologicallyValid &&
+    csvResult.operationallySimulatable &&
+    siteLoadAlignmentEligibility?.operationallySimulatable &&
+    annualProjectionEligibility.eligible
   );
 
   const simulationInput = useMemo<SimulationJobInput | null>(() => {
@@ -164,6 +181,8 @@ export default function App() {
     let preflightError: string | null = null;
     if (!csvResult.operationallySimulatable) {
       preflightError = 'Load data contains missing or irregular intervals. Upload a continuous interval sequence before running a simulation.';
+    } else if (!siteLoadAlignmentEligibility) {
+      preflightError = 'Set a valid site timezone before running a simulation.';
     } else if (siteLoadAlignmentEligibility && !siteLoadAlignmentEligibility.operationallySimulatable) {
       preflightError = siteLoadAlignmentEligibility.reason || 'Load timestamps are not valid for the selected site timezone.';
     }
@@ -463,6 +482,8 @@ export default function App() {
             projectState={projectState}
             onProjectLoaded={handleProjectLoaded}
             siteAlignmentEligibility={siteLoadAlignmentEligibility}
+            annualProjectionEligible={annualProjectionEligibility.eligible}
+            annualProjectionReason={annualProjectionEligibility.reason}
             onFileUpload={handleFileUpload}
             onLoadSample={handleLoadSample}
             touProfiles={touProfiles}
