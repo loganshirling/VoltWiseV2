@@ -39,6 +39,33 @@ export interface ExportLlmJsonParams {
   loadDataSource?: LoadDataSource | null;
 }
 
+/** Adds source and assumption provenance to tabular downloads without metadata preamble rows. */
+export function buildDisclosedCsv(
+  headers: string[],
+  rows: Array<Array<string | number | null | undefined>>,
+  loadDataSource?: LoadDataSource | null,
+): string {
+  const escapeCell = (value: string | number | null | undefined): string => {
+    const text = value == null ? '' : String(value);
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const disclosureHeaders = [
+    'Load_Data_Source',
+    'Tariff_Rates_Disclosure',
+    'Financial_Assumptions_Disclosure',
+  ];
+  const disclosureValues = [
+    loadDataSource ?? 'unspecified',
+    'user_configured_inputs',
+    'user_configured_inputs',
+  ];
+
+  return [
+    [...headers, ...disclosureHeaders].map(escapeCell).join(','),
+    ...rows.map((row) => [...row, ...disclosureValues].map(escapeCell).join(',')),
+  ].join('\n');
+}
+
 export interface LlmExportPayload {
   metadata: {
     app_name: string;

@@ -61,6 +61,7 @@ import {
 } from '../utils/generationResults';
 import {
   buildExportLlmJson,
+  buildDisclosedCsv,
   canExportProjectionsJson,
   canExportProjectionsCsv,
   buildGenerationExportLlmJson,
@@ -459,7 +460,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
       p.discountedNpv || 0,
       p.usableCapacityKwh || '',
     ]);
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const csvContent = buildDisclosedCsv(headers, rows, loadDataSource);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -4171,10 +4172,9 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                     ]);
                     const csvContent =
                       'data:text/csv;charset=utf-8,' +
-                      [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-                    const encodedUri = encodeURI(csvContent);
+                      encodeURIComponent(buildDisclosedCsv(headers, rows, loadDataSource));
                     const link = document.createElement('a');
-                    link.setAttribute('href', encodedUri);
+                    link.setAttribute('href', csvContent);
                     link.setAttribute('download', 'Monthly_Median_Power_Consumption.csv');
                     document.body.appendChild(link);
                     link.click();

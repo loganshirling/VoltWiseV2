@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   buildExportLlmJson,
+  buildDisclosedCsv,
   buildGenerationExportLlmJson,
   buildGenerationPeriodExportJson,
   canExportGenerationProjectionsJson,
@@ -36,6 +37,17 @@ describe('Issue 4 — JSON Export Correctness and Consistency', () => {
   const profile = DEFAULT_BATTERY_PROFILES[0]; // Tesla Powerwall 3
   const touProfile = DEFAULT_TOU_PROFILES[0]; // CA EV2-A
   const tiers = touProfile.tiers;
+
+  it('keeps CSV exports labeled with synthetic or uploaded load provenance', () => {
+    const headers = ['Year', 'Savings_USD'];
+    const rows = [[1, 1200]];
+    const sampleCsv = buildDisclosedCsv(headers, rows, 'synthetic_sample');
+    const uploadedCsv = buildDisclosedCsv(headers, rows, 'uploaded');
+
+    expect(sampleCsv).toContain('Load_Data_Source,Tariff_Rates_Disclosure,Financial_Assumptions_Disclosure');
+    expect(sampleCsv).toContain('1,1200,synthetic_sample,user_configured_inputs,user_configured_inputs');
+    expect(uploadedCsv).toContain('1,1200,uploaded,user_configured_inputs,user_configured_inputs');
+  });
 
   const dummySummary: AnnualSimulationSummary = {
     profileId: profile.id,
