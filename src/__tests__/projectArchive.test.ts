@@ -106,6 +106,63 @@ describe('versioned local project archives', () => {
     await expect(parseProjectArchive(JSON.stringify(archive))).rejects.toThrow(/financials/i);
   });
 
+  it('rejects active tariff schedules with empty or unresolved rate tiers', async () => {
+    const emptyTiers = JSON.parse(await encodeArchive());
+    emptyTiers.project.tiers = [];
+    await expect(parseProjectArchive(JSON.stringify(emptyTiers))).rejects.toThrow(/project\.tiers.*at least one/i);
+
+    const unresolvedSchedule = JSON.parse(await encodeArchive());
+    unresolvedSchedule.project.scheduleMatrix[0][0] = 'missing-tier';
+    await expect(parseProjectArchive(JSON.stringify(unresolvedSchedule))).rejects.toThrow(/scheduleMatrix.*missing-tier/i);
+  });
+
+  it('rejects saved tariff profiles whose schedules reference missing rates', async () => {
+    const archive = JSON.parse(await encodeArchive());
+    archive.project.touProfiles[0].scheduleMatrix[0][0] = 'deleted-rate';
+
+    await expect(parseProjectArchive(JSON.stringify(archive))).rejects.toThrow(/touProfiles\[0\].*scheduleMatrix.*deleted-rate/i);
+  });
+
+  it('rejects malformed load CSV while preserving valid partial-period datasets', async () => {
+    const valid = JSON.parse(await encodeArchive());
+    for (const invalidValue of ['12kWh', 'Infinity']) {
+      const malformed = structuredClone(valid);
+      malformed.project.loadData.csv = generateStandardCsvTemplate().replace('1.018', invalidValue);
+      await expect(parseProjectArchive(JSON.stringify(malformed))).rejects.toThrow(/loadData\.csv.*schema/i);
+    }
+    await expect(parseProjectArchive(JSON.stringify(valid))).resolves.toMatchObject({
+      csvResult: { data: expect.any(Array), annualProjectionEligible: false },
+    });
+  });
+
+  it('rejects enabled measured assets with missing or wrong-kind resource references', async () => {
+    const missing = JSON.parse(await encodeArchive());
+    missing.project.generationConfig.assets[0].resourceMode = 'weather_file';
+    missing.project.generationConfig.assets[0].externalResourceId = 'missing-solar-resource';
+    await expect(parseProjectArchive(JSON.stringify(missing))).rejects.toThrow(/externalResourceId.*available/i);
+
+    const wrongKind = JSON.parse(await encodeArchive());
+    wrongKind.project.generationConfig.assets[0].resourceMode = 'weather_file';
+    wrongKind.project.generationConfig.assets[0].externalResourceId = 'wind-resource';
+    wrongKind.project.generationConfig.externalResources.push({
+      id: 'wind-resource', name: 'Wind records', kind: 'wind_speed', sourceTimeZone: null,
+      intervalHours: 1, rowCount: 2,
+      startTimestampUtc: '2025-09-22T07:00:00.000Z', endTimestampUtc: '2025-09-22T08:00:00.000Z',
+      records: [
+        { timestampUtc: '2025-09-22T07:00:00.000Z', windSpeedMps: 3 },
+        { timestampUtc: '2025-09-22T08:00:00.000Z', windSpeedMps: 4 },
+      ],
+    });
+    await expect(parseProjectArchive(JSON.stringify(wrongKind))).rejects.toThrow(/solar irradiance resource/i);
+  });
+
+  it('rejects enum arrays instead of coercing them to supported strings', async () => {
+    const archive = JSON.parse(await encodeArchive());
+    archive.project.generationConfig.assets[0].resourceMode = ['clear_sky'];
+
+    await expect(parseProjectArchive(JSON.stringify(archive))).rejects.toThrow(/resourceMode.*string/i);
+  });
+
   it('rejects malformed JSON with an actionable error', async () => {
     await expect(parseProjectArchive('{"format":')).rejects.toThrow(/valid JSON/i);
   });

@@ -63,6 +63,18 @@ function requireArray(value: unknown, path: string): unknown[] {
   return value;
 }
 
+function requireEnum<T extends string>(value: unknown, values: readonly T[], path: string): T {
+  if (typeof value !== 'string' || !values.includes(value as T)) fail(path, 'must be a supported string value');
+  return value as T;
+}
+
+function validateScheduleReferences(schedule: string[][], tiers: RateTier[], path: string): void {
+  const tierIds = new Set(tiers.map((tier) => tier.id));
+  schedule.forEach((day, dayIndex) => day.forEach((tierId, hourIndex) => {
+    if (!tierIds.has(tierId)) fail(`${path}[${dayIndex}][${hourIndex}]`, `references missing tier ${tierId}`);
+  }));
+}
+
 function requireUniqueIds(values: Array<{ id: string }>, path: string): void {
   if (new Set(values.map((value) => value.id)).size !== values.length) {
     fail(path, 'contains duplicate ids');
@@ -135,6 +147,8 @@ function validateTouProfile(value: unknown, path: string): TouProfile {
   const tiers = requireArray(profile.tiers, `${path}.tiers`).map((tier, index) =>
     validateTier(tier, `${path}.tiers[${index}]`)
   );
+  if (tiers.length === 0) fail(`${path}.tiers`, 'must contain at least one rate tier');
+  requireUniqueIds(tiers, `${path}.tiers`);
   const schedule = requireArray(profile.scheduleMatrix, `${path}.scheduleMatrix`);
   if (schedule.length !== 7) fail(`${path}.scheduleMatrix`, 'must contain seven days');
   schedule.forEach((day, dayIndex) => {
@@ -142,6 +156,7 @@ function validateTouProfile(value: unknown, path: string): TouProfile {
     if (hours.length !== 24) fail(`${path}.scheduleMatrix[${dayIndex}]`, 'must contain 24 hours');
     hours.forEach((tierId, hourIndex) => requireString(tierId, `${path}.scheduleMatrix[${dayIndex}][${hourIndex}]`));
   });
+  validateScheduleReferences(schedule as string[][], tiers, `${path}.scheduleMatrix`);
   validateSeasons(profile.seasons, `${path}.seasons`);
   return profile as unknown as TouProfile;
 }
@@ -185,9 +200,7 @@ function validateGenerationAsset(value: unknown, path: string): GenerationAsset 
       'dcCapacityKw', 'tiltDegrees', 'azimuthDegrees', 'inverterAcCapacityKw',
       'inverterEfficiencyPercent', 'systemLossPercent', 'shadingLossPercent', 'annualDegradationPercent',
     ].forEach((key) => requireFiniteNumber(asset[key], `${path}.${key}`));
-    if (!['clear_sky', 'monthly_peak_sun_hours', 'weather_file'].includes(String(asset.resourceMode))) {
-      fail(`${path}.resourceMode`, 'is not a supported solar resource mode');
-    }
+    requireEnum(asset.resourceMode, ['clear_sky', 'monthly_peak_sun_hours', 'weather_file'], `${path}.resourceMode`);
     const monthly = requireArray(asset.monthlyPeakSunHoursPerDay, `${path}.monthlyPeakSunHoursPerDay`);
     if (monthly.length !== 12) fail(`${path}.monthlyPeakSunHoursPerDay`, 'must contain 12 months');
     monthly.forEach((entry, index) => requireFiniteNumber(entry, `${path}.monthlyPeakSunHoursPerDay[${index}]`));
@@ -201,9 +214,7 @@ function validateGenerationAsset(value: unknown, path: string): GenerationAsset 
       'cutOutWindSpeedMps', 'availabilityPercent', 'systemLossPercent', 'measurementHeightM', 'windShearExponent',
     ].forEach((key) => requireFiniteNumber(asset[key], `${path}.${key}`));
     requireFiniteNumber(asset.annualAverageWindSpeedMps, `${path}.annualAverageWindSpeedMps`, true);
-    if (!['annual_average', 'monthly_average', 'interval_file'].includes(String(asset.resourceMode))) {
-      fail(`${path}.resourceMode`, 'is not a supported wind resource mode');
-    }
+    requireEnum(asset.resourceMode, ['annual_average', 'monthly_average', 'interval_file'], `${path}.resourceMode`);
     const monthly = requireArray(asset.monthlyAverageWindSpeedMps, `${path}.monthlyAverageWindSpeedMps`);
     if (monthly.length !== 12) fail(`${path}.monthlyAverageWindSpeedMps`, 'must contain 12 months');
     monthly.forEach((entry, index) => requireFiniteNumber(entry, `${path}.monthlyAverageWindSpeedMps[${index}]`));
@@ -221,11 +232,9 @@ function validateGenerationAsset(value: unknown, path: string): GenerationAsset 
       'ratedContinuousKw', 'minimumStableLoadPercent', 'fuelPricePerUnit',
       'variableMaintenanceCostPerHourUsd', 'startupFuelUnits',
     ].forEach((key) => requireFiniteNumber(asset[key], `${path}.${key}`));
-    if (!['natural_gas', 'propane', 'gasoline', 'diesel', 'custom'].includes(String(asset.fuelType))) {
-      fail(`${path}.fuelType`, 'is not supported');
-    }
-    if (!['gallon', 'therm', 'ccf', 'mmbtu', 'custom'].includes(String(asset.fuelUnit))) fail(`${path}.fuelUnit`, 'is not supported');
-    if (!['standby', 'scheduled', 'economic'].includes(String(asset.dispatchMode))) fail(`${path}.dispatchMode`, 'is not supported');
+    requireEnum(asset.fuelType, ['natural_gas', 'propane', 'gasoline', 'diesel', 'custom'], `${path}.fuelType`);
+    requireEnum(asset.fuelUnit, ['gallon', 'therm', 'ccf', 'mmbtu', 'custom'], `${path}.fuelUnit`);
+    requireEnum(asset.dispatchMode, ['standby', 'scheduled', 'economic'], `${path}.dispatchMode`);
     requireString(asset.customFuelUnitLabel, `${path}.customFuelUnitLabel`, true);
     requireBoolean(asset.allowBatteryCharging, `${path}.allowBatteryCharging`);
     requireBoolean(asset.allowGridExport, `${path}.allowGridExport`);
@@ -305,6 +314,24 @@ function validateGenerationConfig(value: unknown): GenerationConfig {
       );
   const resourceIds = resources.map((resource) => resource.id);
   if (new Set(resourceIds).size !== resourceIds.length) fail('project.generationConfig.externalResources', 'contains duplicate ids');
+  const resourceById = new Map(resources.map((resource) => [resource.id, resource]));
+  assets.forEach((asset, index) => {
+    if (!asset.enabled) return;
+    if (asset.type === 'generator') return;
+    const expectedKind = asset.type === 'solar' && asset.resourceMode === 'weather_file'
+      ? 'solar_irradiance'
+      : asset.type === 'wind' && asset.resourceMode === 'interval_file'
+        ? 'wind_speed'
+        : null;
+    if (!expectedKind) return;
+    const resourceId = asset.externalResourceId;
+    if (!resourceId || !resourceById.has(resourceId)) {
+      fail(`project.generationConfig.assets[${index}].externalResourceId`, `must reference an available ${expectedKind} resource`);
+    }
+    if (resourceById.get(resourceId)!.kind !== expectedKind) {
+      fail(`project.generationConfig.assets[${index}].externalResourceId`, `must reference a ${expectedKind === 'solar_irradiance' ? 'solar irradiance' : 'wind speed'} resource`);
+    }
+  });
   return config.externalResources === undefined
     ? { site: site as unknown as GenerationConfig['site'], assets }
     : { site: site as unknown as GenerationConfig['site'], assets, externalResources: resources };
@@ -321,9 +348,7 @@ function validateFinancials(value: unknown): MacroFinancials {
   if (financials.federalTaxCreditRealizationYear !== undefined) {
     requireFiniteNumber(financials.federalTaxCreditRealizationYear, 'project.financials.federalTaxCreditRealizationYear');
   }
-  if (!['hysa', 'index_fund', 'custom'].includes(String(financials.opportunityCostVehicle))) {
-    fail('project.financials.opportunityCostVehicle', 'is not supported');
-  }
+  requireEnum(financials.opportunityCostVehicle, ['hysa', 'index_fund', 'custom'], 'project.financials.opportunityCostVehicle');
   ['replacementEnabled', 'isFinanced', 'includeVollInRoi'].forEach((key) => requireBoolean(financials[key], `project.financials.${key}`));
   return financials as unknown as MacroFinancials;
 }
@@ -347,6 +372,7 @@ function validateStateFields(projectValue: unknown, legacyV1: boolean): Validate
   if (!touProfiles.some((profile) => profile.id === activeTouProfileId)) fail('project.activeTouProfileId', 'does not match an available tariff profile');
 
   const tiers = requireArray(project.tiers, 'project.tiers').map((tier, index) => validateTier(tier, `project.tiers[${index}]`));
+  if (tiers.length === 0) fail('project.tiers', 'must contain at least one rate tier');
   requireUniqueIds(tiers, 'project.tiers');
   const scheduleMatrix = requireArray(project.scheduleMatrix, 'project.scheduleMatrix');
   if (scheduleMatrix.length !== 7) fail('project.scheduleMatrix', 'must contain seven days');
@@ -355,6 +381,7 @@ function validateStateFields(projectValue: unknown, legacyV1: boolean): Validate
     if (hours.length !== 24) fail(`project.scheduleMatrix[${dayIndex}]`, 'must contain 24 hours');
     hours.forEach((tierId, hourIndex) => requireString(tierId, `project.scheduleMatrix[${dayIndex}][${hourIndex}]`));
   });
+  validateScheduleReferences(scheduleMatrix as string[][], tiers, 'project.scheduleMatrix');
 
   const loadData = legacyV1
     ? (() => {
@@ -380,6 +407,9 @@ function validateStateFields(projectValue: unknown, legacyV1: boolean): Validate
   if (loadDataCsv !== null) {
     try {
       csvResult = parseAndValidateEnergyCsv(loadDataCsv);
+      if (!csvResult.schemaValid || !csvResult.chronologicallyValid) {
+        fail('project.loadData.csv', 'failed schema or chronology validation');
+      }
     } catch (error) {
       throw new Error(`Invalid project archive: project.loadData.csv could not be parsed: ${error instanceof Error ? error.message : 'invalid CSV'}`);
     }

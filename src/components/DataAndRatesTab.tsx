@@ -776,6 +776,8 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
           <><strong className="text-amber-300">Illustrative synthetic sample.</strong> These generated intervals are not your household measurements. Upload your own CSV to replace them.</>
         ) : loadDataSource === 'uploaded' ? (
           <><strong className="text-emerald-300">Uploaded load data.</strong> The active dataset came from a CSV you selected.</>
+        ) : csvResult ? (
+          <><strong className="text-slate-100">Load data source unspecified.</strong> This project has interval data, but its source was not recorded. Review the data before relying on results.</>
         ) : (
           <><strong className="text-slate-100">No load dataset is active.</strong> Reset cleared the load data and solar/wind resource files. Upload a CSV or deliberately load the synthetic sample.</>
         )}
