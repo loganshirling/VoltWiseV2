@@ -432,7 +432,7 @@ export default function App() {
 
         {/* Simulation Configuration Error Callout */}
         {simulationError && (
-          <div className="mb-6 rounded-xl border border-rose-500/40 bg-rose-950/20 p-4 sm:p-5 flex items-start gap-3 sm:gap-4 shadow-sm animate-fadeIn">
+          <div role="alert" aria-live="assertive" className="mb-6 rounded-xl border border-rose-500/40 bg-rose-950/20 p-4 sm:p-5 flex items-start gap-3 sm:gap-4 shadow-sm animate-fadeIn">
             <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 shrink-0">
               <AlertTriangle className="h-5 w-5" />
             </div>

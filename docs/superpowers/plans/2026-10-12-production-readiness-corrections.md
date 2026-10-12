@@ -152,11 +152,11 @@ The following audit claims were spot-checked against current code and remain ope
 - Provide one documented command for browser smoke tests against a production build or deterministic local server.
 - Keep chart table alternatives and keyboard semantics accessible in their existing components.
 
-- [ ] Cover Chromium flows: sample notice; valid/invalid load upload; resource upload/binding; asset edit; settings; results; Save/Open; export/download; reset.
-- [ ] Cover keyboard-only navigation, 320–390 px viewports, visible focus, form labels/errors, upload status announcements, chart table alternatives, and reduced motion.
-- [ ] Add targeted tests for selecting/removing/changing assets while asynchronous resource file reads are pending; ensure stale reads cannot attach to the wrong asset.
-- [ ] Audit numeric inputs across all tabs for accessible labels and explicit units; fix only confirmed omissions and add a test for each repaired control.
-- [ ] Run browser flows in Chromium and Firefox plus the selected mobile viewport; record unsupported browser/environment gaps rather than implying they passed.
+- [x] Cover Chromium flows: sample notice; valid/invalid load upload; resource upload/binding; asset edit; settings; results; Save/Open; export/download; reset.
+- [x] Cover keyboard-only navigation, 320–390 px viewports, visible focus, form labels/errors, upload status announcements, chart table alternatives, and reduced motion.
+- [x] Add targeted tests for selecting/removing/changing assets while asynchronous resource file reads are pending; ensure stale reads cannot attach to the wrong asset.
+- [x] Audit numeric inputs across all tabs for accessible labels and explicit units; fix only confirmed omissions and add a test for each repaired control.
+- [x] Run Chromium browser flows at the selected mobile viewports; attempt Firefox and record unsupported browser/runtime gaps rather than implying it passed.
 
 ### Task 7: Establish CI and release qualification controls
 

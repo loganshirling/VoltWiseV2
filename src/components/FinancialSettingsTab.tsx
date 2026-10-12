@@ -137,6 +137,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               max="50"
               step="1"
               value={financials.federalTaxCreditPercent}
+              aria-label="Federal clean energy tax credit (percent)"
               onChange={(e) => handleUpdate('federalTaxCreditPercent', parseFloat(e.target.value) || 0)}
               className="w-full accent-emerald-500 cursor-pointer"
             />
@@ -183,6 +184,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               max="6000"
               step="250"
               value={financials.localRebateFlat}
+              aria-label="State or utility flat cash rebate (US dollars)"
               onChange={(e) => handleUpdate('localRebateFlat', parseFloat(e.target.value) || 0)}
               className="w-full accent-cyan-500 cursor-pointer"
             />
@@ -298,6 +300,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
                   max="15"
                   step="0.25"
                   value={financials.loanAprPercent}
+                  aria-label="Loan annual percentage rate (percent)"
                   onChange={(e) => handleUpdate('loanAprPercent', parseFloat(e.target.value) || 0)}
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
@@ -348,6 +351,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
                   max="50"
                   step="5"
                   value={financials.loanDownPaymentPercent}
+                  aria-label="Loan down payment (percent)"
                   onChange={(e) => handleUpdate('loanDownPaymentPercent', parseFloat(e.target.value) || 0)}
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
@@ -432,6 +436,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               max="12.0"
               step="0.5"
               value={financials.discountRatePercent}
+              aria-label="Discount rate for NPV (percent per year)"
               onChange={(e) => handleUpdate('discountRatePercent', parseFloat(e.target.value) || 0)}
               className="w-full accent-cyan-500 cursor-pointer"
             />
@@ -508,6 +513,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
                 max="15.0"
                 step="0.5"
                 value={financials.opportunityCostRatePercent}
+                aria-label="Opportunity cost rate (percent per year)"
                 onChange={(e) => handleUpdate('opportunityCostRatePercent', parseFloat(e.target.value) || 0)}
                 className="w-full accent-amber-500 cursor-pointer pt-1"
               />
@@ -574,6 +580,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
                 max="5000"
                 step="250"
                 value={financials.replacementCost}
+                aria-label="Inverter or component replacement cost (US dollars)"
                 onChange={(e) => handleUpdate('replacementCost', parseFloat(e.target.value) || 0)}
                 className="w-full accent-amber-500 cursor-pointer"
               />
@@ -605,6 +612,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
                 max="15"
                 step="1"
                 value={financials.replacementYear}
+                aria-label="Target replacement year (years)"
                 onChange={(e) => handleUpdate('replacementYear', parseInt(e.target.value, 10) || 10)}
                 className="w-full accent-amber-500 cursor-pointer"
               />
@@ -653,6 +661,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               max="10"
               step="0.5"
               value={financials.annualElectricityInflationRate}
+              aria-label="Annual electricity rate inflation (percent per year)"
               onChange={(e) => handleUpdate('annualElectricityInflationRate', parseFloat(e.target.value) || 0)}
               className="w-full accent-amber-500 cursor-pointer"
             />
@@ -684,6 +693,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               max="5.0"
               step="0.25"
               value={financials.annualBatteryDegradationRate}
+              aria-label="Annual battery capacity degradation (percent per year)"
               onChange={(e) => handleUpdate('annualBatteryDegradationRate', parseFloat(e.target.value) || 0)}
               className="w-full accent-rose-500 cursor-pointer"
             />
@@ -796,6 +806,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               max="4.0"
               step="0.1"
               value={financials.criticalLoadPowerKw}
+              aria-label="Critical load power (kW)"
               onChange={(e) => handleUpdate('criticalLoadPowerKw', parseFloat(e.target.value) || 1.2)}
               className="w-full accent-amber-500 cursor-pointer"
             />
@@ -819,6 +830,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               max="14.0"
               step="0.5"
               value={financials.annualOutageDays}
+              aria-label="Outage days per year (days)"
               onChange={(e) => handleUpdate('annualOutageDays', parseFloat(e.target.value) || 2.5)}
               className="w-full accent-cyan-500 cursor-pointer"
             />
@@ -846,6 +858,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               max="300"
               step="25"
               value={financials.valueOfLostLoadPerDay}
+              aria-label="Value of lost load (US dollars per day)"
               onChange={(e) => handleUpdate('valueOfLostLoadPerDay', parseFloat(e.target.value) || 100)}
               className="w-full accent-emerald-500 cursor-pointer"
             />

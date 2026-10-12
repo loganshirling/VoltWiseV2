@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Sun,
   Wind,
@@ -103,6 +103,23 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   const [resourceImportMessage, setResourceImportMessage] = useState('');
   const [resourceImportError, setResourceImportError] = useState('');
   const [isImportingResource, setIsImportingResource] = useState(false);
+  const resourceImportRequestId = useRef(0);
+
+  useEffect(() => () => {
+    resourceImportRequestId.current += 1;
+  }, []);
+
+  const cancelResourceImport = () => {
+    resourceImportRequestId.current += 1;
+    setIsImportingResource(false);
+    setResourceImportMessage('');
+    setResourceImportError('');
+  };
+
+  const handleSelectAsset = (id: string) => {
+    if (id !== selectedAssetId) cancelResourceImport();
+    setSelectedAssetId(id);
+  };
 
   const activeAsset =
     generationConfig.assets.find((a) => a.id === selectedAssetId) ||
@@ -115,6 +132,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   // Site update handler
   const handleUpdateSite = (field: keyof GenerationSite, value: any) => {
+    cancelResourceImport();
     setGenerationConfig((prev) => ({
       ...prev,
       site: {
@@ -126,6 +144,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   // Asset update handler
   const handleUpdateAsset = (id: string, updates: Partial<GenerationAsset>) => {
+    if (id === selectedAssetId) cancelResourceImport();
     setGenerationConfig((prev) => ({
       ...prev,
       assets: prev.assets.map((asset) =>
@@ -136,6 +155,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   // Add asset
   const handleAddAsset = (type: 'solar' | 'wind' | 'generator') => {
+    cancelResourceImport();
     const id = createAssetId(type);
     const newAsset = createDefaultAsset(type, id);
     setGenerationConfig((prev) => ({
@@ -147,6 +167,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   // Duplicate asset
   const handleDuplicateAsset = (asset: GenerationAsset) => {
+    cancelResourceImport();
     const newId = createAssetId(asset.type);
     const duplicate: GenerationAsset = {
       ...asset,
@@ -178,6 +199,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   // Delete asset
   const handleDeleteAsset = (id: string) => {
+    if (id === selectedAssetId) cancelResourceImport();
     setGenerationConfig((prev) => {
       const filtered = prev.assets.filter((a) => a.id !== id);
       if (selectedAssetId === id) {
@@ -195,11 +217,13 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   // Reset to default
   const handleResetToDefault = () => {
+    cancelResourceImport();
     setGenerationConfig(createDefaultGenerationConfig());
     setSelectedAssetId('');
   };
 
   const handleResourceImport = async (file: File) => {
+    const requestId = ++resourceImportRequestId.current;
     setResourceImportMessage('');
     setResourceImportError('');
     setIsImportingResource(true);
@@ -209,43 +233,57 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
       return;
     }
     try {
-      const kind: ExternalResourceKind = activeAsset.type === 'solar' ? 'solar_irradiance' : 'wind_speed';
+      const targetAssetId = activeAsset.id;
+      const targetAssetType = activeAsset.type;
+      const sourceTimeZone = generationConfig.site.timeZone;
+      const kind: ExternalResourceKind = targetAssetType === 'solar' ? 'solar_irradiance' : 'wind_speed';
       const parsed = parseExternalResourceCsv({
         csvContent: await file.text(),
         kind,
-        sourceTimeZone: generationConfig.site.timeZone,
+        sourceTimeZone,
         name: file.name,
       });
+      if (resourceImportRequestId.current !== requestId) return;
       if (!parsed.isValid || !parsed.dataset) {
         setResourceImportError(parsed.errors.join(' '));
         return;
       }
       const dataset = parsed.dataset;
-      setGenerationConfig((previous) => ({
-        ...previous,
-        assets: previous.assets.map((asset) => asset.id === activeAsset.id
-          ? ({
-              ...asset,
-              externalResourceId: dataset.id,
-              resourceMode: asset.type === 'solar' ? 'weather_file' : 'interval_file',
-            } as GenerationAsset)
-          : asset),
-        externalResources: [
-          ...(previous.externalResources ?? []).filter((resource) => resource.id !== dataset.id),
-          dataset,
-        ].filter((resource) =>
-          resource.id === dataset.id || previous.assets.some((asset) =>
-            asset.id !== activeAsset.id && getExternalResourceId(asset) === resource.id
-          )
-        ),
-      }));
-      setResourceImportMessage(
-        `Loaded ${dataset.rowCount.toLocaleString()} intervals from ${dataset.name}.${parsed.warnings.length ? ` ${parsed.warnings.join(' ')}` : ''}`
-      );
+      setGenerationConfig((previous) => {
+        if (
+          resourceImportRequestId.current !== requestId ||
+          !previous.assets.some((asset) => asset.id === targetAssetId)
+        ) return previous;
+        return {
+          ...previous,
+          assets: previous.assets.map((asset) => asset.id === targetAssetId
+            ? ({
+                ...asset,
+                externalResourceId: dataset.id,
+                resourceMode: targetAssetType === 'solar' ? 'weather_file' : 'interval_file',
+              } as GenerationAsset)
+            : asset),
+          externalResources: [
+            ...(previous.externalResources ?? []).filter((resource) => resource.id !== dataset.id),
+            dataset,
+          ].filter((resource) =>
+            resource.id === dataset.id || previous.assets.some((asset) =>
+              asset.id !== targetAssetId && getExternalResourceId(asset) === resource.id
+            )
+          ),
+        };
+      });
+      if (resourceImportRequestId.current === requestId) {
+        setResourceImportMessage(
+          `Loaded ${dataset.rowCount.toLocaleString()} intervals from ${dataset.name}.${parsed.warnings.length ? ` ${parsed.warnings.join(' ')}` : ''}`
+        );
+      }
     } catch (error) {
-      setResourceImportError(error instanceof Error ? error.message : 'Could not read this resource file.');
+      if (resourceImportRequestId.current === requestId) {
+        setResourceImportError(error instanceof Error ? error.message : 'Could not read this resource file.');
+      }
     } finally {
-      setIsImportingResource(false);
+      if (resourceImportRequestId.current === requestId) setIsImportingResource(false);
     }
   };
 
@@ -375,6 +413,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
               min="-90"
               max="90"
               value={generationConfig.site.latitude ?? ''}
+              aria-label="Latitude (degrees north)"
               onChange={(e) =>
                 handleUpdateSite(
                   'latitude',
@@ -397,6 +436,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
               min="-180"
               max="180"
               value={generationConfig.site.longitude ?? ''}
+              aria-label="Longitude (degrees east)"
               onChange={(e) =>
                 handleUpdateSite(
                   'longitude',
@@ -416,6 +456,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
             <input
               type="text"
               value={generationConfig.site.timeZone}
+              aria-label="Site timezone (IANA)"
               onChange={(e) => handleUpdateSite('timeZone', e.target.value)}
               placeholder="America/Los_Angeles"
               className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500 font-mono"
@@ -431,6 +472,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
               type="number"
               step="1"
               value={generationConfig.site.elevationM ?? ''}
+              aria-label="Elevation (meters above mean sea level)"
               onChange={(e) =>
                 handleUpdateSite(
                   'elevationM',
@@ -473,6 +515,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
               <input
                 type="checkbox"
                 checked={allowSolarExport}
+                aria-label="Allow solar and wind export to the grid"
                 onChange={(e) => setAllowSolarExport(e.target.checked)}
                 className="sr-only peer"
               />
@@ -491,7 +534,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
               <span className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
                 Configured Assets ({generationConfig.assets.length})
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 <button
                   onClick={() => handleAddAsset('solar')}
                   title="Add Solar Array"
@@ -530,14 +573,14 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                   return (
                     <div
                       key={asset.id}
-                      onClick={() => setSelectedAssetId(asset.id)}
+                      onClick={() => handleSelectAsset(asset.id)}
                       role="button"
                       tabIndex={0}
                       aria-pressed={isSelected}
                       onKeyDown={(event) => {
                         if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
                           event.preventDefault();
-                          setSelectedAssetId(asset.id);
+                          handleSelectAsset(asset.id);
                         }
                       }}
                       className={`p-3 rounded-lg border cursor-pointer transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 ${
@@ -573,6 +616,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                             <input
                               type="checkbox"
                               checked={asset.enabled}
+                              aria-label={`${asset.name} enabled`}
                               onChange={(e) =>
                                 handleUpdateAsset(asset.id, { enabled: e.target.checked })
                               }
@@ -619,19 +663,22 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                     {activeAsset.type === 'wind' && <Wind className="h-5 w-5" />}
                     {activeAsset.type === 'generator' && <Zap className="h-5 w-5" />}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <input
                       type="text"
                       value={activeAsset.name}
+                      aria-label={`${activeAsset.type} asset name`}
                       onChange={(e) =>
                         handleUpdateAsset(activeAsset.id, { name: e.target.value })
                       }
-                      className="bg-transparent text-base font-semibold text-slate-100 border-b border-transparent hover:border-slate-700 focus:border-emerald-500 focus:outline-none transition-colors px-1"
+                      className="w-40 max-w-full bg-transparent text-base font-semibold text-slate-100 border-b border-transparent hover:border-slate-700 focus:border-emerald-500 focus:outline-none transition-colors px-1"
                     />
                     <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400 font-mono">
                       <span className="uppercase">{activeAsset.type} Asset</span>
                       <span>·</span>
-                      <span>ID: {activeAsset.id}</span>
+                      <span className="max-w-36 truncate" title={activeAsset.id} aria-label={`Asset ID ${activeAsset.id}`}>
+                        ID: {activeAsset.id.slice(0, 8)}…
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -674,6 +721,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                         min="0"
                         step="100"
                         value={activeAsset.installedCostUsd}
+                        aria-label="Generation asset installed cost (US dollars)"
                         onChange={(e) =>
                           handleUpdateAsset(activeAsset.id, {
                             installedCostUsd: Math.max(0, parseFloat(e.target.value) || 0),
@@ -698,6 +746,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                         min="0"
                         step="25"
                         value={activeAsset.annualMaintenanceCostUsd}
+                        aria-label="Generation asset annual maintenance cost (US dollars per year)"
                         onChange={(e) =>
                           handleUpdateAsset(activeAsset.id, {
                             annualMaintenanceCostUsd: Math.max(0, parseFloat(e.target.value) || 0),
@@ -770,6 +819,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
               min="0"
               step="0.1"
               value={asset.dcCapacityKw}
+              aria-label="Nameplate DC capacity (kW DC)"
               onChange={(e) =>
                 onUpdate({ dcCapacityKw: Math.max(0, parseFloat(e.target.value) || 0) })
               }
@@ -788,6 +838,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
               min="0"
               step="0.1"
               value={asset.inverterAcCapacityKw}
+              aria-label="Inverter AC capacity (kW AC)"
               onChange={(e) =>
                 onUpdate({ inverterAcCapacityKw: Math.max(0, parseFloat(e.target.value) || 0) })
               }
@@ -807,6 +858,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
               max="100"
               step="0.1"
               value={asset.inverterEfficiencyPercent}
+              aria-label="Inverter efficiency (percent)"
               onChange={(e) =>
                 onUpdate({
                   inverterEfficiencyPercent: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)),
@@ -827,6 +879,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
               max="90"
               step="1"
               value={asset.tiltDegrees}
+              aria-label="Solar array tilt angle (degrees)"
               onChange={(e) =>
                 onUpdate({
                   tiltDegrees: Math.min(90, Math.max(0, parseFloat(e.target.value) || 0)),
@@ -847,6 +900,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
               max="359"
               step="1"
               value={asset.azimuthDegrees}
+              aria-label="Solar array azimuth angle (degrees)"
               onChange={(e) =>
                 onUpdate({
                   azimuthDegrees: Math.min(359, Math.max(0, parseFloat(e.target.value) || 0)),
@@ -867,6 +921,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
               max="10"
               step="0.05"
               value={asset.annualDegradationPercent}
+              aria-label="Annual photovoltaic degradation (percent per year)"
               onChange={(e) =>
                 onUpdate({
                   annualDegradationPercent: Math.max(0, parseFloat(e.target.value) || 0),
@@ -887,6 +942,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
               max="50"
               step="0.5"
               value={asset.systemLossPercent}
+              aria-label="System loss (percent)"
               onChange={(e) =>
                 onUpdate({
                   systemLossPercent: Math.max(0, parseFloat(e.target.value) || 0),
@@ -907,6 +963,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
               max="100"
               step="0.5"
               value={asset.shadingLossPercent}
+              aria-label="Solar shading loss (percent)"
               onChange={(e) =>
                 onUpdate({
                   shadingLossPercent: Math.max(0, parseFloat(e.target.value) || 0),
@@ -957,6 +1014,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
                   <input
                     type="radio"
                     name={`solar-resource-mode-${asset.id}`}
+                    aria-label={mode.title}
                     checked={isSelected}
                     onChange={() => onUpdate({ resourceMode: mode.id })}
                     className="accent-amber-500"
@@ -991,6 +1049,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
                     max="14"
                     step="0.1"
                     value={asset.monthlyPeakSunHoursPerDay[idx] ?? 0}
+                    aria-label={`${MONTH_NAMES[idx]} peak sun hours per day`}
                     onChange={(e) => {
                       const updated = [...asset.monthlyPeakSunHoursPerDay];
                       updated[idx] = Math.max(0, parseFloat(e.target.value) || 0);
@@ -1081,6 +1140,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               min="0"
               step="0.1"
               value={asset.ratedPowerKw}
+              aria-label="Rated wind turbine power (kW)"
               onChange={(e) =>
                 onUpdate({ ratedPowerKw: Math.max(0, parseFloat(e.target.value) || 0) })
               }
@@ -1099,6 +1159,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               min="1"
               step="1"
               value={asset.hubHeightM}
+              aria-label="Wind turbine hub height (meters)"
               onChange={(e) =>
                 onUpdate({ hubHeightM: Math.max(1, parseFloat(e.target.value) || 0) })
               }
@@ -1116,6 +1177,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               min="0.5"
               step="0.5"
               value={asset.rotorDiameterM}
+              aria-label="Wind turbine rotor diameter (meters)"
               onChange={(e) =>
                 onUpdate({ rotorDiameterM: Math.max(0.5, parseFloat(e.target.value) || 0) })
               }
@@ -1133,6 +1195,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               min="0"
               step="0.1"
               value={asset.cutInWindSpeedMps}
+              aria-label="Wind turbine cut-in wind speed (meters per second)"
               onChange={(e) =>
                 onUpdate({ cutInWindSpeedMps: Math.max(0, parseFloat(e.target.value) || 0) })
               }
@@ -1150,6 +1213,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               min="1"
               step="0.1"
               value={asset.ratedWindSpeedMps}
+              aria-label="Wind turbine rated wind speed (meters per second)"
               onChange={(e) =>
                 onUpdate({ ratedWindSpeedMps: Math.max(1, parseFloat(e.target.value) || 0) })
               }
@@ -1167,6 +1231,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               min="1"
               step="0.5"
               value={asset.cutOutWindSpeedMps}
+              aria-label="Wind turbine cut-out wind speed (meters per second)"
               onChange={(e) =>
                 onUpdate({ cutOutWindSpeedMps: Math.max(1, parseFloat(e.target.value) || 0) })
               }
@@ -1185,6 +1250,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               max="100"
               step="0.5"
               value={asset.availabilityPercent}
+              aria-label="Wind turbine operational availability (percent)"
               onChange={(e) =>
                 onUpdate({
                   availabilityPercent: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)),
@@ -1205,6 +1271,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               max="50"
               step="0.5"
               value={asset.systemLossPercent}
+              aria-label="System loss (percent)"
               onChange={(e) =>
                 onUpdate({
                   systemLossPercent: Math.max(0, parseFloat(e.target.value) || 0),
@@ -1225,6 +1292,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
               max="0.5"
               step="0.01"
               value={asset.windShearExponent}
+              aria-label="Wind shear exponent (unitless)"
               onChange={(e) =>
                 onUpdate({
                   windShearExponent: Math.max(0.01, parseFloat(e.target.value) || 0),
@@ -1294,6 +1362,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
                   <input
                     type="radio"
                     name={`wind-resource-mode-${asset.id}`}
+                    aria-label={mode.title}
                     checked={isSelected}
                     disabled={isDisabled}
                     onChange={() => {
@@ -1330,6 +1399,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
                 min="0"
                 step="0.1"
                 value={asset.annualAverageWindSpeedMps ?? ''}
+                aria-label="Annual average wind speed (meters per second)"
                 onChange={(e) =>
                   onUpdate({
                     annualAverageWindSpeedMps:
@@ -1365,6 +1435,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
                     min="0"
                     step="0.1"
                     value={asset.monthlyAverageWindSpeedMps[idx] ?? 0}
+                    aria-label={`${MONTH_NAMES[idx]} average wind speed (meters per second)`}
                     onChange={(e) => {
                       const updated = [...asset.monthlyAverageWindSpeedMps];
                       updated[idx] = Math.max(0, parseFloat(e.target.value) || 0);
@@ -1430,6 +1501,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
                         min="0"
                         step="0.5"
                         value={point.windSpeedMps}
+                        aria-label={`Wind power curve point ${idx + 1} wind speed (meters per second)`}
                         onChange={(e) =>
                           handleUpdateCurvePoint(
                             idx,
@@ -1446,6 +1518,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
                         min="0"
                         step="0.1"
                         value={point.outputKw}
+                        aria-label={`Wind power curve point ${idx + 1} output power (kW)`}
                         onChange={(e) =>
                           handleUpdateCurvePoint(
                             idx,
@@ -1537,6 +1610,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
               min="0"
               step="0.5"
               value={asset.ratedContinuousKw}
+              aria-label="Generator rated continuous power (kW)"
               onChange={(e) =>
                 onUpdate({
                   ratedContinuousKw: Math.max(0, parseFloat(e.target.value) || 0),
@@ -1558,6 +1632,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
               max="90"
               step="5"
               value={asset.minimumStableLoadPercent}
+              aria-label="Generator minimum stable load (percent)"
               onChange={(e) =>
                 onUpdate({
                   minimumStableLoadPercent: Math.min(
@@ -1640,6 +1715,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
                 min="0"
                 step="0.05"
                 value={asset.fuelPricePerUnit}
+                aria-label={`Fuel price (US dollars per ${asset.fuelUnit === 'custom' && asset.customFuelUnitLabel ? asset.customFuelUnitLabel : asset.fuelUnit})`}
                 onChange={(e) =>
                   onUpdate({
                     fuelPricePerUnit: Math.max(0, parseFloat(e.target.value) || 0),
@@ -1665,6 +1741,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
                 min="0"
                 step="0.25"
                 value={asset.variableMaintenanceCostPerHourUsd}
+                aria-label="Generator variable maintenance cost (US dollars per operating hour)"
                 onChange={(e) =>
                   onUpdate({
                     variableMaintenanceCostPerHourUsd: Math.max(0, parseFloat(e.target.value) || 0),
@@ -1687,6 +1764,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
                 min="0"
                 step="0.05"
                 value={asset.startupFuelUnits ?? 0}
+                aria-label={`Generator startup fuel (${asset.fuelUnit === 'custom' && asset.customFuelUnitLabel ? asset.customFuelUnitLabel : asset.fuelUnit} per start)`}
                 onChange={(e) =>
                   onUpdate({
                     startupFuelUnits: Math.max(0, parseFloat(e.target.value) || 0),
@@ -1918,6 +1996,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
                         max="100"
                         step="5"
                         value={point.loadPercent}
+                        aria-label={`Fuel curve point ${idx + 1} load (percent of rated power)`}
                         onChange={(e) =>
                           handleUpdateFuelPoint(
                             idx,
@@ -1934,6 +2013,7 @@ const GeneratorAssetConfigurator: React.FC<GeneratorConfiguratorProps> = ({ asse
                         min="0"
                         step="0.1"
                         value={point.fuelUnitsPerHour}
+                        aria-label={`Fuel curve point ${idx + 1} consumption (${asset.fuelUnit} per hour)`}
                         onChange={(e) =>
                           handleUpdateFuelPoint(
                             idx,

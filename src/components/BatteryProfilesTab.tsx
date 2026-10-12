@@ -253,6 +253,7 @@ export const BatteryProfilesTab: React.FC<BatteryProfilesTabProps> = ({
                 min="1"
                 max="100"
                 value={currentProfile.totalCapacityKwh}
+                aria-label="Total storage capacity (kWh)"
                 onChange={(e) => handleUpdateCurrent('totalCapacityKwh', parseFloat(e.target.value) || 0)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-sm font-bold text-emerald-400 font-mono tabular-nums focus:outline-none focus:border-emerald-500"
               />
@@ -276,6 +277,7 @@ export const BatteryProfilesTab: React.FC<BatteryProfilesTabProps> = ({
                 min="50"
                 max="100"
                 value={currentProfile.usableDodPercent}
+                aria-label="Usable depth of discharge (percent)"
                 onChange={(e) => handleUpdateCurrent('usableDodPercent', parseFloat(e.target.value) || 0)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-sm font-bold text-emerald-400 font-mono tabular-nums focus:outline-none focus:border-emerald-500"
               />
@@ -299,6 +301,7 @@ export const BatteryProfilesTab: React.FC<BatteryProfilesTabProps> = ({
                 min="0.5"
                 max="50"
                 value={currentProfile.maxContinuousOutputKw}
+                aria-label="Maximum continuous output power (kW)"
                 onChange={(e) => handleUpdateCurrent('maxContinuousOutputKw', parseFloat(e.target.value) || 0)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-sm font-bold text-amber-300 font-mono tabular-nums focus:outline-none focus:border-emerald-500"
               />
@@ -322,6 +325,7 @@ export const BatteryProfilesTab: React.FC<BatteryProfilesTabProps> = ({
                 min="0.5"
                 max="50"
                 value={currentProfile.maxContinuousChargeKw}
+                aria-label="Maximum continuous charge power (kW)"
                 onChange={(e) => handleUpdateCurrent('maxContinuousChargeKw', parseFloat(e.target.value) || 0)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-sm font-bold text-cyan-300 font-mono tabular-nums focus:outline-none focus:border-emerald-500"
               />
@@ -345,6 +349,7 @@ export const BatteryProfilesTab: React.FC<BatteryProfilesTabProps> = ({
                 min="70"
                 max="98"
                 value={currentProfile.roundTripEfficiencyPercent}
+                aria-label="Round-trip efficiency (percent)"
                 onChange={(e) => handleUpdateCurrent('roundTripEfficiencyPercent', parseFloat(e.target.value) || 0)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-sm font-bold text-slate-100 font-mono tabular-nums focus:outline-none focus:border-emerald-500"
               />
@@ -368,6 +373,7 @@ export const BatteryProfilesTab: React.FC<BatteryProfilesTabProps> = ({
                 min="1000"
                 max="15000"
                 value={currentProfile.ratedCycleLife}
+                aria-label="Manufacturer rated cycle life (cycles)"
                 onChange={(e) => handleUpdateCurrent('ratedCycleLife', parseInt(e.target.value, 10) || 0)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-sm font-bold text-slate-100 font-mono tabular-nums focus:outline-none focus:border-emerald-500"
               />
@@ -399,6 +405,7 @@ export const BatteryProfilesTab: React.FC<BatteryProfilesTabProps> = ({
                 min="500"
                 max="100000"
                 value={currentProfile.installedCost}
+                aria-label="Total installed hardware and labor cost (US dollars)"
                 onChange={(e) => handleUpdateCurrent('installedCost', parseFloat(e.target.value) || 0)}
                 className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-7 pr-3 py-1.5 text-sm font-bold text-slate-100 font-mono tabular-nums focus:outline-none focus:border-emerald-500"
               />

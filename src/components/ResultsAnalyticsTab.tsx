@@ -2602,6 +2602,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                   max="25"
                   step="1"
                   value={projectionHorizon}
+                  aria-label="Projection horizon (years)"
                   onChange={(e) => setProjectionHorizon(parseInt(e.target.value, 10))}
                   className="w-full accent-emerald-500 cursor-pointer"
                 />
@@ -2861,6 +2862,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 max="25"
                 step="1"
                 value={projectionHorizon}
+                aria-label="Projection horizon (years)"
                 onChange={(e) => setProjectionHorizon(parseInt(e.target.value, 10))}
                 className="w-full accent-emerald-500 cursor-pointer"
               />

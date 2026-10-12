@@ -794,7 +794,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
               Strict schema required: <code className="text-emerald-400 font-mono">Day, Hour of Day, Hourly Total, Daily Total, Unit of Measurement</code>
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleDownloadTemplate}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-lg transition-colors whitespace-nowrap"
@@ -910,6 +910,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
             type="file"
             accept=".csv"
             className="hidden"
+            aria-label="Upload interval load CSV"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
                 onFileUpload(e.target.files[0]);
@@ -974,7 +975,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                 </div>
 
                 {csvResult.errors.length > 0 && (
-                  <ul className="list-disc list-inside text-xs text-rose-300 space-y-0.5 mt-2 bg-rose-950/40 p-2.5 rounded border border-rose-500/20 font-mono">
+                  <ul role="alert" aria-live="assertive" className="list-disc list-inside text-xs text-rose-300 space-y-0.5 mt-2 bg-rose-950/40 p-2.5 rounded border border-rose-500/20 font-mono">
                     {csvResult.errors.slice(0, 5).map((err, idx) => (
                       <li key={idx}>{err}</li>
                     ))}
@@ -1143,7 +1144,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
               Define month ranges (e.g. Summer vs. Winter rates), manage price tiers, and assign tiers across the unified 168-hour schedule.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleDuplicateTouProfile}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-lg transition-colors whitespace-nowrap"
@@ -1559,6 +1560,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                                   step="0.01"
                                   min="0"
                                   value={seasonRate.buyRate}
+                                  aria-label={`${currentTouProfile.name}, ${currentActiveSeason.name}, ${tier.name} buy rate (US dollars per kWh)`}
                                   onChange={(e) =>
                                     handleUpdateSeasonTierRate(
                                       currentActiveSeason.id,
@@ -1582,6 +1584,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                                   step="0.01"
                                   min="0"
                                   value={seasonRate.sellRate}
+                                  aria-label={`${currentTouProfile.name}, ${currentActiveSeason.name}, ${tier.name} sell rate (US dollars per kWh)`}
                                   onChange={(e) =>
                                     handleUpdateSeasonTierRate(
                                       currentActiveSeason.id,
@@ -1770,6 +1773,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                           step="0.01"
                           min="0"
                           value={tier.buyRate}
+                          aria-label={`${currentTouProfile.name}, ${tier.name} base buy rate (US dollars per kWh)`}
                           onChange={(e) =>
                             handleUpdateTier(tier.id, 'buyRate', parseFloat(e.target.value) || 0)
                           }
@@ -1788,6 +1792,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                           step="0.01"
                           min="0"
                           value={tier.sellRate}
+                          aria-label={`${currentTouProfile.name}, ${tier.name} base sell rate (US dollars per kWh)`}
                           onChange={(e) =>
                             handleUpdateTier(tier.id, 'sellRate', parseFloat(e.target.value) || 0)
                           }
