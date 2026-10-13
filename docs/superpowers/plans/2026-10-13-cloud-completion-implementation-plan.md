@@ -93,12 +93,12 @@ The snapshot needs these corrections when execution starts:
 - Consumes: C0 candidate SHA and the authoritative G7 source, if supplied; otherwise the clearly labeled transcribed 40-point appendix.
 - Produces: a 40-row PASS / FAIL / NOT VERIFIED crosswalk, exact requirement source/heading, test and code links, evidence SHA, limitations, and unsigned owner-approval field for C4 to finalize.
 
-- [ ] **Step 1: Locate and read the actual G7 source.** Search current repo/history and request the exact project file from the owner if unavailable. Until received, label each crosswalk row “based on supplied transcription; source not independently reviewed” and do not claim exact-source verification.
-- [ ] **Step 2: Map criteria 1–40 individually** to a test name/path and source contract. Cover parser/time/DST/alignment, solar and wind physics, mixed and multiple assets, G6/no-generation compatibility, conservation, projection/finance, UI, compact exports, and full Vitest/TypeScript/build criteria.
-- [ ] **Step 3: Run only suites needed to settle uncertain rows.** Name a missing/invalid test as NOT VERIFIED rather than infer PASS from nearby coverage or CI. Add a focused regression only for a requirement that is both in G7 and actually uncovered.
-- [ ] **Step 4: Check all §28 categories and §37 verdict labels** against the source. Ensure no claim of calibration, future weather, bill accuracy, certification, or advice exceeds the tested model contract.
-- [ ] **Step 5: Add an unsigned audit template bound to the current candidate SHA.** Reserve final full-suite status and human/product-owner sign-off for C4; do not pre-fill those as passing.
-- [ ] **Step 6: Commit the 40-item evidence record and any necessary focused G7 test** after the named focused tests pass.
+- [x] **Step 1: Locate and read the actual G7 source.** Search current repo/history and request the exact project file from the owner if unavailable. Until received, label each crosswalk row “based on supplied transcription; source not independently reviewed” and do not claim exact-source verification.
+- [x] **Step 2: Map criteria 1–40 individually** to a test name/path and source contract. Cover parser/time/DST/alignment, solar and wind physics, mixed and multiple assets, G6/no-generation compatibility, conservation, projection/finance, UI, compact exports, and full Vitest/TypeScript/build criteria.
+- [x] **Step 3: Run only suites needed to settle uncertain rows.** Name a missing/invalid test as NOT VERIFIED rather than infer PASS from nearby coverage or CI. Add a focused regression only for a requirement that is both in G7 and actually uncovered.
+- [x] **Step 4: Check all §28 categories and §37 verdict labels** against the source. Ensure no claim of calibration, future weather, bill accuracy, certification, or advice exceeds the tested model contract.
+- [x] **Step 5: Add an unsigned audit template bound to the current candidate SHA.** Reserve final full-suite status and human/product-owner sign-off for C4; do not pre-fill those as passing.
+- [x] **Step 6: Commit the 40-item evidence record and any necessary focused G7 test** after the named focused tests pass.
 
 **Acceptance:** All 40 items have an individual defensible verdict; the audit names its actual source and evidence SHA; missing original source or owner approval stays explicit. No full G7 PASS is possible before C4.
 
@@ -112,13 +112,13 @@ The snapshot needs these corrections when execution starts:
 - Consumes: C1 regression results and C2's bounded evidence language.
 - Produces: verified cloud CI configuration, accurate supported-browser/performance claims, and a local static artifact check ready for C4.
 
-- [ ] **Step 1: Cross-check Chromium journeys against the roadmap list.** Verify fresh timezone setup; load/resource valid-invalid imports; 2024 boundaries; archive caps/recovery; save/open/recalculate; unsaved warnings; result/export parity; keyboard/readiness/accessibility basics; mixed solar/wind/generator. Reuse current tests and add no journey without a demonstrated missing contract.
-- [ ] **Step 2: Inspect both workflows** for pinned actions, frozen lockfile, exact quality/audit/review/secret-scan jobs and release version/tag/SHA/checksum validation. Record the exact workflow path and job names; do not weaken gates to work around unavailable credentials.
-- [ ] **Step 3: Make at most one bounded Firefox attempt** only if a compatible browser install path is available. If launch is blocked, retain `INSTALLATION BLOCKED`; do not claim Firefox passed or make a persistently unavailable browser a required check.
-- [ ] **Step 4: Align performance and release docs to measured evidence.** Preserve the distinction between disabled-resource archive round trip and active measured mixed generation. Do not describe Node/tsx numbers as equivalent to Bun/browser measurements or imply a low-memory guarantee.
-- [ ] **Step 5: Confirm the static output is buildable during C4** and that runbook tag/version/SHA/checksum steps match `release.yml`. Do not tag or upload an artifact in this task.
-- [ ] **Step 6: Run focused YAML/config parsing or browser tests only when a relevant file changed** and record all platform-blocked checks.
-- [ ] **Step 7: Commit any evidence-backed workflow/test/doc correction** after its focused verification; if the review finds no gap, record that finding without an unnecessary source commit.
+- [x] **Step 1: Cross-check Chromium journeys against the roadmap list.** Verify fresh timezone setup; load/resource valid-invalid imports; 2024 boundaries; archive caps/recovery; save/open/recalculate; unsaved warnings; result/export parity; keyboard/readiness/accessibility basics; mixed solar/wind/generator. Reuse current tests and add no journey without a demonstrated missing contract.
+- [x] **Step 2: Inspect both workflows** for pinned actions, frozen lockfile, exact quality/audit/review/secret-scan jobs and release version/tag/SHA/checksum validation. Record the exact workflow path and job names; do not weaken gates to work around unavailable credentials.
+- [x] **Step 3: Make at most one bounded Firefox attempt** only if a compatible browser install path is available. If launch is blocked, retain `INSTALLATION BLOCKED`; do not claim Firefox passed or make a persistently unavailable browser a required check.
+- [x] **Step 4: Align performance and release docs to measured evidence.** Preserve the distinction between disabled-resource archive round trip and active measured mixed generation. Do not describe Node/tsx numbers as equivalent to Bun/browser measurements or imply a low-memory guarantee.
+- [x] **Step 5: Confirm the static output is buildable during C4** and that runbook tag/version/SHA/checksum steps match `release.yml`. Do not tag or upload an artifact in this task.
+- [x] **Step 6: Run focused YAML/config parsing or browser tests only when a relevant file changed** and record all platform-blocked checks.
+- [x] **Step 7: Commit any evidence-backed workflow/test/doc correction** after its focused verification; if the review finds no gap, record that finding without an unnecessary source commit.
 
 **Acceptance:** CI/release source matches its documented checks, browser support claims match actual evidence, and no deployment or publication occurred.
 
