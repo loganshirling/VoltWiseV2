@@ -542,7 +542,7 @@ export interface GenerationExportSolarArray {
 export interface GenerationExportWindTurbine {
   id: string;
   name: string;
-  resource_mode: 'annual_average' | 'monthly_average';
+  resource_mode: 'annual_average' | 'monthly_average' | 'interval_file';
   rated_power_kw: number;
   hub_height_m: number;
   rotor_diameter_m: number;
@@ -600,6 +600,7 @@ export interface GenerationExportAnnualProjectionRow {
   battery_usable_capacity_kwh: number;
   baseline_electricity_cost_usd: number;
   modeled_project_electricity_cost_usd: number;
+  /** Legacy key: avoided utility-bill amount; generator costs are shown separately as net operational value. */
   electricity_savings_usd: number;
   generation_om_usd: number;
   replacement_expense_usd: number;
@@ -856,6 +857,9 @@ export interface GenerationLlmExportPayload {
     horizon_net_present_value_usd: number;
     horizon_cumulative_project_cash_flow_usd: number;
     horizon_cumulative_electricity_savings_usd: number;
+    horizon_cumulative_utility_electricity_savings_usd: number;
+    horizon_cumulative_net_operational_savings_usd: number;
+    horizon_cumulative_generator_operating_cost_usd: number;
     horizon_generation_maintenance_usd: number;
     horizon_replacement_expenses_usd: number;
     horizon_loan_payments_usd: number;
@@ -935,13 +939,12 @@ export function canExportGenerationProjectionsJson(
   if (generationConfig?.assets && Array.isArray(generationConfig.assets)) {
     const hasUnsupportedAsset = generationConfig.assets.some((a) => {
       if (!a || !a.enabled) return false;
-      if (a.type === 'solar' && (a as SolarGenerationAsset).resourceMode === 'weather_file') return true;
       if (a.type === 'wind') {
         const windAsset = a as WindGenerationAsset;
-        if (windAsset.resourceMode === 'interval_file') return true;
         if (
           windAsset.resourceMode !== 'annual_average' &&
-          windAsset.resourceMode !== 'monthly_average'
+          windAsset.resourceMode !== 'monthly_average' &&
+          windAsset.resourceMode !== 'interval_file'
         ) {
           return true;
         }
@@ -998,17 +1001,14 @@ export function buildGenerationExportLlmJson(
   for (const asset of enabledAssets) {
     if (asset.type === 'wind') {
       const windAsset = asset as WindGenerationAsset;
-      if (windAsset.resourceMode === 'interval_file') {
-        throw new Error('Measured wind intervals support simulation for the imported period only, not multi-year generation export.');
-      }
-      if (windAsset.resourceMode !== 'annual_average' && windAsset.resourceMode !== 'monthly_average') {
+      if (
+        windAsset.resourceMode !== 'annual_average' &&
+        windAsset.resourceMode !== 'monthly_average' &&
+        windAsset.resourceMode !== 'interval_file'
+      ) {
         throw new Error(`Unsupported wind resource mode: ${windAsset.resourceMode}`);
       }
     }
-  }
-
-  if (enabledAssets.some((asset) => asset.type === 'solar' && asset.resourceMode === 'weather_file')) {
-    throw new Error('Measured solar intervals support simulation for the imported period only, not multi-year generation export.');
   }
 
   const enabledSolarAssets = enabledAssets.filter(
@@ -1158,7 +1158,7 @@ export function buildGenerationExportLlmJson(
       battery_usable_capacity_kwh: opYear.batteryUsableCapacityKwh,
       baseline_electricity_cost_usd: finYear.baselineElectricityCostUsd,
       modeled_project_electricity_cost_usd: finYear.modeledProjectElectricityCostUsd,
-      electricity_savings_usd: finYear.electricitySavingsUsd,
+      electricity_savings_usd: finYear.utilityElectricitySavingsUsd ?? finYear.electricitySavingsUsd,
       generation_om_usd: finYear.generationMaintenanceUsd,
       replacement_expense_usd: finYear.replacementExpenseUsd,
       annual_loan_payment_usd: finYear.annualLoanPaymentUsd,
@@ -1453,6 +1453,9 @@ export function buildGenerationExportLlmJson(
       horizon_net_present_value_usd: horizonSummary.netPresentValue,
       horizon_cumulative_project_cash_flow_usd: horizonSummary.cumulativeCashFlow,
       horizon_cumulative_electricity_savings_usd: horizonSummary.cumulativeElectricitySavings,
+      horizon_cumulative_utility_electricity_savings_usd: horizonSummary.cumulativeUtilityElectricitySavings ?? horizonSummary.cumulativeElectricitySavings,
+      horizon_cumulative_net_operational_savings_usd: horizonSummary.cumulativeNetOperationalSavings ?? horizonSummary.cumulativeElectricitySavings,
+      horizon_cumulative_generator_operating_cost_usd: horizonSummary.cumulativeGeneratorOperatingCost ?? 0,
       horizon_generation_maintenance_usd: horizonSummary.totalGenerationMaintenance,
       horizon_replacement_expenses_usd: horizonSummary.totalReplacementExpense,
       horizon_loan_payments_usd: horizonSummary.totalLoanPayments,

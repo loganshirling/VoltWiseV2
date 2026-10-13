@@ -4,8 +4,16 @@ import {
   parseSolarIrradianceCsv,
   parseWindSpeedCsv,
 } from '../utils/externalResourceParser';
+import { MAX_INTERVALS_PER_DATASET } from '../utils/importLimits';
 
 describe('G7A — External Resource CSV Parser', () => {
+  it('rejects resource curves above the supported interval ceiling before row parsing', () => {
+    const csv = ['timestamp,wind_speed_mps', ...Array.from({ length: MAX_INTERVALS_PER_DATASET + 1 }, () => 'row')].join('\n');
+    const result = parseWindSpeedCsv(csv);
+    expect(result.isValid).toBe(false);
+    expect(result.dataset).toBeUndefined();
+    expect(result.errors.join(' ')).toMatch(/35,040 intervals/i);
+  });
   describe('1. Valid Ingestion & Schema Support', () => {
     it('parses a valid solar CSV with hourly intervals', () => {
       const csv = [
@@ -285,10 +293,11 @@ describe('G7A — External Resource CSV Parser', () => {
         '2026-11-01T01:30:00-05:00,6.0',
       ].join('\n');
 
-      const result = parseWindSpeedCsv(csv, { sourceTimeZone: 'America/New_York' });
+      const result = parseWindSpeedCsv(csv, { sourceTimeZone: 'America/Los_Angeles' });
       expect(result.isValid).toBe(true);
       expect(result.dataset?.records[0].timestampUtc).toBe('2026-11-01T05:30:00.000Z');
       expect(result.dataset?.records[1].timestampUtc).toBe('2026-11-01T06:30:00.000Z');
+      expect(result.dataset?.sourceTimeZone).toBe('America/Los_Angeles');
     });
   });
 

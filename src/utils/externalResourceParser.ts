@@ -18,6 +18,7 @@ import {
   WindSpeedRecord,
 } from '../types/energy';
 import { isValidIanaTimeZone, resolveTimestampToUtc } from './loadTimeAlignment';
+import { MAX_INTERVALS_PER_DATASET } from './importLimits';
 
 const MAX_VALIDATION_ERRORS = 25;
 const SPACING_TOLERANCE_MS = 1000;
@@ -173,6 +174,10 @@ export function parseExternalResourceCsv(
   if (rawLines.length < 3) {
     errors.push('CSV must contain a header row and at least two data rows.');
     return createFailureResult(rawLines.length > 1 ? rawLines.length - 1 : 0);
+  }
+  if (rawLines.length - 1 > MAX_INTERVALS_PER_DATASET) {
+    errors.push(`The resource file contains more than ${MAX_INTERVALS_PER_DATASET.toLocaleString()} intervals. Split the data into smaller files.`);
+    return createFailureResult(rawLines.length - 1);
   }
 
   // Validate header

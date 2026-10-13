@@ -123,7 +123,59 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
   // No-Generation Parity Tests (The Critical Acceptance Gate)
   // ==========================================================================
   describe('No-Generation Parity Gate (Legacy Exact Match)', () => {
-    it('1. default empty GenerationConfig with empty site.timeZone matches runAnnualSimulation exactly', () => {
+    it('uses site-local TOU and seasonal coordinates identically across host zones and execution paths', () => {
+      const dataPoints = ['2025-01-01T04:00:00Z', '2025-01-01T05:00:00Z'].map((timestamp) => ({
+        ...createHourlyDataPoints(1)[0], timestamp,
+      }));
+      const schedule = createScheduleMatrix();
+      schedule[2][23] = 'on-peak'; // Detroit: Tuesday 23:00, Dec 31
+      const seasons: TouSeason[] = [
+        { id: 'winter', name: 'December', months: [11], tierRates: {
+          'off-peak': { buyRate: 0.31, sellRate: 0.03 },
+          'on-peak': { buyRate: 0.61, sellRate: 0.04 },
+        } },
+        { id: 'new-year', name: 'January', months: [0], tierRates: {
+          'off-peak': { buyRate: 0.22, sellRate: 0.02 },
+          'on-peak': { buyRate: 0.52, sellRate: 0.05 },
+        } },
+      ];
+      const tiers = defaultTiers;
+      const config = (withSolar: boolean): GenerationConfig => ({
+        site: { ...baseSite, timeZone: 'America/Detroit' },
+        assets: withSolar ? [createSolarAsset()] : [],
+      });
+      const originalTz = process.env.TZ;
+      try {
+        const hostResults = ['America/Los_Angeles', 'Asia/Tokyo'].map((hostZone) => {
+          process.env.TZ = hostZone;
+          const legacy = runUnifiedSimulation({ dataPoints, intervalHours: 1, tiers, scheduleMatrix: schedule,
+            batteryProfile: createTestBattery(), seasons, generationConfig: config(false), allowSolarExport: false });
+          const generation = runUnifiedSimulation({ dataPoints, intervalHours: 1, tiers, scheduleMatrix: schedule,
+            batteryProfile: createTestBattery(), seasons, generationConfig: config(true), allowSolarExport: true });
+          return {
+            legacy: legacy.annualSummary.intervalResults.map(({ tierId, buyRate, baselineCost }) => ({ tierId, buyRate, baselineCost })),
+            generation: generation.generationAwareResult!.tariffCosts.intervals.map(({ tierId, buyRate }) => ({ tierId, buyRate })),
+            legacyTotal: legacy.annualSummary.baselineAnnualCost,
+            generationTotal: generation.annualSummary.baselineAnnualCost,
+          };
+        });
+        expect(hostResults[0]).toEqual(hostResults[1]);
+        expect(hostResults[0].legacyTotal).toBe(hostResults[0].generationTotal);
+        expect(hostResults[0].legacy.map(({ baselineCost }) => baselineCost)).toEqual([0.915, 0.33]);
+        expect(hostResults[0].legacy.map(({ tierId, buyRate }) => ({ tierId, buyRate }))).toEqual([
+          { tierId: 'on-peak', buyRate: 0.61 },
+          { tierId: 'off-peak', buyRate: 0.22 },
+        ]);
+        expect(hostResults[0].generation.map(({ tierId, buyRate }) => ({ tierId, buyRate })))
+          .toEqual(hostResults[0].legacy.map(({ tierId, buyRate }) => ({ tierId, buyRate })));
+        expect(hostResults[0].legacyTotal).toBe(1.25);
+      } finally {
+        if (originalTz === undefined) delete process.env.TZ;
+        else process.env.TZ = originalTz;
+      }
+    });
+
+    it('1. rejects a missing site.timeZone before routing the legacy path', () => {
       const dataPoints = createHourlyDataPoints(48);
       const schedule = createScheduleMatrix();
       const battery = createTestBattery();
@@ -137,7 +189,7 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
         assets: [],
       };
 
-      const unifiedResult = runUnifiedSimulation({
+      expect(() => runUnifiedSimulation({
         dataPoints,
         intervalHours: 1,
         tiers: defaultTiers,
@@ -145,19 +197,7 @@ describe('G3R — Production Simulation Router & No-Generation Parity Gate', () 
         batteryProfile: battery,
         generationConfig: emptyConfig,
         allowSolarExport: false,
-      });
-
-      const legacyResult = runAnnualSimulation(
-        dataPoints,
-        1,
-        defaultTiers,
-        schedule,
-        battery
-      );
-
-      expect(unifiedResult.mode).toBe('legacy');
-      expect(unifiedResult.generationAwareResult).toBeUndefined();
-      expect(unifiedResult.annualSummary).toEqual(legacyResult);
+      })).toThrow(/invalid iana timezone/i);
     });
 
     it('2. all assets disabled routes to legacy and matches runAnnualSimulation exactly', () => {

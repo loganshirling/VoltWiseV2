@@ -57,6 +57,19 @@ export const BatteryProfilesTab: React.FC<BatteryProfilesTabProps> = ({
   const currentProfile = profiles.find((p) => p.id === activeProfileId) || profiles[0];
 
   const handleUpdateCurrent = (field: keyof BatteryProfile, value: any) => {
+    const numericBounds: Partial<Record<keyof BatteryProfile, [number, number]>> = {
+      totalCapacityKwh: [1, 100],
+      usableDodPercent: [50, 100],
+      maxContinuousOutputKw: [0.5, 50],
+      maxContinuousChargeKw: [0.5, 50],
+      roundTripEfficiencyPercent: [70, 98],
+      ratedCycleLife: [1_000, 15_000],
+      installedCost: [500, 100_000],
+    };
+    const bounds = numericBounds[field];
+    if (bounds && typeof value === 'number' && Number.isFinite(value)) {
+      value = Math.max(bounds[0], Math.min(bounds[1], value));
+    }
     setProfiles((prev) =>
       prev.map((p) => (p.id === currentProfile.id ? { ...p, [field]: value } : p))
     );

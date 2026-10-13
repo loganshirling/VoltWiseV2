@@ -1,16 +1,23 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Download, FolderOpen } from 'lucide-react';
 import { ProjectArchiveState, ValidatedProjectState } from '../types/energy';
 import { parseProjectArchive, serializeProjectArchive } from '../utils/projectArchive';
+import { MAX_PROJECT_ARCHIVE_BYTES } from '../utils/importLimits';
 
 interface ProjectFileControlsProps {
   projectState: ProjectArchiveState;
   onProjectLoaded: (project: ValidatedProjectState) => void;
+  onProjectOpening: () => void;
+  getIsDirty: () => boolean;
+  onProjectSaved: (state: ProjectArchiveState) => void;
 }
 
-export const ProjectFileControls: React.FC<ProjectFileControlsProps> = ({ projectState, onProjectLoaded }) => {
+export const ProjectFileControls: React.FC<ProjectFileControlsProps> = ({ projectState, onProjectLoaded, onProjectOpening, getIsDirty, onProjectSaved }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const openRequestId = useRef(0);
   const [status, setStatus] = useState<{ kind: 'status' | 'error'; message: string } | null>(null);
+
+  useEffect(() => () => { openRequestId.current += 1; }, []);
 
   const handleSave = () => {
     try {
@@ -23,6 +30,7 @@ export const ProjectFileControls: React.FC<ProjectFileControlsProps> = ({ projec
       link.click();
       document.body.removeChild(link);
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      onProjectSaved(projectState);
       setStatus({ kind: 'status', message: 'Project file saved to your browser downloads.' });
     } catch (error) {
       setStatus({ kind: 'error', message: error instanceof Error ? error.message : 'Project could not be saved.' });
@@ -32,22 +40,34 @@ export const ProjectFileControls: React.FC<ProjectFileControlsProps> = ({ projec
   const handleFileSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const requestId = ++openRequestId.current;
+    event.target.value = '';
+    onProjectOpening();
     setStatus(null);
     try {
+      if (file.size > MAX_PROJECT_ARCHIVE_BYTES) {
+        throw new Error(`Project archive exceeds the ${(MAX_PROJECT_ARCHIVE_BYTES / (1024 * 1024)).toFixed(0)} MiB limit. Choose a smaller project file.`);
+      }
       const project = await parseProjectArchive(await file.text());
+      if (openRequestId.current !== requestId) return;
+      const hasUnsavedChanges = getIsDirty();
       const confirmed = window.confirm(
-        'Opening this project replaces your current load data, battery and tariff settings, generation assets and resource files, and financial assumptions. Save your current project first if you want to keep it. Continue?'
+        hasUnsavedChanges
+          ? 'You have unsaved changes. Opening this project replaces them with the selected archive. Save your current project first if you want to keep those changes. Continue?'
+          : 'Opening this project replaces your current load data, battery and tariff settings, generation assets and resource files, and financial assumptions. Save your current project first if you want to keep it. Continue?'
       );
       if (!confirmed) {
+        if (openRequestId.current !== requestId) return;
         setStatus({ kind: 'status', message: 'Open canceled. Your current project is unchanged.' });
         return;
       }
+      if (openRequestId.current !== requestId) return;
       onProjectLoaded(project);
       setStatus({ kind: 'status', message: `Opened ${file.name}.` });
     } catch (error) {
-      setStatus({ kind: 'error', message: error instanceof Error ? error.message : 'Project file could not be opened.' });
-    } finally {
-      event.target.value = '';
+      if (openRequestId.current === requestId) {
+        setStatus({ kind: 'error', message: error instanceof Error ? error.message : 'Project file could not be opened.' });
+      }
     }
   };
 

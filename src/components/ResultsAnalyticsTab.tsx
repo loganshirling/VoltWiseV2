@@ -76,6 +76,7 @@ import {
   deriveAnalysisState,
   deriveGenerationHorizonFinancialSummary,
 } from '../utils/generationFinancials';
+import { formatEnabledGenerationLabels, formatUsdAmount } from '../utils/generationLabels';
 
 export interface ResultsAnalyticsTabProps {
   activeAnalysis: ProfileFinancialAnalysis | null;
@@ -171,23 +172,10 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
     return deriveGenerationOperationalDisplayMetrics(activeGenerationAwareResult);
   }, [activeGenerationAwareResult]);
 
-  const hasSolar = Boolean(
-    (generationOperationalMetrics && generationOperationalMetrics.solarGeneratedKwh > 0) ||
-    generationConfig?.assets?.some((a) => a.type === 'solar' && a.enabled) ||
-    activeGenerationOperationalProjection?.years?.some((y) => (y.solarGeneratedKwh ?? 0) > 0)
-  );
-
-  const hasWind = Boolean(
-    (generationOperationalMetrics && generationOperationalMetrics.windGeneratedKwh > 0) ||
-    generationConfig?.assets?.some((a) => a.type === 'wind' && a.enabled) ||
-    activeGenerationOperationalProjection?.years?.some((y) => (y.windGeneratedKwh ?? 0) > 0)
-  );
-
-  const hasGenerator = Boolean(
-    (generationOperationalMetrics && (generationOperationalMetrics.generatorGeneratedKwh ?? 0) > 0) ||
-    generationConfig?.assets?.some((a) => a.type === 'generator' && a.enabled) ||
-    activeGenerationOperationalProjection?.years?.some((y) => (y.generatorGeneratedKwh ?? 0) > 0)
-  );
+  const enabledGenerationTypes = new Set(generationConfig?.assets?.filter((a) => a.enabled).map((a) => a.type) ?? []);
+  const hasSolar = enabledGenerationTypes.has('solar');
+  const hasWind = enabledGenerationTypes.has('wind');
+  const hasGenerator = enabledGenerationTypes.has('generator');
 
   const hasStandbyGenerator = Boolean(
     generationConfig?.assets?.some(
@@ -1031,15 +1019,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
           <p className="text-xs text-slate-400 mt-0.5">
             Tariff: <strong className="text-cyan-400">{activeTouProfile?.name || 'Standard TOU'}</strong> · {isGenerationAware ? (
               <>
-                Project: <strong className="text-emerald-400">{profile.name}</strong> + {isMixedGeneration ? (
-                  <>
-                    <strong className="text-amber-300">Solar</strong> & <strong className="text-sky-300">Wind</strong>
-                  </>
-                ) : isWindOnly ? (
-                  <strong className="text-sky-300">Wind</strong>
-                ) : (
-                  <strong className="text-amber-300">Solar</strong>
-                )} · Mode: {isFinanced ? 'Loan Financed' : 'Cash Purchase'}.
+                Project: <strong className="text-emerald-400">{profile.name}</strong> + <strong>{formatEnabledGenerationLabels(generationConfig)}</strong> · Mode: {isFinanced ? 'Loan Financed' : 'Cash Purchase'}.
               </>
             ) : (
               <>Battery: <strong className="text-emerald-400">{profile.name}</strong> ({profile.model}) · Mode: {isFinanced ? 'Loan Financed' : 'Cash Purchase'}.</>
@@ -1147,7 +1127,8 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
           </p>
           <div className="flex flex-wrap gap-4 text-[11px] font-mono text-sky-300/90 pt-1 border-t border-sky-500/20">
             <span>Operational Model: <strong>Generation-Aware (Full-Year)</strong></span>
-            <span>Year-1 Net Savings: <strong>${annualSummary.year1Savings.toLocaleString()}/yr</strong></span>
+            <span>{hasGenerator ? 'Year-1 Utility Electricity Savings' : 'Year-1 Electricity Bill Savings'}: <strong>${(activeGenerationAnalysis?.year1UtilityElectricitySavingsUsd ?? annualSummary.year1Savings).toLocaleString()}/yr</strong></span>
+            {hasGenerator && activeGenerationAnalysis && <span>Year-1 Net Operational Value: <strong>{formatUsdAmount(activeGenerationAnalysis.year1NetOperationalSavingsUsd ?? activeGenerationAnalysis.year1ElectricitySavingsUsd - (activeGenerationAnalysis.year1GeneratorOperatingCostUsd ?? 0))}/yr</strong></span>}
             <span>Grid Import: <strong>{annualSummary.annualGridImportKwh.toLocaleString()} kWh</strong></span>
             <span>Grid Export: <strong>{annualSummary.annualGridExportKwh.toLocaleString()} kWh</strong></span>
             <span className="text-sky-400 font-semibold">24h dispatch explorer and operational analytics are active below</span>
@@ -1599,7 +1580,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800 space-y-1">
                   <span className="text-[11px] text-slate-400 block">Net Operational Savings</span>
                   <span className={`text-base font-bold font-mono block tabular-nums ${(generationOperationalMetrics.netOperationalSavingsUsd ?? 0) >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {(generationOperationalMetrics.netOperationalSavingsUsd ?? 0) >= 0 ? '+' : ''}${Math.round(generationOperationalMetrics.netOperationalSavingsUsd ?? 0).toLocaleString()}
+                    {formatUsdAmount(Math.round(generationOperationalMetrics.netOperationalSavingsUsd ?? 0))}
                   </span>
                   <span className="text-[10px] text-slate-500 block">Savings net of generator run cost</span>
                 </div>
@@ -1694,13 +1675,19 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               )}
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-slate-400">Net Electricity Savings:</span>
+              <span className="text-slate-400">{hasGenerator ? 'Utility Electricity Savings:' : 'Electricity Bill Savings:'}</span>
               <span className="text-emerald-400 font-bold">
                 {isPartialPeriod
                   ? `+$${partialMetrics.periodSavingsUsd.toLocaleString()} (${partialMetrics.durationDays}d)`
-                  : `+$${annualSummary.year1Savings.toLocaleString()}/yr`}
+                  : `+$${(activeGenerationAnalysis?.year1UtilityElectricitySavingsUsd ?? annualSummary.year1Savings).toLocaleString()}/yr`}
               </span>
             </div>
+            {hasGenerator && !isPartialPeriod && activeGenerationAnalysis && <div className="flex items-center justify-between gap-4">
+              <span className="text-slate-400">Net Operational Value after generator fuel and variable maintenance:</span>
+              <span className={`font-bold ${(activeGenerationAnalysis.year1NetOperationalSavingsUsd ?? (activeGenerationAnalysis.year1UtilityElectricitySavingsUsd ?? 0) - (activeGenerationAnalysis.year1GeneratorOperatingCostUsd ?? 0)) < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {formatUsdAmount(activeGenerationAnalysis.year1NetOperationalSavingsUsd ?? (activeGenerationAnalysis.year1UtilityElectricitySavingsUsd ?? 0) - (activeGenerationAnalysis.year1GeneratorOperatingCostUsd ?? 0))}/yr
+              </span>
+            </div>}
           </div>
 
           {/* Average-Resource Wind Modeling Disclosure */}
@@ -2358,7 +2345,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               <span className="text-[10px] font-mono text-sky-400">Full-Year Simulation</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Simulated electricity spend and operational savings with on-site generation and battery dispatch:
+              Simulated utility bill under the selected tariff. Utility electricity savings are the bill reduction; net generator operating value also deducts the configured generator fuel price and variable maintenance.
             </p>
             <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 space-y-1 text-xs font-mono">
               <div className="flex justify-between">
@@ -2370,9 +2357,13 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <span className="text-cyan-300 font-bold">${annualSummary.simulatedAnnualCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between pt-1 border-t border-slate-800">
-                <span className="text-slate-400">Year 1 Operational Savings:</span>
+                <span className="text-slate-400">Year 1 {hasGenerator ? 'Utility Electricity Savings' : 'Electricity Bill Savings'}:</span>
                 <span className="text-emerald-400 font-bold">+${annualSummary.year1Savings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+              {hasGenerator && activeGenerationAnalysis && <div className="flex justify-between pt-1 border-t border-slate-800">
+                <span className="text-slate-400">Net Operating Value (after generator fuel and variable maintenance):</span>
+                <span className={`font-bold ${(activeGenerationAnalysis.year1NetOperationalSavingsUsd ?? (activeGenerationAnalysis.year1UtilityElectricitySavingsUsd ?? 0) - (activeGenerationAnalysis.year1GeneratorOperatingCostUsd ?? 0)) < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{formatUsdAmount(activeGenerationAnalysis.year1NetOperationalSavingsUsd ?? (activeGenerationAnalysis.year1UtilityElectricitySavingsUsd ?? 0) - (activeGenerationAnalysis.year1GeneratorOperatingCostUsd ?? 0))}</span>
+              </div>}
             </div>
             <div className="flex items-center justify-between text-[11px] pt-0.5">
               <span className="text-slate-400">Net Electricity Bill Reduction:</span>

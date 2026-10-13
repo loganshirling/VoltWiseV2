@@ -22,6 +22,7 @@ import {
   OpportunityCostBenchmarkResult,
   OpportunityCostYear,
 } from './opportunityCost';
+import { evaluateAnnualProjectionEligibility } from './loadTimeAlignment';
 
 export {
   calculateOpportunityCostBenchmark,
@@ -517,7 +518,9 @@ export function runAnnualSimulation(
   tiers: RateTier[],
   scheduleMatrix: ScheduleMatrix,
   profile: BatteryProfile,
-  seasons?: TouSeason[]
+  seasons?: TouSeason[],
+  siteTimeZone?: string,
+  exactAnnualProjectionEligible?: boolean
 ): AnnualSimulationSummary {
   const tierMap = new Map<string, RateTier>(tiers.map(t => [t.id, t]));
   const defaultTier = tiers[0] || {
@@ -758,7 +761,9 @@ export function runAnnualSimulation(
   const year1Savings = baselineTotalCost - simulatedTotalCost;
   const savingsPercentage = baselineTotalCost > 0 ? (year1Savings / baselineTotalCost) * 100 : 0;
   const durationDays = intervalHours > 0 ? Math.round((dataPoints.length * intervalHours) / 24) : Math.round(dataPoints.length / 24);
-  const isSuitableForAnnual = dataPoints.length >= 8760 * 0.95 && durationDays >= 360;
+  const isSuitableForAnnual = exactAnnualProjectionEligible ?? (siteTimeZone
+    ? evaluateAnnualProjectionEligibility(dataPoints, intervalHours, siteTimeZone).eligible
+    : dataPoints.length >= 8760 * 0.95 && durationDays >= 360);
 
   return {
     profileId: profile.id,

@@ -2,7 +2,7 @@
 
 **Goal:** Finish and validate the end-to-end solar, wind, and generator workflows so users can configure resources, simulate a defined period, understand the results, and export supported analyses safely.
 
-**Architecture:** Keep solar and wind physics in their existing profile modules, generator dispatch in `generatorDispatch` / `generatorAwareFlow`, and composition in `generationAwareSimulation`. Treat imported weather as period-specific input; keep annual and multi-year projection rules explicit instead of extrapolating measured intervals silently. Finish at the React flow and export boundaries after the simulation contracts are stable.
+**Architecture:** Keep solar and wind physics in their existing profile modules, generator dispatch in `generatorDispatch` / `generatorAwareFlow`, and composition in `generationAwareSimulation`. Use measured weather for the imported period and, only for a complete exact-aligned year, as the representative input series for lifecycle projections. Keep assumptions explicit; do not present the repeated series as a forecast. Finish at the React flow and export boundaries after the simulation contracts are stable.
 
 **Tech Stack:** React 19, TypeScript, Vite, Vitest, browser UI with Playwright.
 
@@ -23,7 +23,7 @@
 - Solar plane-of-array conversion must handle night, panel orientation, units, and non-finite or physically invalid irradiance without creating energy.
 - Wind interval generation must apply height and density corrections, cut-in/rated/cut-out limits, availability, and losses once each.
 - Generator start/stop, minimum output, startup fuel, dispatch mode, and battery charging/export permissions must not double-count or create energy.
-- Partial periods, interval-resource projects, and unsupported projections/exports must remain clearly distinguished from annual results.
+- Partial measured periods and incomplete/misaligned interval-resource projects must remain clearly distinguished from annual results; a complete aligned resource year can support the scoped representative-year projection.
 
 ## File map
 
@@ -80,9 +80,9 @@
 
 **Interfaces:**
 - Simulation remains authoritative for the exact imported period.
-- Multi-year projections continue to use supported modeled solar and average-resource wind inputs; measured time-series do not get repeated or extrapolated implicitly.
+- Multi-year projections use supported modeled inputs or replay a complete exact-aligned measured year as the representative resource year; partial time series are never repeated or extrapolated.
 
-- [x] Make measured solar/wind projection ineligibility a normal UI state with a plain explanation, not a generic calculation failure.
+- [x] Make incomplete or misaligned measured solar/wind projection ineligibility a normal UI state with a plain explanation, not a generic calculation failure.
 - [x] Keep interval savings labeled for their actual covered period; annualize only when existing completeness rules permit it.
 - [x] Gate lifecycle financial metrics and multi-year exports when the source cannot support a projection, while preserving the valid period simulation and results.
 - [x] Verify modeled-resource projects retain their existing projection and export behavior.
@@ -143,4 +143,4 @@ Complete Tasks 1–3 first; they stabilize the recent external-resource work and
 
 ## Current progress and known limits
 
-Measured solar and wind records now flow through exact timestamp matching into the generation-aware simulation, while the existing generator dispatch and source-aware accounting remain authoritative. Resource CSVs are documented in `docs/measured-resource-data.md`; period results can be exported with the source data and assumptions. Multi-year projections from measured intervals remain unsupported by design. Solar plane-of-array conversion uses a fixed ground albedo of 0.2 and is an engineering estimate rather than a site-calibrated forecast. The async asset-switch/deletion import race cases and a full audit of numeric labels across every tab remain areas for follow-up.
+Measured solar and wind records now flow through exact timestamp matching into the generation-aware simulation, while the existing generator dispatch and source-aware accounting remain authoritative. A complete aligned measured year can be replayed as a representative resource year in lifecycle projections under the 2026-10-12 owner decision recorded in `docs/g7-measured-resource-projection-decision.md`; partial measured periods remain period-only. Resource CSVs are documented in `docs/measured-resource-data.md`. Solar plane-of-array conversion uses a fixed ground albedo of 0.2 and is an engineering estimate rather than a site-calibrated forecast. The async asset-switch/deletion import race cases and a full audit of numeric labels across every tab remain areas for follow-up.

@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import { DEFAULT_BATTERY_PROFILES, DEFAULT_MACRO_FINANCIALS, DEFAULT_TOU_PROFILES, createDefaultScheduleMatrix } from '../src/utils/simulationEngine';
-import { createDefaultGenerationConfig, createDefaultSolarAsset } from '../src/utils/generationDefaults';
+import { createDefaultGenerationConfig, createDefaultSolarAsset, createDefaultWindAsset } from '../src/utils/generationDefaults';
 import { generateRealistic8760Dataset } from '../src/utils/sampleData';
 import { runUnifiedSimulation } from '../src/utils/simulationRouter';
 import { calculateGenerationOperationalProjection } from '../src/utils/generationProjection';
@@ -26,39 +26,64 @@ const dataPoints = scenario.startsWith('35040') ? quarterHour : hourly;
 const intervalHours = scenario.startsWith('35040') ? 0.25 : 1;
 const profiles = scenario.endsWith('multi') ? DEFAULT_BATTERY_PROFILES : [DEFAULT_BATTERY_PROFILES[0]];
 const tou = DEFAULT_TOU_PROFILES[0];
+const emptyGenerationConfig = createDefaultGenerationConfig();
+emptyGenerationConfig.site = { latitude: 37.7749, longitude: -122.4194, timeZone: 'UTC', elevationM: 16 };
 const generationConfig = createDefaultGenerationConfig();
+generationConfig.site = { latitude: 37.7749, longitude: -122.4194, timeZone: 'UTC', elevationM: 16 };
 const solar = createDefaultSolarAsset('benchmark-solar');
 solar.enabled = true;
 solar.dcCapacityKw = 5;
 solar.inverterAcCapacityKw = 5;
 solar.monthlyPeakSunHoursPerDay = Array(12).fill(4);
 generationConfig.assets = [solar];
-generationConfig.site = { latitude: 37.7749, longitude: -122.4194, timeZone: 'UTC', elevationM: 16 };
+if (scenario === 'generation-25y-mixed') {
+  const wind = createDefaultWindAsset('benchmark-wind');
+  wind.enabled = true;
+  wind.ratedPowerKw = 5;
+  wind.hubHeightM = 20;
+  wind.measurementHeightM = 10;
+  wind.annualAverageWindSpeedMps = 8;
+  wind.cutInWindSpeedMps = 3;
+  wind.ratedWindSpeedMps = 11;
+  wind.cutOutWindSpeedMps = 25;
+  wind.powerCurve = [
+    { windSpeedMps: 0, outputKw: 0 }, { windSpeedMps: 3, outputKw: 0 },
+    { windSpeedMps: 7, outputKw: 2 }, { windSpeedMps: 11, outputKw: 5 },
+    { windSpeedMps: 25, outputKw: 5 },
+  ];
+  generationConfig.assets.push(wind);
+}
 const workerInput: SimulationJobInput = {
-  dataPoints: scenario === 'generation-25y' ? hourly : dataPoints,
-  intervalHours: scenario === 'generation-25y' ? 1 : intervalHours,
+  dataPoints: scenario.startsWith('generation-25y') ? hourly : dataPoints,
+  intervalHours: scenario.startsWith('generation-25y') ? 1 : intervalHours,
   profiles,
   activeProfileId: profiles[0].id,
   tiers: tou.tiers,
   scheduleMatrix: createDefaultScheduleMatrix(),
   seasons: tou.seasons,
-  generationConfig: scenario === 'generation-25y' ? generationConfig : createDefaultGenerationConfig(),
-  allowSolarExport: scenario === 'generation-25y',
-  annualProjectionEligible: scenario === 'generation-25y',
+  generationConfig: scenario.startsWith('generation-25y') ? generationConfig : emptyGenerationConfig,
+  allowSolarExport: scenario.startsWith('generation-25y'),
+  annualProjectionEligible: scenario.startsWith('generation-25y'),
   preflightError: null,
   financials: DEFAULT_MACRO_FINANCIALS,
 };
 
 function runScenario(): void {
+  if (executionPath === 'clone') {
+    // Projection workers receive the complete input once for each projected year.
+    const messages = scenario.startsWith('generation-25y') ? 25 : 1;
+    for (let index = 0; index < messages; index += 1) structuredClone(workerInput);
+    return;
+  }
   if (executionPath === 'worker') {
     const result = executeSimulationJob(workerInput);
-    if (scenario === 'generation-25y' && result.activeUnifiedResult?.mode === 'generation-aware') {
+    if (scenario.startsWith('generation-25y') && result.activeUnifiedResult?.mode === 'generation-aware') {
       const years = Array.from({ length: 25 }, (_, index) => executeGenerationProjectionYear(workerInput, index + 1));
       attachGenerationProjection(result, workerInput, years);
     }
     return;
   }
-  if (scenario === 'generation-25y') {
+  if (scenario.startsWith('generation-25y')) {
     calculateGenerationOperationalProjection({
       dataPoints: hourly,
       intervalHours: 1,
@@ -84,7 +109,7 @@ function runScenario(): void {
       scheduleMatrix: createDefaultScheduleMatrix(),
       batteryProfile,
       seasons: tou.seasons,
-      generationConfig: createDefaultGenerationConfig(),
+      generationConfig: emptyGenerationConfig,
       allowSolarExport: false,
     });
   }
@@ -102,9 +127,10 @@ const percentileIndex = Math.ceil(timings.length * 0.95) - 1;
 console.log(JSON.stringify({
   scenario,
   executionPath,
-  runtime: `Bun ${process.env.BUN_VERSION ?? 'version not exposed'} (Node compatibility ${process.version})`,
-  intervals: scenario === 'generation-25y' ? hourly.length : dataPoints.length,
-  profiles: scenario === 'generation-25y' ? 1 : profiles.length,
+  runtime: `${(process.versions as NodeJS.ProcessVersions & { bun?: string }).bun ? `Bun ${(process.versions as NodeJS.ProcessVersions & { bun?: string }).bun}` : 'Bun version not exposed'} (Node compatibility ${process.version})`,
+  intervals: scenario.startsWith('generation-25y') ? hourly.length : dataPoints.length,
+  profiles: scenario.startsWith('generation-25y') ? 1 : profiles.length,
+  structuredCloneMessagesPerRun: executionPath === 'clone' && scenario.startsWith('generation-25y') ? 25 : executionPath === 'clone' ? 1 : undefined,
   runs: runCount,
   latencyMs: timings.map((value) => Number(value.toFixed(1))),
   p95Ms: Number(timings[percentileIndex].toFixed(1)),

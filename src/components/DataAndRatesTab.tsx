@@ -44,13 +44,28 @@ import { LoadTimestampEligibility } from '../utils/loadTimeAlignment';
 import { ValidatedProjectState } from '../types/energy';
 import { ProjectFileControls } from './ProjectFileControls';
 
+export function isLifecycleProjectionReady(
+  annualProjectionEligible: boolean | undefined,
+  siteAlignmentEligibility: LoadTimestampEligibility | null | undefined
+): boolean {
+  return annualProjectionEligible === true &&
+    siteAlignmentEligibility?.operationallySimulatable === true;
+}
+
 interface DataAndRatesTabProps {
   csvResult: CsvValidationResult | null;
   loadDataSource: LoadDataSource | null;
   projectState: ProjectArchiveState;
   onProjectLoaded: (project: ValidatedProjectState) => void;
   siteAlignmentEligibility?: LoadTimestampEligibility | null;
+  annualProjectionEligible?: boolean;
+  annualProjectionReason?: string;
   onFileUpload: (file: File) => void;
+  onProjectOpening: () => void;
+  getIsDirty: () => boolean;
+  onProjectSaved: (state: ProjectArchiveState) => void;
+  loadImportError: string | null;
+  isReadingLoadFile: boolean;
   onLoadSample: () => void;
   touProfiles: TouProfile[];
   setTouProfiles: React.Dispatch<React.SetStateAction<TouProfile[]>>;
@@ -125,7 +140,14 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   projectState,
   onProjectLoaded,
   siteAlignmentEligibility,
+  annualProjectionEligible,
+  annualProjectionReason,
   onFileUpload,
+  onProjectOpening,
+  getIsDirty,
+  onProjectSaved,
+  loadImportError,
+  isReadingLoadFile,
   onLoadSample,
   touProfiles,
   setTouProfiles,
@@ -141,13 +163,10 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
     siteAlignmentEligibility?.operationallySimulatable !== false
   );
   const simulationReadinessReason = siteAlignmentEligibility?.reason;
-  const lifecycleReady = Boolean(
-    csvResult?.annualProjectionEligible &&
-    siteAlignmentEligibility?.operationallySimulatable !== false
-  );
+  const lifecycleReady = isLifecycleProjectionReady(annualProjectionEligible, siteAlignmentEligibility);
   const lifecycleReadinessReason = siteAlignmentEligibility?.operationallySimulatable === false
     ? siteAlignmentEligibility.reason
-    : csvResult?.completeness?.reason || 'a complete, continuous calendar year is required.';
+    : annualProjectionReason || csvResult?.completeness?.reason || 'a complete, continuous calendar year is required.';
   const currentTouProfile =
     touProfiles.find((p) => p.id === activeTouProfileId) || touProfiles[0];
 
@@ -770,7 +789,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
 
   return (
     <div className="space-y-10" onMouseUp={handleMouseUp}>
-      <ProjectFileControls projectState={projectState} onProjectLoaded={onProjectLoaded} />
+      <ProjectFileControls projectState={projectState} onProjectLoaded={onProjectLoaded} onProjectOpening={onProjectOpening} getIsDirty={getIsDirty} onProjectSaved={onProjectSaved} />
       <div role="status" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">
         {loadDataSource === 'synthetic_sample' ? (
           <><strong className="text-amber-300">Illustrative synthetic sample.</strong> These generated intervals are not your household measurements. Upload your own CSV to replace them.</>
@@ -918,6 +937,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
                 onFileUpload(e.target.files[0]);
+                e.target.value = '';
               }
             }}
           />
@@ -933,6 +953,9 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
             </p>
           </div>
         </div>
+
+        {isReadingLoadFile && <p role="status" className="mt-2 text-xs text-sky-300">Reading load CSV…</p>}
+        {loadImportError && <p role="alert" className="mt-2 text-xs text-rose-300">{loadImportError}</p>}
 
         {/* Validation Feedback & Dataset Summary */}
         {csvResult && (

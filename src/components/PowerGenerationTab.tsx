@@ -40,6 +40,7 @@ import {
   createDefaultGenerationConfig,
 } from '../utils/generationDefaults';
 import { parseExternalResourceCsv } from '../utils/externalResourceParser';
+import { MAX_GENERATION_ASSETS, MAX_RESOURCE_CSV_BYTES } from '../utils/importLimits';
 
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -103,6 +104,8 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   const [resourceImportMessage, setResourceImportMessage] = useState('');
   const [resourceImportError, setResourceImportError] = useState('');
   const [isImportingResource, setIsImportingResource] = useState(false);
+  const [resourceSourceTimeZone, setResourceSourceTimeZone] = useState(generationConfig.site.timeZone);
+  const [assetLimitError, setAssetLimitError] = useState('');
   const resourceImportRequestId = useRef(0);
 
   useEffect(() => () => {
@@ -129,6 +132,10 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   const attachedResource = activeResourceId
     ? generationConfig.externalResources?.find((resource) => resource.id === activeResourceId)
     : undefined;
+  const isMeasuredResourceUnbound = Boolean(activeAsset && activeAsset.type !== 'generator' &&
+    ((activeAsset.type === 'solar' && activeAsset.resourceMode === 'weather_file') ||
+      (activeAsset.type === 'wind' && activeAsset.resourceMode === 'interval_file')) &&
+    !activeResourceId);
 
   // Site update handler
   const handleUpdateSite = (field: keyof GenerationSite, value: any) => {
@@ -156,6 +163,11 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   // Add asset
   const handleAddAsset = (type: 'solar' | 'wind' | 'generator') => {
     cancelResourceImport();
+    if (generationConfig.assets.length >= MAX_GENERATION_ASSETS) {
+      setAssetLimitError(`A project can contain up to ${MAX_GENERATION_ASSETS} generation assets. Delete an asset before adding another.`);
+      return;
+    }
+    setAssetLimitError('');
     const id = createAssetId(type);
     const newAsset = createDefaultAsset(type, id);
     setGenerationConfig((prev) => ({
@@ -168,6 +180,11 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   // Duplicate asset
   const handleDuplicateAsset = (asset: GenerationAsset) => {
     cancelResourceImport();
+    if (generationConfig.assets.length >= MAX_GENERATION_ASSETS) {
+      setAssetLimitError(`A project can contain up to ${MAX_GENERATION_ASSETS} generation assets. Delete an asset before adding another.`);
+      return;
+    }
+    setAssetLimitError('');
     const newId = createAssetId(asset.type);
     const duplicate: GenerationAsset = {
       ...asset,
@@ -227,6 +244,11 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
     setResourceImportMessage('');
     setResourceImportError('');
     setIsImportingResource(true);
+    if (file.size > MAX_RESOURCE_CSV_BYTES) {
+      setResourceImportError(`Resource CSV exceeds the ${(MAX_RESOURCE_CSV_BYTES / (1024 * 1024)).toFixed(0)} MiB limit. Split the data into smaller files.`);
+      setIsImportingResource(false);
+      return;
+    }
     if (!activeAsset || activeAsset.type === 'generator') {
       setResourceImportError('Select a solar array or wind turbine before importing a resource file.');
       setIsImportingResource(false);
@@ -235,7 +257,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
     try {
       const targetAssetId = activeAsset.id;
       const targetAssetType = activeAsset.type;
-      const sourceTimeZone = generationConfig.site.timeZone;
+      const sourceTimeZone = resourceSourceTimeZone.trim() || null;
       const kind: ExternalResourceKind = targetAssetType === 'solar' ? 'solar_irradiance' : 'wind_speed';
       const parsed = parseExternalResourceCsv({
         csvContent: await file.text(),
@@ -275,7 +297,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
       });
       if (resourceImportRequestId.current === requestId) {
         setResourceImportMessage(
-          `Loaded ${dataset.rowCount.toLocaleString()} intervals from ${dataset.name}.${parsed.warnings.length ? ` ${parsed.warnings.join(' ')}` : ''}`
+          `Loaded ${dataset.rowCount.toLocaleString()} intervals from ${dataset.name} (source zone: ${dataset.sourceTimeZone ?? 'explicit offsets'}; site zone: ${generationConfig.site.timeZone || 'not set'}).${parsed.warnings.length ? ` ${parsed.warnings.join(' ')}` : ''}`
         );
       }
     } catch (error) {
@@ -289,6 +311,7 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
 
   return (
     <div className="space-y-8 animate-fadeIn">
+      {assetLimitError && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-950/30 p-3 text-xs text-rose-200">{assetLimitError}</p>}
       {/* Informational Callout: Active Renewable Simulation */}
       <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-4 sm:p-5 flex items-start gap-3 sm:gap-4 shadow-sm">
         <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shrink-0">
@@ -310,15 +333,27 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
       </div>
 
       <aside role="region" aria-label="Generation model scope" className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-xs leading-relaxed text-slate-300">
-        Modeled solar and wind use clear-sky or monthly inputs, or measured CSV for its imported period. VoltWise does not fetch weather services or support TMY3/EPW files. Economic generator dispatch makes a deterministic interval-by-interval decision, not a global optimization. Standby mode does not simulate chronological outages.
+        Modeled solar and wind use clear-sky or monthly inputs, or measured CSV for its matched intervals. A complete aligned measured year can be replayed as a representative resource year for lifecycle projections; future weather can differ. VoltWise does not fetch weather services or support TMY3/EPW files. Economic generator dispatch makes a deterministic interval-by-interval decision, not a global optimization. Standby mode does not simulate chronological outages.
       </aside>
 
       {activeAsset && activeAsset.type !== 'generator' && (
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4" aria-labelledby="resource-import-title">
           <h2 id="resource-import-title" className="text-sm font-semibold text-slate-100">Measured resource data</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-400">
-            Import a timestamped CSV for the selected {activeAsset.type === 'solar' ? 'solar array' : 'wind turbine'}. Resource intervals must match the load data exactly; time-zone conversion is applied during import.
+            Import a timestamped CSV for the selected {activeAsset.type === 'solar' ? 'solar array' : 'wind turbine'}. Resource intervals must match the load data exactly. Zone-free timestamps use the source timezone; explicit UTC offsets always determine their own instants.
           </p>
+          <label className="mt-3 block text-xs font-medium text-slate-300">
+            Resource source timezone (IANA)
+            <input
+              type="text"
+              value={resourceSourceTimeZone}
+              aria-label="Resource source timezone (IANA)"
+              onChange={(event) => setResourceSourceTimeZone(event.target.value)}
+              placeholder="America/Los_Angeles"
+              className="mt-1 block w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 font-mono text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+            />
+            <span className="mt-1 block text-[11px] font-normal text-slate-500">Site timezone: {generationConfig.site.timeZone || 'Not set'}. Explicit-offset CSV rows are not reinterpreted.</span>
+          </label>
           <label className="mt-3 block text-xs font-medium text-slate-300">
             {activeAsset.type === 'solar'
               ? 'Solar CSV: timestamp, ghi_wm2, dni_wm2, dhi_wm2'
@@ -342,7 +377,8 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                 <dl className="mt-1 grid grid-cols-1 gap-x-4 gap-y-1 text-slate-300 sm:grid-cols-2">
                   <div><dt className="inline text-slate-500">Intervals: </dt><dd className="inline">{attachedResource.rowCount.toLocaleString()} at {attachedResource.intervalHours} h</dd></div>
                   <div><dt className="inline text-slate-500">Coverage (UTC): </dt><dd className="inline">{attachedResource.startTimestampUtc} – {attachedResource.endTimestampUtc}</dd></div>
-                  <div><dt className="inline text-slate-500">Source time zone: </dt><dd className="inline">{attachedResource.sourceTimeZone ?? 'UTC'}</dd></div>
+                  <div><dt className="inline text-slate-500">Source time zone: </dt><dd className="inline">{attachedResource.sourceTimeZone ?? 'Explicit UTC offsets'}</dd></div>
+                  <div><dt className="inline text-slate-500">Site time zone: </dt><dd className="inline">{generationConfig.site.timeZone || 'Not set'}</dd></div>
                 </dl>
               ) : (
                 <p className="mt-1 text-amber-300">The attached dataset is missing. Import the resource file again.</p>
@@ -355,7 +391,6 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                   const resourceId = activeResourceId;
                   handleUpdateAsset(assetId, {
                     externalResourceId: undefined,
-                    resourceMode: activeAsset.type === 'solar' ? 'clear_sky' : 'annual_average',
                   } as Partial<GenerationAsset>);
                   setGenerationConfig((previous) => ({
                     ...previous,
@@ -372,6 +407,11 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
                 Remove measured resource
               </button>
             </div>
+          )}
+          {isMeasuredResourceUnbound && (
+            <p role="alert" className="mt-3 rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 text-xs text-amber-200">
+              Measured {activeAsset?.type === 'solar' ? 'solar' : 'wind'} mode has no attached resource. Reattach a matching CSV or explicitly choose a modeled resource mode; synthetic generation will not be substituted.
+            </p>
           )}
           {resourceImportMessage && <p role="status" className="mt-2 text-xs text-emerald-300">{resourceImportMessage}</p>}
           {isImportingResource && <p role="status" className="mt-2 text-xs text-sky-300">Reading and validating measured resource data…</p>}
@@ -999,7 +1039,7 @@ const SolarAssetConfigurator: React.FC<SolarConfiguratorProps> = ({ asset, onUpd
             {
               id: 'weather_file' as SolarResourceMode,
               title: 'Measured Irradiance CSV',
-              desc: 'Use imported GHI, DNI, and DHI records for this matching period only.',
+              desc: 'Use aligned GHI, DNI, and DHI records. A complete measured year can be replayed as representative weather in lifecycle projections.',
             },
           ].map((mode) => {
             const isSelected = asset.resourceMode === mode.id;
@@ -1330,7 +1370,7 @@ const WindAssetConfigurator: React.FC<WindConfiguratorProps> = ({ asset, onUpdat
             {
               id: 'interval_file' as WindResourceMode,
               title: 'Measured Wind-Speed CSV',
-              desc: 'Measured wind speed at each resource interval; timestamps must match the load data exactly.',
+              desc: 'Measured wind speed at each aligned interval. A complete measured year can be replayed unchanged in lifecycle projections.',
               disabled: false,
             },
           ].map((mode) => {

@@ -12,7 +12,7 @@ VoltWise is a local-first home energy scenario analyzer. It models interval ener
 4. Review the financial assumptions and open **Results & Analytics**. Results identify sample data and explain the model's limits.
 5. Use **Save Project** to download a local project archive. Use analysis export for a separate results snapshot.
 
-The default sample is generated and illustrative. It is not measured household consumption or a utility bill. Partial, continuous load periods can be analyzed, but lifecycle projections require an eligible complete calendar year. Measured solar and wind support only the imported period; they are not extrapolated into future years.
+The default sample is generated and illustrative. It is not measured household consumption or a utility bill. Partial, continuous load periods can be analyzed, but lifecycle projections require an eligible complete calendar year. A complete-year measured solar/wind series can be replayed as a representative resource year under configured degradation and tariff assumptions; it is not a future weather forecast. See the [G7 measured-resource projection decision](docs/g7-measured-resource-projection-decision.md).
 
 ## Supported analysis
 

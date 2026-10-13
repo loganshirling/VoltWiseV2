@@ -35,16 +35,37 @@ import {
   getHeaderPaybackText,
 } from './utils/simulationEngine';
 import { createDefaultGenerationConfig } from './utils/generationDefaults';
+import { formatEnabledGenerationLabels, formatUsdAmount } from './utils/generationLabels';
 import {
   deriveAnalysisState,
   aggregateGenerationProjectCosts,
 } from './utils/generationFinancials';
 import { generateRealistic8760Dataset } from './utils/sampleData';
 import { parseAndValidateEnergyCsv } from './utils/csvParser';
-import { evaluateLoadTimestampEligibility } from './utils/loadTimeAlignment';
+import { MAX_LOAD_CSV_BYTES, MAX_INTERVALS_PER_DATASET } from './utils/importLimits';
+import {
+  evaluateAnnualProjectionEligibility,
+  evaluateLoadTimestampEligibility,
+} from './utils/loadTimeAlignment';
 import { createSimulationWorkerClient, SimulationRunResult, SimulationTaskHandle } from './utils/simulationWorkerClient';
 import { SimulationJobInput, SimulationJobResult } from './utils/simulationWorkerJob';
 import { Zap, ChevronRight, Activity, ArrowRight, Bookmark, AlertTriangle } from 'lucide-react';
+
+function fingerprintProjectState(state: ProjectArchiveState): string {
+  return JSON.stringify([
+    state.profiles,
+    state.activeProfileId,
+    state.touProfiles,
+    state.activeTouProfileId,
+    state.tiers,
+    state.scheduleMatrix,
+    state.generationConfig,
+    state.allowSolarExport,
+    state.financials,
+    state.loadDataCsv,
+    state.loadDataSource,
+  ]);
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'data' | 'profiles' | 'generation' | 'financials' | 'results'>('results');
@@ -71,6 +92,11 @@ export default function App() {
   const [csvResult, setCsvResult] = useState<CsvValidationResult | null>(null);
   const [loadDataCsv, setLoadDataCsv] = useState<string | null>(null);
   const [loadDataSource, setLoadDataSource] = useState<LoadDataSource | null>(null);
+  const [loadImportError, setLoadImportError] = useState<string | null>(null);
+  const [isReadingLoadFile, setIsReadingLoadFile] = useState(false);
+  const [savedProjectFingerprint, setSavedProjectFingerprint] = useState<string | null>(null);
+  const loadImportGeneration = useRef(0);
+  const activeLoadReader = useRef<FileReader | null>(null);
   const [simulationWorkerClient] = useState(() => createSimulationWorkerClient());
   const simulationRequestId = useRef(0);
   const [simulationWorkerState, setSimulationWorkerState] = useState<{
@@ -96,21 +122,77 @@ export default function App() {
     setLoadDataSource('synthetic_sample');
   }, []);
 
+  const invalidatePendingLoadRead = () => {
+    loadImportGeneration.current += 1;
+    const reader = activeLoadReader.current;
+    activeLoadReader.current = null;
+    if (reader?.readyState === FileReader.LOADING) reader.abort();
+    setIsReadingLoadFile(false);
+  };
+
+  useEffect(() => () => {
+    loadImportGeneration.current += 1;
+    if (activeLoadReader.current?.readyState === FileReader.LOADING) activeLoadReader.current.abort();
+  }, []);
+
   // Handle User CSV Upload
   const handleFileUpload = (file: File) => {
+    invalidatePendingLoadRead();
+    const requestId = loadImportGeneration.current;
+    setLoadImportError(null);
+    if (file.size > MAX_LOAD_CSV_BYTES) {
+      setLoadImportError(`Load CSV exceeds the ${(MAX_LOAD_CSV_BYTES / (1024 * 1024)).toFixed(0)} MiB limit. Split the data into smaller files; your active dataset is unchanged.`);
+      return;
+    }
     const reader = new FileReader();
+    activeLoadReader.current = reader;
+    setIsReadingLoadFile(true);
     reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const parsed = parseAndValidateEnergyCsv(text);
-      setCsvResult(parsed);
-      setLoadDataCsv(text);
-      setLoadDataSource('uploaded');
+      if (loadImportGeneration.current !== requestId) return;
+      try {
+        const text = e.target?.result as string;
+        const parsed = parseAndValidateEnergyCsv(text);
+        if (!parsed.schemaValid || !parsed.chronologicallyValid) {
+          setLoadImportError(`${parsed.errors.join(' ')} The active dataset is unchanged.`);
+          return;
+        }
+        if (parsed.data.length > MAX_INTERVALS_PER_DATASET) {
+          setLoadImportError(`Load CSV exceeds the ${MAX_INTERVALS_PER_DATASET.toLocaleString()} interval limit. Split the data into smaller files; your active dataset is unchanged.`);
+          return;
+        }
+        setCsvResult(parsed);
+        setLoadDataCsv(text);
+        setLoadDataSource('uploaded');
+        setLoadImportError(null);
+      } catch (error) {
+        setLoadImportError(`${error instanceof Error ? error.message : 'Load CSV could not be parsed.'} The active dataset is unchanged.`);
+      } finally {
+        if (loadImportGeneration.current === requestId) {
+          activeLoadReader.current = null;
+          setIsReadingLoadFile(false);
+        }
+      }
+    };
+    reader.onerror = () => {
+      if (loadImportGeneration.current !== requestId) return;
+      activeLoadReader.current = null;
+      setIsReadingLoadFile(false);
+      setLoadImportError(`Could not read ${file.name}. Choose a readable CSV; your active dataset is unchanged.`);
+    };
+    reader.onabort = () => {
+      if (loadImportGeneration.current !== requestId) return;
+      activeLoadReader.current = null;
+      setIsReadingLoadFile(false);
+      setLoadImportError(`Reading ${file.name} was canceled. Your active dataset is unchanged.`);
     };
     reader.readAsText(file);
   };
 
   // Quick load 8,760h realistic sample
   const handleLoadSample = () => {
+    if (isDirty && !window.confirm('Loading the synthetic sample replaces your current load data. Continue and discard your unsaved changes?')) return;
+    invalidatePendingLoadRead();
+    setLoadImportError(null);
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
     setCsvResult(parsed);
@@ -120,6 +202,9 @@ export default function App() {
 
   // Reset data handler
   const handleResetData = () => {
+    if (isDirty && !window.confirm('Reset the project and discard its unsaved changes?')) return;
+    invalidatePendingLoadRead();
+    setLoadImportError(null);
     setCsvResult(null);
     setLoadDataCsv(null);
     setLoadDataSource(null);
@@ -151,9 +236,23 @@ export default function App() {
     );
   }, [csvResult, generationConfig]);
 
+  const annualProjectionEligibility = useMemo(() => {
+    if (!csvResult?.schemaValid || !csvResult.chronologicallyValid || !generationConfig.site.timeZone.trim()) {
+      return { eligible: false };
+    }
+    return evaluateAnnualProjectionEligibility(
+      csvResult.data,
+      csvResult.intervalHours,
+      generationConfig.site.timeZone
+    );
+  }, [csvResult, generationConfig.site.timeZone]);
+
   const isSuitableForAnnual = Boolean(
-    csvResult?.annualProjectionEligible &&
-    siteLoadAlignmentEligibility?.operationallySimulatable !== false
+    csvResult?.schemaValid &&
+    csvResult.chronologicallyValid &&
+    csvResult.operationallySimulatable &&
+    siteLoadAlignmentEligibility?.operationallySimulatable &&
+    annualProjectionEligibility.eligible
   );
 
   const simulationInput = useMemo<SimulationJobInput | null>(() => {
@@ -164,6 +263,8 @@ export default function App() {
     let preflightError: string | null = null;
     if (!csvResult.operationallySimulatable) {
       preflightError = 'Load data contains missing or irregular intervals. Upload a continuous interval sequence before running a simulation.';
+    } else if (!siteLoadAlignmentEligibility) {
+      preflightError = 'Set a valid site timezone before running a simulation.';
     } else if (siteLoadAlignmentEligibility && !siteLoadAlignmentEligibility.operationallySimulatable) {
       preflightError = siteLoadAlignmentEligibility.reason || 'Load timestamps are not valid for the selected site timezone.';
     }
@@ -278,6 +379,7 @@ export default function App() {
   }, [isSuitableForAnnual, activeUnifiedResult, activeGenerationAnalysis]);
 
   const handleProjectLoaded = (project: ValidatedProjectState) => {
+    invalidatePendingLoadRead();
     setProfiles(project.profiles);
     setActiveProfileId(project.activeProfileId);
     setTouProfiles(project.touProfiles);
@@ -290,6 +392,7 @@ export default function App() {
     setLoadDataCsv(project.loadDataCsv);
     setLoadDataSource(project.loadDataSource);
     setCsvResult(project.csvResult);
+    setSavedProjectFingerprint(fingerprintProjectState(project));
     setActiveTab('data');
   };
 
@@ -307,6 +410,34 @@ export default function App() {
     loadDataSource,
   };
 
+  const currentProjectFingerprint = useMemo(
+    () => fingerprintProjectState(projectState),
+    [profiles, activeProfileId, touProfiles, activeTouProfileId, tiers, scheduleMatrix, generationConfig, allowSolarExport, financials, loadDataCsv, loadDataSource]
+  );
+  const isDirty = savedProjectFingerprint !== null && savedProjectFingerprint !== currentProjectFingerprint;
+  const dirtyStateRef = useRef(isDirty);
+  dirtyStateRef.current = isDirty;
+
+  useEffect(() => {
+    if (savedProjectFingerprint === null && loadDataSource === 'synthetic_sample') {
+      setSavedProjectFingerprint(currentProjectFingerprint);
+    }
+  }, [savedProjectFingerprint, loadDataSource, currentProjectFingerprint]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [isDirty]);
+
+  const handleProjectSaved = (state: ProjectArchiveState) => {
+    setSavedProjectFingerprint(fingerprintProjectState(state));
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 selection:bg-emerald-500/20 selection:text-emerald-400">
       {/* 3-Zone Top Navigation Contract */}
@@ -318,6 +449,11 @@ export default function App() {
         hasData={Boolean(csvResult?.operationallySimulatable)}
         totalKwh={csvResult?.totalKwh || 0}
       />
+      <div role="status" aria-live="polite" className={`border-b px-4 py-1.5 text-center text-xs ${isDirty ? 'border-amber-500/30 bg-amber-950/30 text-amber-200' : 'border-emerald-500/20 bg-emerald-950/20 text-emerald-200/80'}`}>
+        {isDirty
+          ? <><strong>Unsaved changes</strong><span> · Save a project file to keep them.</span></>
+          : 'No unsaved changes'}
+      </div>
 
       {/* Main Viewport Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -372,13 +508,15 @@ export default function App() {
               <span>·</span>
               <span>
                 Project:{' '}
-                <strong className="text-slate-200">{activeProfile.name} + Generation</strong>
+                <strong className="text-slate-200">{activeProfile.name} + {formatEnabledGenerationLabels(generationConfig)}</strong>
               </span>
               <span>·</span>
               <span>
-                {getHeaderSavingsLabel(true)}:{' '}
+                {generationConfig.assets.some((asset) => asset.enabled && asset.type === 'generator') ? 'Year 1 Net Operational Value' : 'Year 1 Utility Electricity Savings'}:{' '}
                 <strong className="text-emerald-400 font-mono">
-                  ${activeGenerationAnalysis.year1ElectricitySavingsUsd.toLocaleString()}/yr
+                  {formatUsdAmount(generationConfig.assets.some((asset) => asset.enabled && asset.type === 'generator')
+                    ? activeGenerationAnalysis.year1NetOperationalSavingsUsd ?? (activeGenerationAnalysis.year1UtilityElectricitySavingsUsd ?? activeGenerationAnalysis.year1ElectricitySavingsUsd) - (activeGenerationAnalysis.year1GeneratorOperatingCostUsd ?? 0)
+                    : activeGenerationAnalysis.year1UtilityElectricitySavingsUsd ?? activeGenerationAnalysis.year1ElectricitySavingsUsd)}/yr
                 </strong>
               </span>
               <span>·</span>
@@ -463,7 +601,14 @@ export default function App() {
             projectState={projectState}
             onProjectLoaded={handleProjectLoaded}
             siteAlignmentEligibility={siteLoadAlignmentEligibility}
+            annualProjectionEligible={annualProjectionEligibility.eligible}
+            annualProjectionReason={annualProjectionEligibility.reason}
             onFileUpload={handleFileUpload}
+              onProjectOpening={invalidatePendingLoadRead}
+              getIsDirty={() => dirtyStateRef.current}
+              onProjectSaved={handleProjectSaved}
+              loadImportError={loadImportError}
+              isReadingLoadFile={isReadingLoadFile}
             onLoadSample={handleLoadSample}
             touProfiles={touProfiles}
             setTouProfiles={setTouProfiles}

@@ -18,6 +18,7 @@ import {
   parseProjectArchive,
   serializeProjectArchive,
 } from '../utils/projectArchive';
+import { MAX_GENERATION_ASSETS, MAX_LOAD_CSV_BYTES } from '../utils/importLimits';
 
 function makeProjectState(): ProjectArchiveState {
   const touProfile = DEFAULT_TOU_PROFILES[0];
@@ -25,7 +26,7 @@ function makeProjectState(): ProjectArchiveState {
   generationConfig.site = {
     latitude: 37.7749,
     longitude: -122.4194,
-    timeZone: 'America/Los_Angeles',
+    timeZone: 'America/New_York',
     elevationM: 16,
   };
   generationConfig.assets = [
@@ -75,7 +76,22 @@ describe('versioned local project archives', () => {
     expect(restored).toMatchObject(state);
     expect(restored.csvResult?.data).toHaveLength(48);
     expect(restored.generationConfig.externalResources).toEqual(state.generationConfig.externalResources);
+    expect(restored.generationConfig.externalResources?.[0].sourceTimeZone).toBe('America/Los_Angeles');
+    expect(restored.generationConfig.externalResources?.[0].records[0].timestampUtc).toBe('2025-09-22T07:00:00.000Z');
     expect(restored.loadDataSource).toBe('uploaded');
+  });
+
+  it('preserves an intentionally unbound measured mode across project archive round-trip', async () => {
+    const state = makeProjectState();
+    const solar = state.generationConfig.assets.find((asset) => asset.type === 'solar')!;
+    solar.resourceMode = 'weather_file';
+    solar.externalResourceId = undefined;
+    state.generationConfig.externalResources = [];
+    const restored = await parseProjectArchive(await encodeArchive(state));
+    const restoredSolar = restored.generationConfig.assets.find((asset) => asset.type === 'solar')!;
+    expect(restoredSolar.resourceMode).toBe('weather_file');
+    expect(restoredSolar.externalResourceId).toBeUndefined();
+    expect(restored.generationConfig.externalResources).toEqual([]);
   });
 
   it('restores identical re-simulation inputs and deterministic battery results', async () => {
@@ -104,6 +120,59 @@ describe('versioned local project archives', () => {
     delete archive.project.financials;
 
     await expect(parseProjectArchive(JSON.stringify(archive))).rejects.toThrow(/financials/i);
+  });
+
+  it('rejects project content beyond supported load and asset limits', async () => {
+    const oversizedLoad = JSON.parse(await encodeArchive());
+    oversizedLoad.project.loadData = { csv: 'x'.repeat(MAX_LOAD_CSV_BYTES + 1), source: 'uploaded' };
+    await expect(parseProjectArchive(JSON.stringify(oversizedLoad))).rejects.toThrow(/project\.loadData\.csv.*2 MiB/i);
+
+    const tooManyAssets = JSON.parse(await encodeArchive());
+    tooManyAssets.project.generationConfig.assets = Array.from({ length: MAX_GENERATION_ASSETS + 1 }, (_, index) => ({
+      ...tooManyAssets.project.generationConfig.assets[0], id: `solar-${index}`,
+    }));
+    await expect(parseProjectArchive(JSON.stringify(tooManyAssets))).rejects.toThrow(/assets.*more than 10/i);
+  });
+
+  it.each([
+    ['negative project cost', (archive: any) => { archive.project.profiles[0].installedCost = -1; }],
+    ['battery capacity outside editor bounds', (archive: any) => { archive.project.profiles[0].totalCapacityKwh = 0; }],
+    ['battery efficiency outside editor bounds', (archive: any) => { archive.project.profiles[0].roundTripEfficiencyPercent = 101; }],
+    ['battery depth of discharge outside editor bounds', (archive: any) => { archive.project.profiles[0].usableDodPercent = 101; }],
+    ['site coordinates outside physical bounds', (archive: any) => { archive.project.generationConfig.site.latitude = 91; }],
+    ['wind power curve is non-monotonic', (archive: any) => {
+      const wind = archive.project.generationConfig.assets.find((asset: any) => asset.type === 'wind');
+      wind.enabled = true;
+      wind.ratedPowerKw = 5;
+      wind.hubHeightM = 30;
+      wind.measurementHeightM = 10;
+      wind.cutInWindSpeedMps = 3;
+      wind.ratedWindSpeedMps = 12;
+      wind.cutOutWindSpeedMps = 25;
+      wind.resourceMode = 'annual_average';
+      wind.annualAverageWindSpeedMps = 7;
+      wind.powerCurve = [
+        { windSpeedMps: 0, outputKw: 0 },
+        { windSpeedMps: 2, outputKw: 0 },
+      ];
+      wind.powerCurve[1].windSpeedMps = -1;
+    }],
+    ['generator fuel curve is non-monotonic', (archive: any) => {
+      const generator = archive.project.generationConfig.assets.find((asset: any) => asset.type === 'generator');
+      generator.enabled = true;
+      generator.ratedContinuousKw = 5;
+      generator.minimumStableLoadPercent = 25;
+      generator.fuelCurve = [
+        { loadPercent: 25, fuelUnitsPerHour: 1 },
+        { loadPercent: 20, fuelUnitsPerHour: 2 },
+        { loadPercent: 100, fuelUnitsPerHour: 5 },
+      ];
+    }],
+    ['financial assumptions outside UI bounds', (archive: any) => { archive.project.financials.federalTaxCreditPercent = 51; }],
+  ])('rejects %s before accepting the project', async (_name, corrupt) => {
+    const archive = JSON.parse(await encodeArchive());
+    corrupt(archive);
+    await expect(parseProjectArchive(JSON.stringify(archive))).rejects.toThrow(/invalid project archive/i);
   });
 
   it('rejects active tariff schedules with empty or unresolved rate tiers', async () => {
@@ -192,5 +261,15 @@ describe('versioned local project archives', () => {
     expect(restored.loadDataCsv).toBe(makeProjectState().loadDataCsv);
     expect(restored.loadDataSource).toBeNull();
     expect(restored.csvResult?.data).toHaveLength(48);
+  });
+
+  it('migrates legacy resource archives without a source timezone as unknown', async () => {
+    const archive = JSON.parse(await encodeArchive());
+    archive.schemaVersion = 1;
+    archive.project.loadDataCsv = archive.project.loadData.csv;
+    delete archive.project.loadData;
+    delete archive.project.generationConfig.externalResources[0].sourceTimeZone;
+    const restored = await parseProjectArchive(JSON.stringify(archive));
+    expect(restored.generationConfig.externalResources?.[0].sourceTimeZone).toBeNull();
   });
 });

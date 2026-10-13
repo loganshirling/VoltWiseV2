@@ -6,6 +6,7 @@
  * 09/22/2025, 12:00 AM, 1.018, 25.075, kWh
  */
 import { CsvValidationResult, DatasetCompleteness, IntervalDataPoint } from '../types/energy';
+import { MAX_INTERVALS_PER_DATASET } from './importLimits';
 
 interface ParsedDay {
   year: number;
@@ -185,6 +186,24 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       errors: ['File must contain a header row and at least one data row.'],
       warnings: [],
       totalRows: lines.length,
+      validRows: 0,
+      totalKwh: 0,
+      intervalHours: 1,
+      peakKw: 0,
+      data: [],
+    };
+  }
+
+  if (lines.length - 1 > MAX_INTERVALS_PER_DATASET) {
+    return {
+      schemaValid: false,
+      chronologicallyValid: false,
+      operationallySimulatable: false,
+      annualProjectionEligible: false,
+      isValid: false,
+      errors: [`The file contains ${lines.length - 1} intervals; the supported maximum is ${MAX_INTERVALS_PER_DATASET.toLocaleString()}. Split the data into smaller files.`],
+      warnings: [],
+      totalRows: lines.length - 1,
       validRows: 0,
       totalKwh: 0,
       intervalHours: 1,
@@ -549,18 +568,30 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       totalKwh += usage;
       if (usage > maxUsageKwh) maxUsageKwh = usage;
 
-      const hour12 = parsedDate.getHours() % 12 || 12;
-      const ampm = parsedDate.getHours() >= 12 ? 'PM' : 'AM';
-      const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
-      const d = String(parsedDate.getDate()).padStart(2, '0');
-      const y = parsedDate.getFullYear();
+      const timestampYear = Number(timestampParts![1]);
+      const timestampMonth = Number(timestampParts![2]);
+      const timestampDay = Number(timestampParts![3]);
+      const timestampHour = Number(timestampParts![4]);
+      const timestampMinute = Number(timestampParts![5]);
+      const timestampSecond = Number(timestampParts![6] ?? 0);
+      const wallCalendarDate = new Date(Date.UTC(timestampYear, timestampMonth - 1, timestampDay));
+      const hour12 = timestampHour % 12 || 12;
+      const ampm = timestampHour >= 12 ? 'PM' : 'AM';
+      const m = String(timestampMonth).padStart(2, '0');
+      const d = String(timestampDay).padStart(2, '0');
+      const y = timestampYear;
+      // Legacy hour/month/day fields are neutral wall-clock coordinates. The
+      // simulation router remaps them to authoritative site-local coordinates.
+      const date = hasExplicitOffset
+        ? parsedDate
+        : new Date(Date.UTC(timestampYear, timestampMonth - 1, timestampDay, timestampHour, timestampMinute, timestampSecond));
 
       dataPoints.push({
         timestamp: rawTs,
-        date: parsedDate,
-        hour: parsedDate.getHours(),
-        dayOfWeek: parsedDate.getDay(),
-        month: parsedDate.getMonth(),
+        date,
+        hour: timestampHour,
+        dayOfWeek: wallCalendarDate.getUTCDay(),
+        month: timestampMonth - 1,
         usageKwh: usage,
         dayStr: `${m}/${d}/${y}`,
         hourOfDayStr: `${hour12}:00 ${ampm}`,
