@@ -96,6 +96,33 @@ async function openGenerationWithSolar(page: Page) {
   await page.locator('button[title="Add Solar Array"]').click();
 }
 
+test('fresh sample explains timezone setup and makes results usable after explicit selection', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Set a site timezone to run this sample' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set site timezone' }).click();
+  const timeZone = page.getByLabel('Site timezone (IANA)');
+  await expect(timeZone).toBeVisible();
+  await expect(timeZone).toHaveValue('');
+  await timeZone.fill('UTC');
+  await openTab(page, '5. Results & Analytics');
+  await expect(page.getByRole('button', { name: 'Table View' })).toBeVisible();
+});
+
+test('uploaded load without a site timezone remains blocked until a timezone is selected', async ({ page }) => {
+  await page.goto('/');
+  await openTab(page, '1. Data & TOU Rates');
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: 'valid-load.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv),
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await expect(page.getByText(/Set a valid site timezone before running a simulation/i)).toBeVisible();
+  await expect(page.getByText('Interval Dataset Ready for Simulation')).not.toBeVisible();
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByText('Interval Dataset Ready for Simulation')).toBeVisible();
+});
+
 async function completePendingResourceRead(page: Page) {
   await page.evaluate(() => (window as Window & { resolvePendingResourceRead?: () => void }).resolvePendingResourceRead?.());
   await page.waitForTimeout(150);

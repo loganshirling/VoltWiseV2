@@ -62,12 +62,12 @@
 
 **Files to review:** `src/App.tsx`, `src/utils/generationDefaults.ts`, `src/components/DataAndRatesTab.tsx`, `src/utils/loadTimeAlignment.ts`, relevant App/component tests, `e2e/smoke.spec.ts`, and `README.md`.
 
-- [ ] **Step 1: Write the failing readiness tests** in `src/__tests__/appSimulationIntegration.test.ts` (or a focused readiness test): null, invalid, valid-but-non-operational, and valid operational site alignment; only exact positive eligibility reports ready.
-- [ ] **Step 2: Write failing first-run browser tests** in `e2e/smoke.spec.ts`: a fresh context with no timezone must show the reason and direct setup action; selecting a valid timezone must make sample results usable; uploaded load with no timezone must remain blocked.
-- [ ] **Step 3: Run the focused tests and confirm the current failure.** Run the named Vitest tests and the targeted Playwright cases; record the false-ready and no-setup-action behavior.
-- [ ] **Step 4: Implement the explicit setup path.** Use `siteAlignmentEligibility?.operationallySimulatable === true`; show the eligibility reason and navigate to the site timezone control. Keep the initial sample without a fabricated timezone; do not infer a zone from browser/location settings.
-- [ ] **Step 5: Align first-run and README instructions** with the actual initial tab and setup path.
-- [ ] **Step 6: Rerun focused tests and commit** after they pass; verify prior tariff and projection tests remain unchanged.
+- [x] **Step 1: Write the failing readiness tests** in `src/__tests__/appSimulationIntegration.test.ts` (or a focused readiness test): null, invalid, valid-but-non-operational, and valid operational site alignment; only exact positive eligibility reports ready.
+- [x] **Step 2: Write failing first-run browser tests** in `e2e/smoke.spec.ts`: a fresh context with no timezone must show the reason and direct setup action; selecting a valid timezone must make sample results usable; uploaded load with no timezone must remain blocked.
+- [x] **Step 3: Run the focused tests and confirm the current failure.** Run the named Vitest tests and the targeted Playwright cases; record the false-ready and no-setup-action behavior.
+- [x] **Step 4: Implement the explicit setup path.** Use `siteAlignmentEligibility?.operationallySimulatable === true`; show the eligibility reason and navigate to the site timezone control. Keep the initial sample without a fabricated timezone; do not infer a zone from browser/location settings.
+- [x] **Step 5: Align first-run and README instructions** with the actual initial tab and setup path.
+- [x] **Step 6: Rerun focused tests and commit** after they pass; verify prior tariff and projection tests remain unchanged.
 
 **Acceptance:** A fresh browser session does not show a false “ready” state; it clearly explains that the illustrative sample needs an explicit site timezone and provides a direct setup action. Uploaded data with missing site-time validation stays visibly not ready and cannot enter simulation. Selecting a valid timezone makes the sample usable; no timezone is inferred or silently assigned. Existing tariff and projection semantics remain unchanged.
 

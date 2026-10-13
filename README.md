@@ -6,8 +6,8 @@ VoltWise is a local-first home energy scenario analyzer. It models interval ener
 
 ## Try VoltWise
 
-1. Open **Data & TOU Rates** and review the illustrative synthetic sample, or upload your own interval load CSV.
-2. Confirm the site time zone and edit the import/export rates to match the tariff assumptions you want to explore.
+1. On first open, Results explains that the illustrative synthetic sample has no real location. Choose **Set site timezone** and enter the IANA timezone for the site you want to analyze; VoltWise never infers a site timezone from your device.
+2. Open **Data & TOU Rates** to review the sample or upload your interval load CSV, then edit import/export rates to match the tariff assumptions you want to explore.
 3. Add a battery profile and, if relevant, configure solar, wind, or generator assets. Imported resource CSVs must align exactly with the load intervals.
 4. Review the financial assumptions and open **Results & Analytics**. Results identify sample data and explain the model's limits.
 5. Use **Save Project** to download a local project archive. Use analysis export for a separate results snapshot.

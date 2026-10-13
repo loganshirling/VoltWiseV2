@@ -46,6 +46,7 @@ import { MAX_LOAD_CSV_BYTES, MAX_INTERVALS_PER_DATASET } from './utils/importLim
 import {
   evaluateAnnualProjectionEligibility,
   evaluateLoadTimestampEligibility,
+  isValidIanaTimeZone,
 } from './utils/loadTimeAlignment';
 import { createSimulationWorkerClient, SimulationRunResult, SimulationTaskHandle } from './utils/simulationWorkerClient';
 import { SimulationJobInput, SimulationJobResult } from './utils/simulationWorkerJob';
@@ -235,6 +236,11 @@ export default function App() {
       generationConfig.site.timeZone
     );
   }, [csvResult, generationConfig]);
+
+  const handleConfigureSiteTimezone = () => setActiveTab('generation');
+  const needsSiteTimezone = Boolean(
+    csvResult?.operationallySimulatable && !isValidIanaTimeZone(generationConfig.site.timeZone)
+  );
 
   const annualProjectionEligibility = useMemo(() => {
     if (!csvResult?.schemaValid || !csvResult.chronologicallyValid || !generationConfig.site.timeZone.trim()) {
@@ -601,6 +607,7 @@ export default function App() {
             projectState={projectState}
             onProjectLoaded={handleProjectLoaded}
             siteAlignmentEligibility={siteLoadAlignmentEligibility}
+            onConfigureSiteTimezone={handleConfigureSiteTimezone}
             annualProjectionEligible={annualProjectionEligibility.eligible}
             annualProjectionReason={annualProjectionEligibility.reason}
             onFileUpload={handleFileUpload}
@@ -674,6 +681,9 @@ export default function App() {
             generationAnalysisError={generationAnalysisError}
             generationConfig={generationConfig}
             allowSolarExport={allowSolarExport}
+            needsSiteTimezone={needsSiteTimezone}
+            simulationReadinessReason={siteLoadAlignmentEligibility?.reason || 'Set a valid site timezone before running a simulation.'}
+            onConfigureSiteTimezone={handleConfigureSiteTimezone}
           />
         )}
 
