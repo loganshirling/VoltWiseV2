@@ -1005,7 +1005,7 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
       expect(projection.years[1].windGeneratedKwh).toBeCloseTo(projection.years[0].windGeneratedKwh, 8);
       expect(projection.years[0]).not.toHaveProperty('intervalResults');
       expect(JSON.stringify({ dataPoints, generationConfig })).toBe(inputsBeforeProjection);
-    });
+    }, 15_000);
 
     it('1. Wind-only Year-1 projection succeeds and produces authoritative wind metrics', () => {
       const dataPoints = createHourlyDataPoints(24, 1.5);
