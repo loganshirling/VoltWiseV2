@@ -6,7 +6,8 @@
 
 ## Evidence snapshot
 
-- **Current C2 candidate:** `292e293` (near-budget save/reopen regression and this audit update are being prepared on top of the integrated correction candidate). This revision has focused C1 evidence only; the final G7 gate is reserved for C4.
+- **Final audited documentation SHA:** pending the commit of this record. **Application candidate SHA:** `292e293` (the final source change, adding the near-budget save/reopen regression). Subsequent commits through this audit are documentation-only; C4's full gates were run with the documentation tree at `2b9dbc03f2a0f95e4230c8db42ee83939dd8372b`, and the application source tree matches `292e293`.
+- **C4 exact local gate at `2b9dbc03f2a0f95e4230c8db42ee83939dd8372b`:** `npx vitest run` PASS, **50 files / 1,114 tests**; `npx tsc --noEmit` PASS; `npm run build` PASS; `npm run test:e2e:chromium` PASS, **19/19**. Logs are retained in the ignored local execution ledger. GitHub Actions has not run for this branch.
 
 - **Candidate source SHA:** [`83f77d59479b351671a4782ba9643b0cf91b609d`](https://github.com/loganshirling/VoltWiseV2/commit/83f77d59479b351671a4782ba9643b0cf91b609d). The focused G7 suite was last run at `daa0006`; the only later source change before this candidate SHA adds a benchmark scenario and corrects the benchmark runtime label. No G7 implementation source changed after the focused suite. Current working-tree evidence updates are documentation-only.
 - **Focused local verification:** at `daa0006`, `npm test -- --maxWorkers=4` with the 17 parser, alignment, solar, wind, generation, grid-flow, battery, tariff, finance, routing, projection, export, archive, and eligibility suites listed below passed: **17 files / 554 tests**. After that test run, only the benchmark harness changed in source; no G7 implementation code changed.
@@ -71,16 +72,52 @@ The supplied completion appendix contains these 40 criteria, but the owner-desig
 | 35 | Preserve non-file solar behavior | PASS | `solarGeneration.test.ts`; `generationAwareSimulation.test.ts` |
 | 36 | Preserve non-file wind behavior | PASS | `windGeneration.test.ts`; `generationAwareSimulation.test.ts` |
 | 37 | Preserve existing G6 generator behavior | PASS | `generatorRoutingIntegration.test.ts`; `generationAwareSimulation.test.ts` |
-| 38 | Full Vitest at Final G7 Audit | NOT VERIFIED | Reserved for C4 final gate |
-| 39 | TypeScript at Final G7 Audit | NOT VERIFIED | Reserved for C4 final gate |
-| 40 | Production build at Final G7 Audit | NOT VERIFIED | Reserved for C4 final gate |
+| 38 | Full Vitest at Final G7 Audit | PASS | `npx vitest run`: 50 files / 1,114 tests at C4 documentation tree SHA `2b9dbc0`; application source `292e293` |
+| 39 | TypeScript at Final G7 Audit | PASS | `npx tsc --noEmit` exit 0 at C4 documentation tree SHA `2b9dbc0`; application source `292e293` |
+| 40 | Production build at Final G7 Audit | PASS | `npm run build` exit 0 at C4 documentation tree SHA `2b9dbc0`; application source `292e293` |
 
-The §37 verdict block below is intentionally not promoted to PASS by this crosswalk. The complete browser suite and exact §28 commands must run at the locked C4 candidate before final category verdicts are assigned.
+The complete browser suite and exact §28 commands passed at the C4 candidate documented above. The source-authority limitation still prevents claiming an exact-source G7 audit; therefore the final overall G7 verdict remains INCOMPLETE.
+
+## Section 37 final verdict block
+
+```text
+FINAL G7 AUDIT: INCOMPLETE
+
+Full Vitest: PASS (50 files / 1,114 tests)
+TypeScript: PASS
+Production build: PASS
+
+Legacy compatibility: PASS
+Non-file solar compatibility: PASS
+Non-file wind compatibility: PASS
+Generator compatibility: PASS
+
+External parser/validation: PASS
+Timestamp/timezone alignment: PASS
+Missing-data boundary: PASS
+
+Solar weather-file physics: PASS
+Wind interval-file physics: PASS
+
+Battery/grid/tariff reconciliation: PASS
+Energy reconciliation: PASS
+
+Projection/finance integration: PASS
+Partial-period safety: PASS
+
+Import UX: PASS
+Results reconciliation: PASS
+JSON/resource metadata reconciliation: PASS
+
+Owner sign-off: PENDING
+Source limitation: original VoltWise_G7_MilestoneRoadmap.md §§28/36/37 was not available; the 40-row review uses the supplied transcription.
+GitHub Actions/independent CI: NOT RUN / NOT VERIFIED
+```
 
 ## Review record and sign-off boundary
 
 The category evidence above was reviewed against the October 13 audit summary and the local tests at the stated SHA. Each “PASS” is limited to the named software tests and fixtures; it is not inferred from a green CI badge. No test or document here supports claims of site-engineering certification, full utility-bill reconciliation, investment advice, or future-weather prediction.
 
-**Evidence-record review:** complete for the categories available in the audit summary, dated 2026-10-13, candidate SHA `daa0006fb695d3f0fe264a5a1bd36e94edefff69`.
+**Evidence-record review:** updated 2026-10-13. Application candidate SHA `292e293`; full local gate ran against documentation tree SHA `2b9dbc03f2a0f95e4230c8db42ee83939dd8372b`. The present record's commit is documentation-only and does not change the tested application source.
 
 **Product-owner / original-milestone sign-off:** not recorded. The original section 28 text and acceptance IDs were unavailable, and the owner has not supplied an independent sign-off in this record. Map the exact IDs and obtain owner approval when that source is available. This documentation closes the evidence-record work; it does not make VoltWise production-qualified.

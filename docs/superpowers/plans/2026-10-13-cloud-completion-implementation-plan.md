@@ -132,12 +132,12 @@ The snapshot needs these corrections when execution starts:
 - Consumes: C0–C3 candidate diff and 40-point audit.
 - Produces: final candidate SHA, exact command outputs, browser results, and `PASS` / `INCOMPLETE` / `FAIL` verdict for C5/C6.
 
-- [ ] **Step 1: Freeze and record the candidate SHA and diff.** Run `git status --short`, `git rev-parse HEAD`, and inspect candidate-to-main diff. No source changes after this point without affected retesting and a new SHA record.
-- [ ] **Step 2: Run the exact G7 required commands once, in order:** `npx vitest run`, `npx tsc --noEmit`, and `npm run build`. Capture full output and actual totals/exit statuses; compare results to the C0 baseline floating-point test.
-- [ ] **Step 3: Run production browser acceptance:** `npm run test:e2e:chromium`. Record the actual number passed/failed/skipped and ensure the maximum archive test and C1 new regressions are included.
-- [ ] **Step 4: If a gate fails, isolate the cause.** Add a failing focused regression before correcting product code; rerun affected tests. Re-run the broad gate if a shared contract changes or the final source SHA changes materially. Do not bind old results to a new SHA.
-- [ ] **Step 5: Fill the exact §37 verdict block** and all 40 row verdicts at the final SHA. Use `FINAL G7 AUDIT: PASS` only if every required row/category and all three exact G7 commands pass. Otherwise write `INCOMPLETE` or `FAIL`, list gaps, and leave owner sign-off `PENDING`.
-- [ ] **Step 6: Commit the audit evidence.** Preserve both the tested application candidate SHA and the documentation commit SHA; if the code tree is unchanged between them, state that explicitly so evidence is not falsely assigned to a different source revision.
+- [x] **Step 1: Freeze and record the candidate SHA and diff.** Run `git status --short`, `git rev-parse HEAD`, and inspect candidate-to-main diff. No source changes after this point without affected retesting and a new SHA record.
+- [x] **Step 2: Run the exact G7 required commands once, in order:** `npx vitest run`, `npx tsc --noEmit`, and `npm run build`. Capture full output and actual totals/exit statuses; compare results to the C0 baseline floating-point test.
+- [x] **Step 3: Run production browser acceptance:** `npm run test:e2e:chromium`. Record the actual number passed/failed/skipped and ensure the maximum archive test and C1 new regressions are included.
+- [x] **Step 4: If a gate fails, isolate the cause.** Add a failing focused regression before correcting product code; rerun affected tests. Re-run the broad gate if a shared contract changes or the final source SHA changes materially. Do not bind old results to a new SHA.
+- [x] **Step 5: Fill the exact §37 verdict block** and all 40 row verdicts at the final SHA. Use `FINAL G7 AUDIT: PASS` only if every required row/category and all three exact G7 commands pass. Otherwise write `INCOMPLETE` or `FAIL`, list gaps, and leave owner sign-off `PENDING`.
+- [x] **Step 6: Commit the audit evidence.** Preserve both the tested application candidate SHA and the documentation commit SHA; if the code tree is unchanged between them, state that explicitly so evidence is not falsely assigned to a different source revision.
 
 **Acceptance:** Reproducible `candidate SHA → 40 G7 checks → Vitest/TypeScript/build/Chromium logs → exit verdict`; no blanket PASS from CI and no owner sign-off inferred from tests.
 
