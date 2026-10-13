@@ -131,11 +131,11 @@
 
 **Files to create/review:** `docs/g7-final-audit.md`, `docs/g7-measured-resource-projection-decision.md`, generation/projection tests, output/export tests, and the supplied G7 section 28 source if it can be located by the owner.
 
-- [ ] **Step 1: Locate the original G7 section 28 source** in the checkout/history or request it through the project owner; if absent, proceed from the audit's enumerated categories and label the source gap.
-- [ ] **Step 2: Create `docs/g7-final-audit.md`** with one row per category: parsing; timezone/offset/DST/alignment; solar/wind model boundaries; battery SOC/provenance and grid conservation; tariff/finance; legacy battery-only compatibility; Year-1 equality and Year-N replay/degradation; results/JSON export; immutability; and fail-closed eligibility.
-- [ ] **Step 3: Trace every row to exact SHA and evidence.** Record test/CI link, pass/fail/not-covered verdict, limitations, and follow-up. Run checks for uncovered categories; do not infer a universal pass from CI status.
-- [ ] **Step 4: Map exact G7 acceptance IDs** if the source is found. If unavailable, cite the October 13 audit's category summary and explicitly state that section 28 itself was not reviewed verbatim.
-- [ ] **Step 5: Review and record sign-off** while clearly excluding unsupported claims about site engineering, full utility bills, investment advice, or future-weather prediction.
+- [x] **Step 1: Locate the original G7 section 28 source** in the checkout/history or request it through the project owner; if absent, proceed from the audit's enumerated categories and label the source gap.
+- [x] **Step 2: Create `docs/g7-final-audit.md`** with one row per category: parsing; timezone/offset/DST/alignment; solar/wind model boundaries; battery SOC/provenance and grid conservation; tariff/finance; legacy battery-only compatibility; Year-1 equality and Year-N replay/degradation; results/JSON export; immutability; and fail-closed eligibility.
+- [x] **Step 3: Trace every row to exact SHA and evidence.** Record test/CI link, pass/fail/not-covered verdict, limitations, and follow-up. Run checks for uncovered categories; do not infer a universal pass from CI status.
+- [x] **Step 4: Map exact G7 acceptance IDs** if the source is found. If unavailable, cite the October 13 audit's category summary and explicitly state that section 28 itself was not reviewed verbatim.
+- [x] **Step 5: Review and record sign-off** while clearly excluding unsupported claims about site engineering, full utility bills, investment advice, or future-weather prediction.
 
 **Acceptance:** A reviewer can trace every in-scope G7 acceptance category to a source-SHA-specific test or an explicit uncovered limitation and sign-off. No category is marked passed solely because CI is green.
 
