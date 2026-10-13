@@ -4,15 +4,33 @@ import {
   parseSolarIrradianceCsv,
   parseWindSpeedCsv,
 } from '../utils/externalResourceParser';
-import { MAX_INTERVALS_PER_DATASET } from '../utils/importLimits';
 
 describe('G7A — External Resource CSV Parser', () => {
   it('rejects resource curves above the supported interval ceiling before row parsing', () => {
-    const csv = ['timestamp,wind_speed_mps', ...Array.from({ length: MAX_INTERVALS_PER_DATASET + 1 }, () => 'row')].join('\n');
+    const csv = ['timestamp,wind_speed_mps', ...Array.from({ length: 35_137 }, () => 'row')].join('\n');
     const result = parseWindSpeedCsv(csv);
     expect(result.isValid).toBe(false);
     expect(result.dataset).toBeUndefined();
-    expect(result.errors.join(' ')).toMatch(/35,040 intervals/i);
+    expect(result.errors.join(' ')).toMatch(/35,136 intervals/i);
+  });
+  it('accepts an exact 2024 quarter-hour solar and wind resource year', () => {
+    const start = Date.UTC(2024, 0, 1);
+    const timestamps = Array.from({ length: 35_136 }, (_, index) =>
+      new Date(start + index * 15 * 60_000).toISOString()
+    );
+    const solar = parseSolarIrradianceCsv([
+      'timestamp,ghi_wm2,dni_wm2,dhi_wm2',
+      ...timestamps.map((timestamp) => `${timestamp},1,0.6,0.4`),
+    ].join('\n'));
+    const wind = parseWindSpeedCsv([
+      'timestamp,wind_speed_mps',
+      ...timestamps.map((timestamp) => `${timestamp},5.25`),
+    ].join('\n'));
+
+    expect(solar.isValid).toBe(true);
+    expect(solar.dataset?.records).toHaveLength(35_136);
+    expect(wind.isValid).toBe(true);
+    expect(wind.dataset?.records).toHaveLength(35_136);
   });
   describe('1. Valid Ingestion & Schema Support', () => {
     it('parses a valid solar CSV with hourly intervals', () => {

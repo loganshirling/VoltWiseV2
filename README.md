@@ -6,13 +6,15 @@ VoltWise is a local-first home energy scenario analyzer. It models interval ener
 
 ## Try VoltWise
 
-1. Open **Data & TOU Rates** and review the illustrative synthetic sample, or upload your own interval load CSV.
-2. Confirm the site time zone and edit the import/export rates to match the tariff assumptions you want to explore.
+1. On first open, Results explains that the illustrative synthetic sample has no real location. Choose **Set site timezone** and enter the IANA timezone for the site you want to analyze; VoltWise never infers a site timezone from your device.
+2. Open **Data & TOU Rates** to review the sample or upload your interval load CSV, then edit import/export rates to match the tariff assumptions you want to explore.
 3. Add a battery profile and, if relevant, configure solar, wind, or generator assets. Imported resource CSVs must align exactly with the load intervals.
 4. Review the financial assumptions and open **Results & Analytics**. Results identify sample data and explain the model's limits.
 5. Use **Save Project** to download a local project archive. Use analysis export for a separate results snapshot.
 
 The default sample is generated and illustrative. It is not measured household consumption or a utility bill. Partial, continuous load periods can be analyzed, but lifecycle projections require an eligible complete calendar year. A complete-year measured solar/wind series can be replayed as a representative resource year under configured degradation and tariff assumptions; it is not a future weather forecast. See the [G7 measured-resource projection decision](docs/g7-measured-resource-projection-decision.md).
+
+Load and measured-resource CSVs each have a 2 MiB and 35,136-interval limit. A project can hold up to 10 generation assets and 10 resource datasets, with a shared 9 MiB persisted-data budget; new imports must keep the compact project at or below 11 MiB, and saved project archives are limited to 12 MiB. See [project-file limits and recovery behavior](docs/project-files.md).
 
 ## Supported analysis
 
@@ -31,7 +33,7 @@ This repository does not configure a production host. Do not describe a deployme
 
 ## Developer setup
 
-Use Node.js 24 and Bun 1.4.3 from the repository root:
+Use Node.js 24 and Bun 1.4.3 from the repository root. VoltWise does not require Gemini, OAuth, a backend URL, or a cloud-hosting secret. `.env.example` documents the optional local Vite `DISABLE_HMR` switch; normal development uses hot reload:
 
 ```sh
 bun install --frozen-lockfile

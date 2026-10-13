@@ -52,12 +52,21 @@ export function isLifecycleProjectionReady(
     siteAlignmentEligibility?.operationallySimulatable === true;
 }
 
+export function isSimulationReady(
+  loadOperationallySimulatable: boolean | undefined,
+  siteAlignmentEligibility: LoadTimestampEligibility | null | undefined
+): boolean {
+  return loadOperationallySimulatable === true &&
+    siteAlignmentEligibility?.operationallySimulatable === true;
+}
+
 interface DataAndRatesTabProps {
   csvResult: CsvValidationResult | null;
   loadDataSource: LoadDataSource | null;
   projectState: ProjectArchiveState;
   onProjectLoaded: (project: ValidatedProjectState) => void;
   siteAlignmentEligibility?: LoadTimestampEligibility | null;
+  onConfigureSiteTimezone: () => void;
   annualProjectionEligible?: boolean;
   annualProjectionReason?: string;
   onFileUpload: (file: File) => void;
@@ -140,6 +149,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   projectState,
   onProjectLoaded,
   siteAlignmentEligibility,
+  onConfigureSiteTimezone,
   annualProjectionEligible,
   annualProjectionReason,
   onFileUpload,
@@ -158,11 +168,9 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   scheduleMatrix,
   setScheduleMatrix,
 }) => {
-  const simulationReady = Boolean(
-    csvResult?.operationallySimulatable &&
-    siteAlignmentEligibility?.operationallySimulatable !== false
-  );
-  const simulationReadinessReason = siteAlignmentEligibility?.reason;
+  const simulationReady = isSimulationReady(csvResult?.operationallySimulatable, siteAlignmentEligibility);
+  const simulationReadinessReason = siteAlignmentEligibility?.reason ||
+    'Set a valid site timezone before running a simulation.';
   const lifecycleReady = isLifecycleProjectionReady(annualProjectionEligible, siteAlignmentEligibility);
   const lifecycleReadinessReason = siteAlignmentEligibility?.operationallySimulatable === false
     ? siteAlignmentEligibility.reason
@@ -986,9 +994,11 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                           ? 'CSV Timestamp Validation Errors Detected'
                           : simulationReady
                             ? 'Interval Dataset Ready for Simulation'
-                            : simulationReadinessReason
+                          : !csvResult.operationallySimulatable
+                            ? 'Interval Dataset Has Gaps or Irregular Spacing'
+                            : siteAlignmentEligibility
                               ? 'Timestamps Are Invalid for the Site Timezone'
-                              : 'Interval Dataset Has Gaps or Irregular Spacing'}
+                              : 'Site Timezone Required'}
                     </span>
                     {csvResult.schemaValid && csvResult.chronologicallyValid && (
                       <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-emerald-900/60 text-emerald-300 border border-emerald-600/40">
@@ -1027,8 +1037,19 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                     <p className={simulationReady ? 'text-emerald-300' : 'text-amber-200'}>
                       {simulationReady
                         ? 'This continuous interval dataset can be simulated for its covered period.'
-                        : simulationReadinessReason || 'This dataset cannot be simulated until missing or irregular intervals are resolved.'}
+                        : csvResult.operationallySimulatable
+                          ? simulationReadinessReason
+                          : 'This dataset cannot be simulated until missing or irregular intervals are resolved.'}
                     </p>
+                    {!simulationReady && csvResult.operationallySimulatable && (
+                      <button
+                        type="button"
+                        onClick={onConfigureSiteTimezone}
+                        className="rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-1.5 font-semibold text-amber-100 hover:bg-amber-900/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+                      >
+                        Set site timezone
+                      </button>
+                    )}
                     <p className={lifecycleReady ? 'text-emerald-300' : 'text-amber-200'}>
                       {lifecycleReady
                         ? 'Exact full-calendar-year coverage is available for lifecycle projections.'
