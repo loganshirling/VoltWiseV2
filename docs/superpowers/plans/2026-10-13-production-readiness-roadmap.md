@@ -114,12 +114,12 @@
 
 **Files to review:** `README.md`, `docs/model-scope.md`, `docs/measured-resource-data.md`, `docs/project-files.md`, `docs/privacy.md`, `.env.example`, `docs/browser-testing.md`, and `docs/performance-budget.md`.
 
-- [ ] **Step 1: Search docs and env examples** for measured-resource troubleshooting that contradicts implemented representative-year replay; update `docs/model-scope.md` and `docs/measured-resource-data.md` to explain fixed measured weather and hardware degradation.
-- [ ] **Step 2: Search for obsolete Gemini, AI Studio, OAuth, and Cloud Run requirements.** Remove unused variables from `.env.example` or label the file obsolete; keep only configuration actually read by the browser app.
-- [ ] **Step 3: Align README/setup navigation** with Task 1's fresh-session/timezone path.
-- [ ] **Step 4: Publish the final Task 2–3 row, byte, aggregate resource, and archive limits** in README/model scope/project files/performance docs. Tie each numeric claim to a constant and passing test/measurement.
-- [ ] **Step 5: Check privacy and provenance claims** against the actual code/network behavior and run a diff review for remaining contradictory instructions.
-- [ ] **Step 6: Commit the consistency update** only after the prior functional contracts are final.
+- [x] **Step 1: Search docs and env examples** for measured-resource troubleshooting that contradicts implemented representative-year replay; update `docs/model-scope.md` and `docs/measured-resource-data.md` to explain fixed measured weather and hardware degradation.
+- [x] **Step 2: Search for obsolete Gemini, AI Studio, OAuth, and Cloud Run requirements.** Remove unused variables from `.env.example` or label the file obsolete; keep only configuration actually read by the browser app.
+- [x] **Step 3: Align README/setup navigation** with Task 1's fresh-session/timezone path.
+- [x] **Step 4: Publish the final Task 2–3 row, byte, aggregate resource, and archive limits** in README/model scope/project files/performance docs. Tie each numeric claim to a constant and passing test/measurement.
+- [x] **Step 5: Check privacy and provenance claims** against the actual code/network behavior and run a diff review for remaining contradictory instructions.
+- [x] **Step 6: Commit the consistency update** only after the prior functional contracts are final.
 
 **Acceptance:** README, setup/environment examples, troubleshooting, model scope, and project-file docs agree with shipped code. Every documented limit and workflow is traceable to a constant, test, or explicit operator step.
 

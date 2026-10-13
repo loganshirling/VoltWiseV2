@@ -20,6 +20,8 @@ Provide at least two data rows. `Day` accepts common month/day/year and year-mon
 
 Load CSV imports are limited to 2 MiB and 35,136 intervals (the complete 2024 leap year at 15-minute cadence). Oversized files are rejected before reading; excess interval counts are rejected before detailed row parsing. A failed or superseded import leaves the currently active dataset unchanged.
 
+The 2 MiB file limit and 35,136-row limit apply independently to load and measured-resource CSVs. Project archives have a separate 12 MiB file limit and 9 MiB combined persisted-data limit; new imports are preflighted against an 11 MiB compact-archive ceiling to reserve room for settings. See [project files](project-files.md) for the complete contract.
+
 Load timestamps are interpreted in the site's explicitly selected IANA time zone. VoltWise does not infer a time zone. Nonexistent or ambiguous wall-clock times at daylight-saving transitions are rejected; records must be valid, strictly chronological and evenly spaced. Gaps and partial periods are reported rather than silently filled. A continuous, valid period with at least two intervals can be used for period dispatch. Lifecycle projections require one exact, gap-free calendar year at the detected interval cadence, including the full leap-year length when applicable. A partial period is not annualized.
 
 ## Measured solar and wind CSV
@@ -60,6 +62,6 @@ Battery backup autonomy is a capacity-to-user-entered-critical-load estimate. An
 - **Rows rejected or results unavailable:** check finite non-negative energy/resource values, units, required columns, dates, and row lengths. Do not convert kW to kWh without a validated interval duration.
 - **Timeline rejected:** provide a valid IANA time zone for local timestamps, resolve daylight-saving ambiguity, sort records, and restore missing intervals in the source. VoltWise will not infer or interpolate them.
 - **Measured resource will not attach:** verify that the correct resource type is selected and that all load timestamps have exact matching UTC resource records.
-- **Lifecycle projection unavailable:** upload one complete, continuous calendar year and use modeled solar/wind resources for future-year projections.
+- **Lifecycle projection unavailable:** provide a complete, continuous calendar year of load data. If measured resources are selected, provide matching records for every load interval in that year; a full-year measured series is replayed as the representative resource year. Modeled solar or wind inputs are another supported choice.
 - **Results differ from a provider bill:** check each rate and export credit, then account separately for bill components outside the v1 energy-rate model.
 - **High memory or slow lifecycle run:** review the reference-machine limits in [performance budget](performance-budget.md); they are not guarantees for every device.
