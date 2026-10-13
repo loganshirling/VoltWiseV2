@@ -145,12 +145,14 @@
 
 **Files to review/update:** `docs/browser-testing.md`, `docs/performance-budget.md`, `scripts/benchmark-simulation.ts`, Playwright projects, and browser/performance tests only where measurements identify a gap.
 
-- [ ] **Step 1: Define the intended browser/device matrix** with one named lower-memory target and one reference device; record OS, browser/version, CPU/RAM, viewport, build SHA, and test procedure.
-- [ ] **Step 2: On production builds, collect repeated measures** for import, save/open, 25-year runtime, peak process-tree memory, and interaction/cancellation responsiveness using Task 3's maximum supported project.
-- [ ] **Step 3: Run the Firefox journey** on a compatible environment; report installation-blocked, unrun, failed, or passed distinctly. Add Firefox to support claims only after the relevant suite passes.
-- [ ] **Step 4: Compare results with documented budgets** and write supported/unsupported device guidance based on the actual matrix. If devices are unavailable, keep the evidence gap open and make no minimum-device claim.
-- [ ] **Step 5: Reassess the ~696.77 kB minified bundle warning** only if measurements show a startup/interaction issue; avoid warning suppression or unrelated refactoring.
-- [ ] **Step 6: Commit measured evidence and browser guidance** without presenting one-off measurements as stable percentiles.
+- [x] **Step 1: Define the intended browser/device matrix** with one named lower-memory target and one reference device; record OS, browser/version, CPU/RAM, viewport, build SHA, and test procedure. The managed runner and provisional 8 GiB/4-core x86_64 target profile are recorded in `docs/performance-budget.md`; the target device is unavailable.
+- [ ] **Step 2: On production builds, collect repeated measures** for import, save/open, 25-year runtime, peak process-tree memory, and interaction/cancellation responsiveness using Task 3's maximum supported project. Three isolated archive round trips and a Node/tsx active mixed-generation diagnostic are recorded. Valid process-tree RSS, active mixed Chromium performance, and repeated target-device measures remain open; the current sampler double-counts shared memory.
+- [x] **Step 3: Run the Firefox journey** on a compatible environment; report installation-blocked, unrun, failed, or passed distinctly. Add Firefox to support claims only after the relevant suite passes. The targeted test was attempted and is recorded as installation-blocked because the matched executable is unavailable.
+- [x] **Step 4: Compare results with documented budgets** and write supported/unsupported device guidance based on the actual matrix. If devices are unavailable, keep the evidence gap open and make no minimum-device claim.
+- [x] **Step 5: Reassess the ~696.77 kB minified bundle warning** only if measurements show a startup/interaction issue; avoid warning suppression or unrelated refactoring. No isolated startup or interaction regression was measured, so no bundle refactor was justified.
+- [x] **Step 6: Commit measured evidence and browser guidance** without presenting one-off measurements as stable percentiles.
+
+**Qualification status:** Evidence collection and honest browser guidance are recorded. The acceptance criterion remains open: this workspace did not qualify active mixed 35,136-interval generation against the browser process-memory and interaction budgets, and no low-memory target or Firefox run was available. Do not make a broader device/browser support claim until those measurements pass.
 
 **Acceptance:** A versioned evidence matrix records actual passes and unavailable/unrun environments distinctly. Public device/browser claims do not exceed the measured matrix, and the maximum supported project remains usable within documented interaction/memory budgets.
 
@@ -168,6 +170,8 @@
 - [ ] **Step 6: Record source SHA, tag/version, CI run, artifact SHA-256, staging URL, headers, smoke, rollback, and release sign-off** in the runbook/release record. Publish a prerelease only after acceptance.
 
 **Acceptance:** Branch protection is active and verified; a reviewed PR has all required checks; a tagged artifact is traceable to source and checksum; hosted smoke and security headers pass; rollback is exercised and recorded. Until every item has evidence, the release remains a beta and the task remains open.
+
+**Workspace status:** The workflow and runbook source review is complete. This environment could not read live repository security settings because GitHub API access was forbidden, and no static host, staging URL, or operator credentials are configured. The external configuration/deployment steps remain open; see `docs/release-runbook.md` for the verification record and operator procedure.
 
 ## Post-v1 backlog (not release blockers)
 

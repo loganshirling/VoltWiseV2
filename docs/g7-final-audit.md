@@ -6,9 +6,9 @@
 
 ## Evidence snapshot
 
-- **Candidate source SHA:** [`daa0006fb695d3f0fe264a5a1bd36e94edefff69`](https://github.com/loganshirling/VoltWiseV2/commit/daa0006fb695d3f0fe264a5a1bd36e94edefff69). This is the locally reviewed feature branch tip. The later changes on the branch after the integration gate are documentation-only.
-- **Focused local verification at this SHA:** `npm test -- --maxWorkers=4` with the 17 parser, alignment, solar, wind, generation, grid-flow, battery, tariff, finance, routing, projection, export, archive, and eligibility suites listed below: **17 files / 554 tests passed**.
-- **Shared local integration gate:** at source-equivalent SHA `1776be1`, **50 files / 1,113 Vitest tests**, lint, production build, and **18/18 production Chromium journeys** passed. Changes from that SHA through this document's candidate SHA are documentation and metadata/environment descriptions only. The focused G7 tests were rerun at `daa0006`.
+- **Candidate source SHA:** [`83f77d59479b351671a4782ba9643b0cf91b609d`](https://github.com/loganshirling/VoltWiseV2/commit/83f77d59479b351671a4782ba9643b0cf91b609d). The focused G7 suite was last run at `daa0006`; the only later source change before this candidate SHA adds a benchmark scenario and corrects the benchmark runtime label. No G7 implementation source changed after the focused suite. Current working-tree evidence updates are documentation-only.
+- **Focused local verification:** at `daa0006`, `npm test -- --maxWorkers=4` with the 17 parser, alignment, solar, wind, generation, grid-flow, battery, tariff, finance, routing, projection, export, archive, and eligibility suites listed below passed: **17 files / 554 tests**. After that test run, only the benchmark harness changed in source; no G7 implementation code changed.
+- **Shared local integration gate:** at source-equivalent SHA `1776be1`, **50 files / 1,113 Vitest tests**, lint, production build, and **18/18 production Chromium journeys** passed. Changes from that SHA include documentation updates and a later benchmark-harness change; the G7-specific suite was rerun at `daa0006`.
 - **CI evidence:** no GitHub Actions run URL is recorded for this unpushed feature-branch SHA. The local test output is evidence, not a substitute for CI. The October 13 audit reports CI results for the then-merged `main` SHA, which predates these roadmap changes.
 
 ## Category review
