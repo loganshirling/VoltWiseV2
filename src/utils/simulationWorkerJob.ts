@@ -17,6 +17,7 @@ import {
   shouldCalculateLegacyFinancials,
 } from './generationFinancials';
 import { calculateGenerationOperationalProjection } from './generationProjection';
+import { MAX_INTERVALS_PER_DATASET } from './importLimits';
 
 export interface SimulationJobInput {
   dataPoints: import('../types/energy').IntervalDataPoint[];
@@ -89,6 +90,11 @@ export function executeSimulationJob(
   const result = emptyResult();
   if (input.preflightError) {
     result.simulationError = input.preflightError;
+    onProgress(100, 'blocked');
+    return result;
+  }
+  if (input.dataPoints.length > MAX_INTERVALS_PER_DATASET) {
+    result.simulationError = `Simulation input exceeds the supported maximum of ${MAX_INTERVALS_PER_DATASET.toLocaleString()} intervals.`;
     onProgress(100, 'blocked');
     return result;
   }

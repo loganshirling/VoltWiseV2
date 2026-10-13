@@ -22,8 +22,21 @@ const quarterHour = hourly.flatMap((point) => Array.from({ length: 4 }, (_, quar
     hourlyTotal: point.usageKwh / 4,
   };
 }));
-const dataPoints = scenario.startsWith('35040') ? quarterHour : hourly;
-const intervalHours = scenario.startsWith('35040') ? 0.25 : 1;
+const quarterHourLeapYear = [
+  ...quarterHour,
+  ...Array.from({ length: 96 }, (_, index) => {
+    const previous = quarterHour.at(-1)!;
+    const date = new Date(previous.date.getTime() + (index + 1) * 15 * 60 * 1000);
+    return {
+      ...previous,
+      timestamp: `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)}`,
+      date,
+      hour: date.getUTCHours(),
+    };
+  }),
+];
+const dataPoints = scenario.startsWith('35136') ? quarterHourLeapYear : scenario.startsWith('35040') ? quarterHour : hourly;
+const intervalHours = scenario.startsWith('35') ? 0.25 : 1;
 const profiles = scenario.endsWith('multi') ? DEFAULT_BATTERY_PROFILES : [DEFAULT_BATTERY_PROFILES[0]];
 const tou = DEFAULT_TOU_PROFILES[0];
 const emptyGenerationConfig = createDefaultGenerationConfig();

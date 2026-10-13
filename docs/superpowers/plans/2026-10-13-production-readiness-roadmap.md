@@ -79,12 +79,12 @@
 
 **Files to review:** `src/utils/importLimits.ts`, load and resource CSV parsers, annual eligibility, project archive validation, relevant UI error copy, import/archive tests, `scripts/benchmark-simulation.ts`, `docs/performance-budget.md`, `docs/model-scope.md`, and `docs/measured-resource-data.md`.
 
-- [ ] **Step 1: Write failing exact-calendar tests** in `src/__tests__/csvParser.test.ts`, `src/__tests__/externalResourceParser.test.ts`, and `src/__tests__/temporalValidationAndCompleteness.test.ts` for UTC 2024 (35,136 rows), UTC 2025 (35,040), missing/duplicate/gapped rows, and the first unsupported row count. Cover load and measured solar/wind files.
-- [ ] **Step 2: Run those tests to confirm** that the leap-year boundary is rejected by the current 35,040-row limit while incomplete/irregular sequences remain rejected for the right reason.
-- [ ] **Step 3: Measure the extra 96 intervals** with `scripts/benchmark-simulation.ts` for representative single/multi-profile cases and measure realistic plus high-precision CSV byte sizes. Evaluate the existing 2 MiB limit separately from row count.
-- [ ] **Step 4: Set one shared ceiling** of at least 35,136 rows and a benchmark-supported byte ceiling. Apply both consistently to parsers, UI prechecks, worker inputs, and archive validation. Do not raise the byte limit without measured input size and memory evidence.
-- [ ] **Step 5: Run parser, exact-year, import, and archive boundary tests** and confirm 2024/2025 full years pass while gaps and over-limit files fail atomically.
-- [ ] **Step 6: Update model-scope/resource/performance docs and commit** the constants, tests, measured boundary evidence, and copy together.
+- [x] **Step 1: Write failing exact-calendar tests** in `src/__tests__/csvParser.test.ts`, `src/__tests__/externalResourceParser.test.ts`, and `src/__tests__/temporalValidationAndCompleteness.test.ts` for UTC 2024 (35,136 rows), UTC 2025 (35,040), missing/duplicate/gapped rows, and the first unsupported row count. Cover load and measured solar/wind files.
+- [x] **Step 2: Run those tests to confirm** that the leap-year boundary is rejected by the current 35,040-row limit while incomplete/irregular sequences remain rejected for the right reason.
+- [x] **Step 3: Measure the extra 96 intervals** with `scripts/benchmark-simulation.ts` for representative single/multi-profile cases and measure realistic plus high-precision CSV byte sizes. Evaluate the existing 2 MiB limit separately from row count.
+- [x] **Step 4: Set one shared ceiling** of at least 35,136 rows and a benchmark-supported byte ceiling. Apply both consistently to parsers, UI prechecks, worker inputs, and archive validation. Do not raise the byte limit without measured input size and memory evidence.
+- [x] **Step 5: Run parser, exact-year, import, and archive boundary tests** and confirm 2024/2025 full years pass while gaps and over-limit files fail atomically.
+- [x] **Step 6: Update model-scope/resource/performance docs and commit** the constants, tests, measured boundary evidence, and copy together.
 
 **Acceptance:** A valid complete quarter-hour leap year can pass parser, alignment, annual-eligibility, simulation, archive save/open, and measured-resource checks within a measured byte limit. Equivalent non-leap-year behavior remains valid. Missing, duplicate, irregular, over-limit, and oversized inputs fail recoverably without mutating active project state.
 

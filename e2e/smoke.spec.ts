@@ -123,6 +123,26 @@ test('uploaded load without a site timezone remains blocked until a timezone is 
   await expect(page.getByText('Interval Dataset Ready for Simulation')).toBeVisible();
 });
 
+test('imports the maximum UTC 2024 quarter-hour load as a complete leap year', async ({ page }) => {
+  await page.goto('/');
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  const leapCsv = [
+    'timestamp,usage_kwh',
+    ...Array.from({ length: 35_136 }, (_, index) => `${new Date(Date.UTC(2024, 0, 1) + index * 15 * 60_000).toISOString()},0.25`),
+  ].join('\n');
+  const heapBefore = await page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
+  const startedAt = Date.now();
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: '2024-quarter-hour-load.csv', mimeType: 'text/csv', buffer: Buffer.from(leapCsv),
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await expect(page.getByText('Exact full-calendar-year coverage is available for lifecycle projections.')).toBeVisible();
+  const heapAfter = await page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
+  console.log(`35,136-row leap-year Chromium import: ${Date.now() - startedAt} ms; renderer JS heap delta: ${heapBefore !== null && heapAfter !== null ? `${((heapAfter - heapBefore) / (1024 * 1024)).toFixed(1)} MiB` : 'unavailable'}`);
+});
+
 async function completePendingResourceRead(page: Page) {
   await page.evaluate(() => (window as Window & { resolvePendingResourceRead?: () => void }).resolvePendingResourceRead?.());
   await page.waitForTimeout(150);

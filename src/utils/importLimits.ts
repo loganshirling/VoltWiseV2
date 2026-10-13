@@ -1,11 +1,11 @@
 /**
- * Conservative ingestion ceilings based on the 35,040-interval worker benchmark
- * in docs/performance-budget.md and the measured 318 KB / 8,760-row sample CSV.
+ * File ceilings bound browser reads; interval ceilings include a complete UTC leap year
+ * at 15-minute cadence. Both are measured independently in docs/performance-budget.md.
  */
 export const MAX_LOAD_CSV_BYTES = 2 * 1024 * 1024;
 export const MAX_RESOURCE_CSV_BYTES = 2 * 1024 * 1024;
 export const MAX_PROJECT_ARCHIVE_BYTES = 12 * 1024 * 1024;
-export const MAX_INTERVALS_PER_DATASET = 35_040;
+export const MAX_INTERVALS_PER_DATASET = 35_136;
 export const MAX_GENERATION_ASSETS = 10;
 
 export function formatMiB(bytes: number): string {
