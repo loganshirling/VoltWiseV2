@@ -151,11 +151,11 @@ The snapshot needs these corrections when execution starts:
 - Consumes: C4 final candidate SHA and verdict.
 - Produces: PR URL, independent CI run result, review resolution, owner-approved merge record, and post-merge `main` SHA or explicit open blocker.
 
-- [ ] **Step 1: Recheck current `main`, open PRs, and repo policy** with authorized GitHub access. If the branch changed, reconcile non-destructively and rerun affected checks.
-- [ ] **Step 2: Create or update a PR** from the final integration branch to current `main`, describing fixes, focused/full tests, G7 verdict, candidate/limitations, and D1–D4 deferrals. Do not state that the full gate or CI ran unless the final commit proves it.
-- [ ] **Step 3: Verify current PR checks**: quality, dependency audit, dependency review, secret scan. Read review comments and resolve them. Never self-approve or invent an independent review.
-- [ ] **Step 4: Inspect existing branch rules and repository security settings** if owner/admin access is available. With explicit owner authorization, configure PR-required checks and force-push/deletion protection where supported; otherwise record the exact owner action still pending. Only require an independent approval if a real reviewer or owner-approved workflow exists; avoid a self-deadlocking rule.
-- [ ] **Step 5: Stop before merge and ask the owner for explicit merge approval.** After approval and merge, record actual merge/main SHA and fresh post-merge CI; otherwise record PR/check status and leave `main` unchanged.
+- [x] **Step 1: Recheck current `main`, open PRs, and repo policy** with authorized GitHub access. If the branch changed, reconcile non-destructively and rerun affected checks. (Fetched and verified `main`/branch refs; live PR/policy lookup was blocked by invalid GitHub credentials.)
+- [ ] **Step 2: Create or update a PR** from the final integration branch to current `main`, describing fixes, focused/full tests, G7 verdict, candidate/limitations, and D1–D4 deferrals. Do not state that the full gate or CI ran unless the final commit proves it. (Candidate branch pushed; `gh pr create` returned `Forbidden`.)
+- [ ] **Step 3: Verify current PR checks**: quality, dependency audit, dependency review, secret scan. Read review comments and resolve them. Never self-approve or invent an independent review. (No PR/check visibility.)
+- [ ] **Step 4: Inspect existing branch rules and repository security settings** if owner/admin access is available. With explicit owner authorization, configure PR-required checks and force-push/deletion protection where supported; otherwise record the exact owner action still pending. Only require an independent approval if a real reviewer or owner-approved workflow exists; avoid a self-deadlocking rule. (Live settings unavailable; no changes made.)
+- [x] **Step 5: Stop before merge and ask the owner for explicit merge approval.** After approval and merge, record actual merge/main SHA and fresh post-merge CI; otherwise record PR/check status and leave `main` unchanged. (No merge attempted; `main` remains unchanged.)
 
 **Acceptance:** A reviewed PR carries passing required checks on its exact head; merge occurs only after owner approval; post-merge SHA/CI is evidenced or clearly pending. No tag/release/deployment.
 
@@ -169,11 +169,11 @@ The snapshot needs these corrections when execution starts:
 - Consumes: verified C0–C5 outputs and actual external-access status.
 - Produces: a concise, restartable cloud completion record and dedicated-machine/operator checklist.
 
-- [ ] **Step 1: Record branch, PR, final `main` SHA (or unmerged candidate SHA), verification date, and actual Actions URLs.** Never substitute the candidate branch for default branch after an unmerged PR.
-- [ ] **Step 2: Record G7 status/40-row audit, exact command outcomes, owner sign-off (`PENDING` unless given), and any NOT VERIFIED criteria.**
-- [ ] **Step 3: Summarize supported input/archive limits, measured resource modes, browser/runtime evidence, exact benchmark commands, and known code defects separately from environment/device/deployment gaps and post-v1 scope.**
-- [ ] **Step 4: Include D1–D4 as an operator checklist:** enabled 35,136-row active mixed generation on named hardware with PSS/cgroup memory; intended browser workflows; staging security headers/smoke/rollback; GitHub protections and alerts. State that none of these were completed in cloud unless evidence proves otherwise.
-- [ ] **Step 5: Run a final documentation/diff check and commit the handoff.** Stop cloud implementation after this record; do not start G8, choose a host, deploy, tag, or publish.
+- [x] **Step 1: Record branch, PR, final `main` SHA (or unmerged candidate SHA), verification date, and actual Actions URLs.** Never substitute the candidate branch for default branch after an unmerged PR. (No PR/Actions URL exists; the branch and base SHA are recorded.)
+- [x] **Step 2: Record G7 status/40-row audit, exact command outcomes, owner sign-off (`PENDING` unless given), and any NOT VERIFIED criteria.**
+- [x] **Step 3: Summarize supported input/archive limits, measured resource modes, browser/runtime evidence, exact benchmark commands, and known code defects separately from environment/device/deployment gaps and post-v1 scope.**
+- [x] **Step 4: Include D1–D4 as an operator checklist:** enabled 35,136-row active mixed generation on named hardware with PSS/cgroup memory; intended browser workflows; staging security headers/smoke/rollback; GitHub protections and alerts. State that none of these were completed in cloud unless evidence proves otherwise.
+- [x] **Step 5: Run a final documentation/diff check and commit the handoff.** Stop cloud implementation after this record; do not start G8, choose a host, deploy, tag, or publish.
 
 **Acceptance:** Handoff distinguishes merged main from candidate branch, reports real checks and limitations, contains no credentials/private datasets, and gives a copyable dedicated-machine phase.
 
