@@ -18,6 +18,7 @@ import {
   RateTier,
   TouProfile,
   GenerationConfig,
+  GenerationAsset,
   AnalysisState,
   GenerationProjectCostSummary,
   LoadDataSource,
@@ -50,6 +51,7 @@ import {
 } from './utils/loadTimeAlignment';
 import { createSimulationWorkerClient, SimulationRunResult, SimulationTaskHandle } from './utils/simulationWorkerClient';
 import { SimulationJobInput, SimulationJobResult } from './utils/simulationWorkerJob';
+import { assertProjectArchiveWithinBudget } from './utils/projectArchive';
 import { Zap, ChevronRight, Activity, ArrowRight, Bookmark, AlertTriangle } from 'lucide-react';
 
 function fingerprintProjectState(state: ProjectArchiveState): string {
@@ -96,6 +98,7 @@ export default function App() {
   const [loadImportError, setLoadImportError] = useState<string | null>(null);
   const [isReadingLoadFile, setIsReadingLoadFile] = useState(false);
   const [savedProjectFingerprint, setSavedProjectFingerprint] = useState<string | null>(null);
+  const projectStateRef = useRef<ProjectArchiveState | null>(null);
   const loadImportGeneration = useRef(0);
   const activeLoadReader = useRef<FileReader | null>(null);
   const [simulationWorkerClient] = useState(() => createSimulationWorkerClient());
@@ -161,6 +164,9 @@ export default function App() {
           setLoadImportError(`Load CSV exceeds the ${MAX_INTERVALS_PER_DATASET.toLocaleString()} interval limit. Split the data into smaller files; your active dataset is unchanged.`);
           return;
         }
+        const currentProject = projectStateRef.current;
+        if (!currentProject) throw new Error('Current project state is not ready for a saveability check.');
+        assertProjectArchiveWithinBudget({ ...currentProject, loadDataCsv: text, loadDataSource: 'uploaded' });
         setCsvResult(parsed);
         setLoadDataCsv(text);
         setLoadDataSource('uploaded');
@@ -196,6 +202,15 @@ export default function App() {
     setLoadImportError(null);
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
+    const currentProject = projectStateRef.current;
+    if (currentProject) {
+      try {
+        assertProjectArchiveWithinBudget({ ...currentProject, loadDataCsv: rawCsv, loadDataSource: 'synthetic_sample' });
+      } catch (error) {
+        setLoadImportError(`${error instanceof Error ? error.message : 'The sample would exceed the project saveability limit.'} The active dataset is unchanged.`);
+        return;
+      }
+    }
     setCsvResult(parsed);
     setLoadDataCsv(rawCsv);
     setLoadDataSource('synthetic_sample');
@@ -414,6 +429,38 @@ export default function App() {
     financials,
     loadDataCsv,
     loadDataSource,
+  };
+  projectStateRef.current = projectState;
+
+  const handleImportResourceDataset = (targetAssetId: string, dataset: NonNullable<GenerationConfig['externalResources']>[number]): string | null => {
+    const currentProject = projectStateRef.current;
+    if (!currentProject) return 'The active project is not ready for a saveability check.';
+    const previous = currentProject.generationConfig;
+    const targetAsset = previous.assets.find((asset) => asset.id === targetAssetId);
+    if (!targetAsset || targetAsset.type === 'generator') return 'The selected solar or wind asset no longer exists.';
+    const nextGenerationConfig: GenerationConfig = {
+      ...previous,
+      assets: previous.assets.map((asset) => asset.id === targetAssetId
+        ? ({
+            ...asset,
+            externalResourceId: dataset.id,
+            resourceMode: asset.type === 'solar' ? 'weather_file' : 'interval_file',
+          } as GenerationAsset)
+        : asset),
+      externalResources: [
+        ...(previous.externalResources ?? []).filter((resource) => resource.id !== dataset.id),
+        dataset,
+      ].filter((resource) => resource.id === dataset.id || previous.assets.some((asset) =>
+        asset.id !== targetAssetId && (asset.type === 'solar' || asset.type === 'wind') && asset.externalResourceId === resource.id
+      )),
+    };
+    try {
+      assertProjectArchiveWithinBudget({ ...currentProject, generationConfig: nextGenerationConfig });
+    } catch (error) {
+      return `${error instanceof Error ? error.message : 'The resource would exceed the project saveability limit.'} The active project is unchanged.`;
+    }
+    setGenerationConfig(nextGenerationConfig);
+    return null;
   };
 
   const currentProjectFingerprint = useMemo(
@@ -644,6 +691,7 @@ export default function App() {
           <PowerGenerationTab
             generationConfig={generationConfig}
             setGenerationConfig={setGenerationConfig}
+            onImportResourceDataset={handleImportResourceDataset}
             allowSolarExport={allowSolarExport}
             setAllowSolarExport={setAllowSolarExport}
           />
