@@ -6,10 +6,10 @@
 
 ## Evidence snapshot
 
-- **Final audited documentation SHA:** pending the commit of this record. **Application candidate SHA:** `292e293` (the final source change, adding the near-budget save/reopen regression). Subsequent commits through this audit are documentation-only; C4's full gates were run with the documentation tree at `2b9dbc03f2a0f95e4230c8db42ee83939dd8372b`, and the application source tree matches `292e293`.
+- **Application candidate SHA:** `292e293` (the final source change, adding the near-budget save/reopen regression). Subsequent commits through the published branch tip are documentation-only; C4's full gates were run with the documentation tree at `2b9dbc03f2a0f95e4230c8db42ee83939dd8372b`, and the application source tree matches `292e293`.
 - **C4 exact local gate at `2b9dbc03f2a0f95e4230c8db42ee83939dd8372b`:** `npx vitest run` PASS, **50 files / 1,114 tests**; `npx tsc --noEmit` PASS; `npm run build` PASS; `npm run test:e2e:chromium` PASS, **19/19**. Logs are retained in the ignored local execution ledger. GitHub Actions has not run for this branch.
 
-- **Candidate source SHA:** [`83f77d59479b351671a4782ba9643b0cf91b609d`](https://github.com/loganshirling/VoltWiseV2/commit/83f77d59479b351671a4782ba9643b0cf91b609d). The focused G7 suite was last run at `daa0006`; the only later source change before this candidate SHA adds a benchmark scenario and corrects the benchmark runtime label. No G7 implementation source changed after the focused suite. Current working-tree evidence updates are documentation-only.
+- **Historical correction-branch evidence:** [`83f77d59479b351671a4782ba9643b0cf91b609d`](https://github.com/loganshirling/VoltWiseV2/commit/83f77d59479b351671a4782ba9643b0cf91b609d). The focused G7 suite was last run at `daa0006`; the only later source change before that historical SHA adds a benchmark scenario and corrects the benchmark runtime label. The present C4 gate at `292e293` application source supersedes it for this candidate.
 - **Focused local verification:** at `daa0006`, `npm test -- --maxWorkers=4` with the 17 parser, alignment, solar, wind, generation, grid-flow, battery, tariff, finance, routing, projection, export, archive, and eligibility suites listed below passed: **17 files / 554 tests**. After that test run, only the benchmark harness changed in source; no G7 implementation code changed.
 - **Shared local integration gate:** at source-equivalent SHA `1776be1`, **50 files / 1,113 Vitest tests**, lint, production build, and **18/18 production Chromium journeys** passed. Changes from that SHA include documentation updates and a later benchmark-harness change; the G7-specific suite was rerun at `daa0006`.
 - **CI evidence:** no GitHub Actions run URL is recorded for this unpushed feature-branch SHA. The local test output is evidence, not a substitute for CI. The October 13 audit reports CI results for the then-merged `main` SHA, which predates these roadmap changes.
@@ -31,7 +31,7 @@
 
 ## Section 36 criterion crosswalk (transcribed checklist)
 
-The supplied completion appendix contains these 40 criteria, but the owner-designated `VoltWise_G7_MilestoneRoadmap.md` itself was not present in the checkout, reachable history, or attachments. Wording and numbering below are therefore based on the appendix transcription only; no row is an exact-source verification. PASS means the named repository evidence supports the transcribed behavior, not that the original source was checked. Criteria 38–40 remain NOT VERIFIED until the single final gate is run and bound to its final candidate SHA.
+The supplied completion appendix contains these 40 criteria, but the owner-designated `VoltWise_G7_MilestoneRoadmap.md` itself was not present in the checkout, reachable history, or attachments. Wording and numbering below are therefore based on the appendix transcription only; no row is an exact-source verification. PASS means the named repository evidence supports the transcribed behavior, not that the original source was checked. Criteria 38–40 were marked PASS only after the single C4 gate ran and was bound to the recorded application candidate SHA.
 
 | # | Transcribed criterion (short form) | Verdict | Evidence |
 |---:|---|---|---|

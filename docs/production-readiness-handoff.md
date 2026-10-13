@@ -4,8 +4,7 @@
 **Repository:** `loganshirling/VoltWiseV2`
 **Base `main` SHA:** `cfd433a594c1f6675b7225165a60c1b0dc85016e`
 **Published candidate branch:** `codex/cloud-completion-2026-10-13`
-**Candidate HEAD:** `311684fc62f78f3aa483b9950269d293ef0da66b`
-**Application source SHA tested:** `292e293` (later commits through candidate HEAD change documentation only)
+**Application source SHA tested:** `292e293` (later commits through the published branch tip change documentation only)
 
 ## Verification record
 
