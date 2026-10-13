@@ -73,13 +73,13 @@ The snapshot needs these corrections when execution starts:
 - Consumes: C0's selected candidate and current 35,136 / 2 MiB / 9 MiB / 11 MiB / 12 MiB contracts.
 - Produces: tests proving accepted edits remain saveable and failed/replaced/stale imports preserve active data and dirty state, or a documented negative finding with no code change.
 
-- [ ] **Step 1: Map existing tests to the five import/recovery paths** in the source roadmap: ordinary settings edits, resource replacement, load replacement, duplicate/rebind/remove, and stale/invalid async completion. Reuse maximum-project and cancellation fixtures already in `projectArchive.test.ts` and `e2e/smoke.spec.ts`.
-- [ ] **Step 2: Add a realistic near-budget archive fixture** to `src/__tests__/projectArchive.test.ts` using individually valid CSV records and distinct resource bindings. Assert normalized persisted bytes and archive bytes against the separate 9/11/12 MiB ceilings; ensure this is not an artificial over-limit fixture.
-- [ ] **Step 3: Add a focused browser/component regression for an ordinary settings or asset-metadata edit on the accepted near-budget project.** Assert Save remains available and a saved archive reopens. Run the new test before any production change and preserve its failure output.
-- [ ] **Step 4: Add or extend one regression per reproduced atomicity hole.** For each invalid, over-budget, duplicate/rebind/remove, or stale read path, assert current load/resource bindings and “Unsaved changes” status are preserved. Do not rebuild an already-covered fixture.
-- [ ] **Step 5: Make the smallest production correction only for a reproduced defect.** Keep validation before state replacement and reuse project archive/data-flow APIs. If all edits fit the measured metadata reserve and every candidate path is atomic, record that evidence and make no production-code change.
-- [ ] **Step 6: Run affected Vitest and targeted Chromium tests** and record exact pass/fail counts and any remaining untested path.
-- [ ] **Step 7: Commit the focused regression and any demonstrated minimal fix** after its focused tests pass.
+- [x] **Step 1: Map existing tests to the five import/recovery paths** in the source roadmap: ordinary settings edits, resource replacement, load replacement, duplicate/rebind/remove, and stale/invalid async completion. Reuse maximum-project and cancellation fixtures already in `projectArchive.test.ts` and `e2e/smoke.spec.ts`.
+- [x] **Step 2: Add a realistic near-budget archive fixture** to `src/__tests__/projectArchive.test.ts` using individually valid CSV records and distinct resource bindings. Assert normalized persisted bytes and archive bytes against the separate 9/11/12 MiB ceilings; ensure this is not an artificial over-limit fixture.
+- [x] **Step 3: Add a focused browser/component regression for an ordinary settings or asset-metadata edit on the accepted near-budget project.** Assert Save remains available and a saved archive reopens. Run the new test before any production change and preserve its failure output.
+- [x] **Step 4: Add or extend one regression per reproduced atomicity hole.** For each invalid, over-budget, duplicate/rebind/remove, or stale read path, assert current load/resource bindings and “Unsaved changes” status are preserved. Do not rebuild an already-covered fixture.
+- [x] **Step 5: Make the smallest production correction only for a reproduced defect.** Keep validation before state replacement and reuse project archive/data-flow APIs. If all edits fit the measured metadata reserve and every candidate path is atomic, record that evidence and make no production-code change.
+- [x] **Step 6: Run affected Vitest and targeted Chromium tests** and record exact pass/fail counts and any remaining untested path.
+- [x] **Step 7: Commit the focused regression and any demonstrated minimal fix** after its focused tests pass.
 
 **Acceptance:** Every accepted ordinary edit can be saved/reopened; failed/over-budget/stale candidates leave active data and dirty status intact; all numeric limits remain distinct and consistent; no new persistence or modeling behavior is introduced.
 

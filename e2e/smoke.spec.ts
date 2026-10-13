@@ -364,6 +364,72 @@ async function createMaximumLeapYearProjectArchive(): Promise<Buffer> {
   return Buffer.from(await serializeProjectArchive(state).arrayBuffer());
 }
 
+async function createNearBudgetLeapYearProjectArchive(): Promise<Buffer> {
+  const archive = await createMaximumLeapYearProjectArchive();
+  const parsed = JSON.parse(archive.toString('utf8')) as {
+    project: {
+      generationConfig: {
+        assets: Array<Record<string, unknown>>;
+        externalResources: Array<Record<string, unknown> & { records: Array<Record<string, unknown>> }>;
+      };
+    };
+  };
+  const windSource = parsed.project.generationConfig.externalResources.find((resource) => resource.kind === 'wind_speed')!;
+  const extraWindId = 'near-budget-wind-resource';
+  const extraWind = createDefaultWindAsset('near-budget-wind');
+  extraWind.enabled = false;
+  extraWind.resourceMode = 'interval_file';
+  extraWind.externalResourceId = extraWindId;
+  parsed.project.generationConfig.assets.push(extraWind as unknown as Record<string, unknown>);
+  parsed.project.generationConfig.externalResources.push({
+    ...windSource,
+    id: extraWindId,
+    name: 'Second measured wind station',
+    records: windSource.records.map((record) => ({
+      ...record,
+      windSpeedMps: Number(record.windSpeedMps) + 0.25,
+    })),
+  });
+  return Buffer.from(JSON.stringify(parsed));
+}
+
+test('saves and reopens an ordinary settings edit on an accepted near-budget project', async ({ page }) => {
+  test.setTimeout(180_000);
+  const inputArchive = await createNearBudgetLeapYearProjectArchive();
+  expect(inputArchive.byteLength).toBeGreaterThan(8 * 1024 * 1024);
+  expect(inputArchive.byteLength).toBeLessThan(11 * 1024 * 1024);
+
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.goto('/');
+  await openTab(page, '1. Data & TOU Rates');
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles({
+    name: 'near-budget-project.json', mimeType: 'application/json', buffer: inputArchive,
+  });
+  await expect(page.getByRole('status').filter({ hasText: /^Opened near-budget-project\.json\./ })).toBeVisible();
+
+  await openTab(page, '3. Power Generation');
+  const solarName = page.getByLabel('solar asset name');
+  await solarName.fill('Updated roof solar array');
+  await expect(page.getByRole('status').filter({ hasText: 'Unsaved changes' })).toBeVisible();
+  await openTab(page, '1. Data & TOU Rates');
+  const [savedProject] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Save Project' }).click(),
+  ]);
+  const savedPath = (await savedProject.path())!;
+  expect((await stat(savedPath)).size).toBeLessThan(12 * 1024 * 1024);
+
+  const freshPage = await page.context().browser()!.newPage();
+  freshPage.on('dialog', (dialog) => dialog.accept());
+  await freshPage.goto('/');
+  await openTab(freshPage, '1. Data & TOU Rates');
+  await freshPage.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(savedPath);
+  await expect(freshPage.getByRole('region', { name: 'Local Project File' }).getByRole('status'))
+    .toContainText('Opened ');
+  await openTab(freshPage, '3. Power Generation');
+  await expect(freshPage.getByLabel('solar asset name')).toHaveValue('Updated roof solar array');
+});
+
 test('covers sample, imports, settings, results, local save/open, export, and reset at mobile width', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));

@@ -19,7 +19,12 @@ import {
   parseProjectArchive,
   serializeProjectArchive,
 } from '../utils/projectArchive';
-import { MAX_GENERATION_ASSETS, MAX_LOAD_CSV_BYTES, MAX_PROJECT_ARCHIVE_BYTES } from '../utils/importLimits';
+import {
+  MAX_GENERATION_ASSETS,
+  MAX_LOAD_CSV_BYTES,
+  MAX_PROJECT_ARCHIVE_BYTES,
+  MAX_PROJECT_PERSISTED_DATA_BYTES,
+} from '../utils/importLimits';
 
 function makeProjectState(): ProjectArchiveState {
   const touProfile = DEFAULT_TOU_PROFILES[0];
@@ -104,6 +109,23 @@ function makeMaximumLeapYearProjectState(): ProjectArchiveState {
   return state;
 }
 
+function makeNearBudgetLeapYearProjectState(): ProjectArchiveState {
+  const state = makeMaximumLeapYearProjectState();
+  const windSource = state.generationConfig.externalResources!.find((resource) => resource.kind === 'wind_speed')!;
+  const extraWindId = 'wind-near-budget-resource';
+  const extraWind = createDefaultWindAsset('wind-near-budget');
+  extraWind.resourceMode = 'interval_file';
+  extraWind.externalResourceId = extraWindId;
+  state.generationConfig.assets.push(extraWind);
+  state.generationConfig.externalResources!.push({
+    ...windSource,
+    id: extraWindId,
+    name: 'Second measured wind station',
+    records: windSource.records.map((record) => ({ ...record, windSpeedMps: record.windSpeedMps + 0.25 })),
+  });
+  return state;
+}
+
 describe('versioned local project archives', () => {
   it('round-trips a maximum leap-year load with measured solar and wind while reserving metadata headroom', async () => {
     const state = makeMaximumLeapYearProjectState();
@@ -133,6 +155,25 @@ describe('versioned local project archives', () => {
     }));
 
     expect(() => assertProjectArchiveWithinBudget(state)).toThrow(/aggregate persisted data.*9 MiB/i);
+  });
+
+  it('keeps an ordinary asset-name edit saveable on an accepted near-budget leap-year project', async () => {
+    const state = makeNearBudgetLeapYearProjectState();
+    const beforeEdit = assertProjectArchiveWithinBudget(state);
+    expect(beforeEdit.persistedDataBytes).toBeGreaterThan(8 * 1024 * 1024);
+    expect(beforeEdit.persistedDataBytes).toBeLessThan(MAX_PROJECT_PERSISTED_DATA_BYTES);
+    expect(beforeEdit.archiveBytes).toBeLessThan(MAX_PROJECT_ARCHIVE_BYTES - 1024 * 1024);
+
+    const solar = state.generationConfig.assets.find((asset) => asset.type === 'solar')!;
+    solar.name = 'Updated roof solar array';
+    const afterEdit = assertProjectArchiveWithinBudget(state);
+    expect(afterEdit.persistedDataBytes).toBe(beforeEdit.persistedDataBytes);
+    expect(afterEdit.archiveBytes).toBeLessThan(MAX_PROJECT_ARCHIVE_BYTES);
+
+    const reopened = await parseProjectArchive(serializeProjectArchive(state));
+    expect(reopened.generationConfig.assets.find((asset) => asset.type === 'solar')?.name)
+      .toBe('Updated roof solar array');
+    expect(reopened.generationConfig.externalResources).toHaveLength(3);
   });
 
   it('round-trips editable settings, load input provenance, and external resource records', async () => {
