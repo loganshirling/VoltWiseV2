@@ -62,12 +62,12 @@
 
 **Files to review:** `src/App.tsx`, `src/utils/generationDefaults.ts`, `src/components/DataAndRatesTab.tsx`, `src/utils/loadTimeAlignment.ts`, relevant App/component tests, `e2e/smoke.spec.ts`, and `README.md`.
 
-- [ ] **Step 1: Write the failing readiness tests** in `src/__tests__/appSimulationIntegration.test.ts` (or a focused readiness test): null, invalid, valid-but-non-operational, and valid operational site alignment; only exact positive eligibility reports ready.
-- [ ] **Step 2: Write failing first-run browser tests** in `e2e/smoke.spec.ts`: a fresh context with no timezone must show the reason and direct setup action; selecting a valid timezone must make sample results usable; uploaded load with no timezone must remain blocked.
-- [ ] **Step 3: Run the focused tests and confirm the current failure.** Run the named Vitest tests and the targeted Playwright cases; record the false-ready and no-setup-action behavior.
-- [ ] **Step 4: Implement the explicit setup path.** Use `siteAlignmentEligibility?.operationallySimulatable === true`; show the eligibility reason and navigate to the site timezone control. Keep the initial sample without a fabricated timezone; do not infer a zone from browser/location settings.
-- [ ] **Step 5: Align first-run and README instructions** with the actual initial tab and setup path.
-- [ ] **Step 6: Rerun focused tests and commit** after they pass; verify prior tariff and projection tests remain unchanged.
+- [x] **Step 1: Write the failing readiness tests** in `src/__tests__/appSimulationIntegration.test.ts` (or a focused readiness test): null, invalid, valid-but-non-operational, and valid operational site alignment; only exact positive eligibility reports ready.
+- [x] **Step 2: Write failing first-run browser tests** in `e2e/smoke.spec.ts`: a fresh context with no timezone must show the reason and direct setup action; selecting a valid timezone must make sample results usable; uploaded load with no timezone must remain blocked.
+- [x] **Step 3: Run the focused tests and confirm the current failure.** Run the named Vitest tests and the targeted Playwright cases; record the false-ready and no-setup-action behavior.
+- [x] **Step 4: Implement the explicit setup path.** Use `siteAlignmentEligibility?.operationallySimulatable === true`; show the eligibility reason and navigate to the site timezone control. Keep the initial sample without a fabricated timezone; do not infer a zone from browser/location settings.
+- [x] **Step 5: Align first-run and README instructions** with the actual initial tab and setup path.
+- [x] **Step 6: Rerun focused tests and commit** after they pass; verify prior tariff and projection tests remain unchanged.
 
 **Acceptance:** A fresh browser session does not show a false “ready” state; it clearly explains that the illustrative sample needs an explicit site timezone and provides a direct setup action. Uploaded data with missing site-time validation stays visibly not ready and cannot enter simulation. Selecting a valid timezone makes the sample usable; no timezone is inferred or silently assigned. Existing tariff and projection semantics remain unchanged.
 
@@ -79,12 +79,12 @@
 
 **Files to review:** `src/utils/importLimits.ts`, load and resource CSV parsers, annual eligibility, project archive validation, relevant UI error copy, import/archive tests, `scripts/benchmark-simulation.ts`, `docs/performance-budget.md`, `docs/model-scope.md`, and `docs/measured-resource-data.md`.
 
-- [ ] **Step 1: Write failing exact-calendar tests** in `src/__tests__/csvParser.test.ts`, `src/__tests__/externalResourceParser.test.ts`, and `src/__tests__/temporalValidationAndCompleteness.test.ts` for UTC 2024 (35,136 rows), UTC 2025 (35,040), missing/duplicate/gapped rows, and the first unsupported row count. Cover load and measured solar/wind files.
-- [ ] **Step 2: Run those tests to confirm** that the leap-year boundary is rejected by the current 35,040-row limit while incomplete/irregular sequences remain rejected for the right reason.
-- [ ] **Step 3: Measure the extra 96 intervals** with `scripts/benchmark-simulation.ts` for representative single/multi-profile cases and measure realistic plus high-precision CSV byte sizes. Evaluate the existing 2 MiB limit separately from row count.
-- [ ] **Step 4: Set one shared ceiling** of at least 35,136 rows and a benchmark-supported byte ceiling. Apply both consistently to parsers, UI prechecks, worker inputs, and archive validation. Do not raise the byte limit without measured input size and memory evidence.
-- [ ] **Step 5: Run parser, exact-year, import, and archive boundary tests** and confirm 2024/2025 full years pass while gaps and over-limit files fail atomically.
-- [ ] **Step 6: Update model-scope/resource/performance docs and commit** the constants, tests, measured boundary evidence, and copy together.
+- [x] **Step 1: Write failing exact-calendar tests** in `src/__tests__/csvParser.test.ts`, `src/__tests__/externalResourceParser.test.ts`, and `src/__tests__/temporalValidationAndCompleteness.test.ts` for UTC 2024 (35,136 rows), UTC 2025 (35,040), missing/duplicate/gapped rows, and the first unsupported row count. Cover load and measured solar/wind files.
+- [x] **Step 2: Run those tests to confirm** that the leap-year boundary is rejected by the current 35,040-row limit while incomplete/irregular sequences remain rejected for the right reason.
+- [x] **Step 3: Measure the extra 96 intervals** with `scripts/benchmark-simulation.ts` for representative single/multi-profile cases and measure realistic plus high-precision CSV byte sizes. Evaluate the existing 2 MiB limit separately from row count.
+- [x] **Step 4: Set one shared ceiling** of at least 35,136 rows and a benchmark-supported byte ceiling. Apply both consistently to parsers, UI prechecks, worker inputs, and archive validation. Do not raise the byte limit without measured input size and memory evidence.
+- [x] **Step 5: Run parser, exact-year, import, and archive boundary tests** and confirm 2024/2025 full years pass while gaps and over-limit files fail atomically.
+- [x] **Step 6: Update model-scope/resource/performance docs and commit** the constants, tests, measured boundary evidence, and copy together.
 
 **Acceptance:** A valid complete quarter-hour leap year can pass parser, alignment, annual-eligibility, simulation, archive save/open, and measured-resource checks within a measured byte limit. Equivalent non-leap-year behavior remains valid. Missing, duplicate, irregular, over-limit, and oversized inputs fail recoverably without mutating active project state.
 
@@ -96,13 +96,13 @@
 
 **Files to review:** `src/utils/importLimits.ts`, `src/utils/projectArchive.ts`, load/resource import and attachment flows, `src/components/ProjectFileControls.tsx`, archive/import tests, `e2e/smoke.spec.ts`, and `docs/project-files.md`.
 
-- [ ] **Step 1: Add failing size/saveability tests** in `src/__tests__/projectArchive.test.ts` using maximum supported load/resource rows and realistic record precision. Measure normalized archive bytes and browser peak memory; treat the audit's 4.38 MiB per-resource figure as an estimate until reproduced.
-- [ ] **Step 2: Establish the v1 size contract before implementation.** Prefer retaining the versioned JSON format and 12 MiB archive ceiling with a measured project-wide persisted-data budget and reserved metadata headroom. The supported full-year load + one solar + one wind case must fit. If measurements show this cannot fit safely, document and test a versioned archive alternative rather than silently increasing limits or breaking old archives.
-- [ ] **Step 3: Run the maximum-combination tests** and record the current oversized cases, save failures, and memory before changing serialization/import behavior.
-- [ ] **Step 4: Implement one shared projected-archive-size check** from normalized `ProjectArchiveState`; use it for serialization and before any load/resource import or attachment that would make the active project unsaveable. Preserve v1/v2 archive readers. Reserve bounded metadata capacity or validate all persisted-size increases so ordinary settings cannot cross the archive ceiling after data acceptance.
-- [ ] **Step 5: Add recovery assertions** proving an over-budget candidate preserves active data and dirty status, and that valid saves still reopen and recalculate with matching authoritative outputs.
-- [ ] **Step 6: Add the production-browser round-trip** for the maximum supported combination: import/configure → simulate → save/download → fresh page → open → recalculate → compare result/export values.
-- [ ] **Step 7: Run archive/component/browser tests, record final byte and peak-memory bounds, update `docs/project-files.md`, and commit.**
+- [x] **Step 1: Add failing size/saveability tests** in `src/__tests__/projectArchive.test.ts` using maximum supported load/resource rows and realistic record precision. Measure normalized archive bytes and browser peak memory; treat the audit's 4.38 MiB per-resource figure as an estimate until reproduced.
+- [x] **Step 2: Establish the v1 size contract before implementation.** Prefer retaining the versioned JSON format and 12 MiB archive ceiling with a measured project-wide persisted-data budget and reserved metadata headroom. The supported full-year load + one solar + one wind case must fit. If measurements show this cannot fit safely, document and test a versioned archive alternative rather than silently increasing limits or breaking old archives.
+- [x] **Step 3: Run the maximum-combination tests** and record the current oversized cases, save failures, and memory before changing serialization/import behavior.
+- [x] **Step 4: Implement one shared projected-archive-size check** from normalized `ProjectArchiveState`; use it for serialization and before any load/resource import or attachment that would make the active project unsaveable. Preserve v1/v2 archive readers. Reserve bounded metadata capacity or validate all persisted-size increases so ordinary settings cannot cross the archive ceiling after data acceptance.
+- [x] **Step 5: Add recovery assertions** proving an over-budget candidate preserves active data and dirty status, and that valid saves still reopen and recalculate with matching authoritative outputs.
+- [x] **Step 6: Add the production-browser round-trip** for the maximum supported combination: import/configure → simulate → save/download → fresh page → open → recalculate → compare result/export values.
+- [x] **Step 7: Run archive/component/browser tests, record final byte and peak-memory bounds, update `docs/project-files.md`, and commit.**
 
 **Acceptance:** Every project state the app accepts under published input/project limits remains serializable below the archive ceiling and can be reopened. At minimum, a full-year supported load plus full-year measured solar and wind scenario is saveable. Over-budget candidates are rejected before replacing active state; existing data and dirty status remain intact. The maximum-combination case passes in a production browser within the measured memory budget.
 
@@ -114,12 +114,12 @@
 
 **Files to review:** `README.md`, `docs/model-scope.md`, `docs/measured-resource-data.md`, `docs/project-files.md`, `docs/privacy.md`, `.env.example`, `docs/browser-testing.md`, and `docs/performance-budget.md`.
 
-- [ ] **Step 1: Search docs and env examples** for measured-resource troubleshooting that contradicts implemented representative-year replay; update `docs/model-scope.md` and `docs/measured-resource-data.md` to explain fixed measured weather and hardware degradation.
-- [ ] **Step 2: Search for obsolete Gemini, AI Studio, OAuth, and Cloud Run requirements.** Remove unused variables from `.env.example` or label the file obsolete; keep only configuration actually read by the browser app.
-- [ ] **Step 3: Align README/setup navigation** with Task 1's fresh-session/timezone path.
-- [ ] **Step 4: Publish the final Task 2–3 row, byte, aggregate resource, and archive limits** in README/model scope/project files/performance docs. Tie each numeric claim to a constant and passing test/measurement.
-- [ ] **Step 5: Check privacy and provenance claims** against the actual code/network behavior and run a diff review for remaining contradictory instructions.
-- [ ] **Step 6: Commit the consistency update** only after the prior functional contracts are final.
+- [x] **Step 1: Search docs and env examples** for measured-resource troubleshooting that contradicts implemented representative-year replay; update `docs/model-scope.md` and `docs/measured-resource-data.md` to explain fixed measured weather and hardware degradation.
+- [x] **Step 2: Search for obsolete Gemini, AI Studio, OAuth, and Cloud Run requirements.** Remove unused variables from `.env.example` or label the file obsolete; keep only configuration actually read by the browser app.
+- [x] **Step 3: Align README/setup navigation** with Task 1's fresh-session/timezone path.
+- [x] **Step 4: Publish the final Task 2–3 row, byte, aggregate resource, and archive limits** in README/model scope/project files/performance docs. Tie each numeric claim to a constant and passing test/measurement.
+- [x] **Step 5: Check privacy and provenance claims** against the actual code/network behavior and run a diff review for remaining contradictory instructions.
+- [x] **Step 6: Commit the consistency update** only after the prior functional contracts are final.
 
 **Acceptance:** README, setup/environment examples, troubleshooting, model scope, and project-file docs agree with shipped code. Every documented limit and workflow is traceable to a constant, test, or explicit operator step.
 
@@ -131,11 +131,11 @@
 
 **Files to create/review:** `docs/g7-final-audit.md`, `docs/g7-measured-resource-projection-decision.md`, generation/projection tests, output/export tests, and the supplied G7 section 28 source if it can be located by the owner.
 
-- [ ] **Step 1: Locate the original G7 section 28 source** in the checkout/history or request it through the project owner; if absent, proceed from the audit's enumerated categories and label the source gap.
-- [ ] **Step 2: Create `docs/g7-final-audit.md`** with one row per category: parsing; timezone/offset/DST/alignment; solar/wind model boundaries; battery SOC/provenance and grid conservation; tariff/finance; legacy battery-only compatibility; Year-1 equality and Year-N replay/degradation; results/JSON export; immutability; and fail-closed eligibility.
-- [ ] **Step 3: Trace every row to exact SHA and evidence.** Record test/CI link, pass/fail/not-covered verdict, limitations, and follow-up. Run checks for uncovered categories; do not infer a universal pass from CI status.
-- [ ] **Step 4: Map exact G7 acceptance IDs** if the source is found. If unavailable, cite the October 13 audit's category summary and explicitly state that section 28 itself was not reviewed verbatim.
-- [ ] **Step 5: Review and record sign-off** while clearly excluding unsupported claims about site engineering, full utility bills, investment advice, or future-weather prediction.
+- [x] **Step 1: Locate the original G7 section 28 source** in the checkout/history or request it through the project owner; if absent, proceed from the audit's enumerated categories and label the source gap.
+- [x] **Step 2: Create `docs/g7-final-audit.md`** with one row per category: parsing; timezone/offset/DST/alignment; solar/wind model boundaries; battery SOC/provenance and grid conservation; tariff/finance; legacy battery-only compatibility; Year-1 equality and Year-N replay/degradation; results/JSON export; immutability; and fail-closed eligibility.
+- [x] **Step 3: Trace every row to exact SHA and evidence.** Record test/CI link, pass/fail/not-covered verdict, limitations, and follow-up. Run checks for uncovered categories; do not infer a universal pass from CI status.
+- [x] **Step 4: Map exact G7 acceptance IDs** if the source is found. If unavailable, cite the October 13 audit's category summary and explicitly state that section 28 itself was not reviewed verbatim.
+- [x] **Step 5: Review and record sign-off** while clearly excluding unsupported claims about site engineering, full utility bills, investment advice, or future-weather prediction.
 
 **Acceptance:** A reviewer can trace every in-scope G7 acceptance category to a source-SHA-specific test or an explicit uncovered limitation and sign-off. No category is marked passed solely because CI is green.
 
@@ -145,12 +145,14 @@
 
 **Files to review/update:** `docs/browser-testing.md`, `docs/performance-budget.md`, `scripts/benchmark-simulation.ts`, Playwright projects, and browser/performance tests only where measurements identify a gap.
 
-- [ ] **Step 1: Define the intended browser/device matrix** with one named lower-memory target and one reference device; record OS, browser/version, CPU/RAM, viewport, build SHA, and test procedure.
-- [ ] **Step 2: On production builds, collect repeated measures** for import, save/open, 25-year runtime, peak process-tree memory, and interaction/cancellation responsiveness using Task 3's maximum supported project.
-- [ ] **Step 3: Run the Firefox journey** on a compatible environment; report installation-blocked, unrun, failed, or passed distinctly. Add Firefox to support claims only after the relevant suite passes.
-- [ ] **Step 4: Compare results with documented budgets** and write supported/unsupported device guidance based on the actual matrix. If devices are unavailable, keep the evidence gap open and make no minimum-device claim.
-- [ ] **Step 5: Reassess the ~696.77 kB minified bundle warning** only if measurements show a startup/interaction issue; avoid warning suppression or unrelated refactoring.
-- [ ] **Step 6: Commit measured evidence and browser guidance** without presenting one-off measurements as stable percentiles.
+- [x] **Step 1: Define the intended browser/device matrix** with one named lower-memory target and one reference device; record OS, browser/version, CPU/RAM, viewport, build SHA, and test procedure. The managed runner and provisional 8 GiB/4-core x86_64 target profile are recorded in `docs/performance-budget.md`; the target device is unavailable.
+- [ ] **Step 2: On production builds, collect repeated measures** for import, save/open, 25-year runtime, peak process-tree memory, and interaction/cancellation responsiveness using Task 3's maximum supported project. Three isolated archive round trips and a Node/tsx active mixed-generation diagnostic are recorded. Valid process-tree RSS, active mixed Chromium performance, and repeated target-device measures remain open; the current sampler double-counts shared memory.
+- [x] **Step 3: Run the Firefox journey** on a compatible environment; report installation-blocked, unrun, failed, or passed distinctly. Add Firefox to support claims only after the relevant suite passes. The targeted test was attempted and is recorded as installation-blocked because the matched executable is unavailable.
+- [x] **Step 4: Compare results with documented budgets** and write supported/unsupported device guidance based on the actual matrix. If devices are unavailable, keep the evidence gap open and make no minimum-device claim.
+- [x] **Step 5: Reassess the ~696.77 kB minified bundle warning** only if measurements show a startup/interaction issue; avoid warning suppression or unrelated refactoring. No isolated startup or interaction regression was measured, so no bundle refactor was justified.
+- [x] **Step 6: Commit measured evidence and browser guidance** without presenting one-off measurements as stable percentiles.
+
+**Qualification status:** Evidence collection and honest browser guidance are recorded. The acceptance criterion remains open: this workspace did not qualify active mixed 35,136-interval generation against the browser process-memory and interaction budgets, and no low-memory target or Firefox run was available. Do not make a broader device/browser support claim until those measurements pass.
 
 **Acceptance:** A versioned evidence matrix records actual passes and unavailable/unrun environments distinctly. Public device/browser claims do not exceed the measured matrix, and the maximum supported project remains usable within documented interaction/memory budgets.
 
@@ -168,6 +170,8 @@
 - [ ] **Step 6: Record source SHA, tag/version, CI run, artifact SHA-256, staging URL, headers, smoke, rollback, and release sign-off** in the runbook/release record. Publish a prerelease only after acceptance.
 
 **Acceptance:** Branch protection is active and verified; a reviewed PR has all required checks; a tagged artifact is traceable to source and checksum; hosted smoke and security headers pass; rollback is exercised and recorded. Until every item has evidence, the release remains a beta and the task remains open.
+
+**Workspace status:** The workflow and runbook source review is complete. This environment could not read live repository security settings because GitHub API access was forbidden, and no static host, staging URL, or operator credentials are configured. The external configuration/deployment steps remain open; see `docs/release-runbook.md` for the verification record and operator procedure.
 
 ## Post-v1 backlog (not release blockers)
 

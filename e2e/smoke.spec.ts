@@ -1,7 +1,7 @@
 import { expect, test, Page } from '@playwright/test';
 import { readFile, stat } from 'node:fs/promises';
 import { MAX_GENERATION_ASSETS, MAX_LOAD_CSV_BYTES, MAX_PROJECT_ARCHIVE_BYTES, MAX_RESOURCE_CSV_BYTES } from '../src/utils/importLimits';
-import { DEFAULT_BATTERY_PROFILES, DEFAULT_MACRO_FINANCIALS, DEFAULT_TOU_PROFILES } from '../src/utils/simulationEngine';
+import { DEFAULT_BATTERY_PROFILES, DEFAULT_MACRO_FINANCIALS, DEFAULT_TOU_PROFILES, createDefaultScheduleMatrix } from '../src/utils/simulationEngine';
 import { createDefaultGenerationConfig, createDefaultGeneratorAsset, createDefaultSolarAsset, createDefaultWindAsset } from '../src/utils/generationDefaults';
 import { serializeProjectArchive } from '../src/utils/projectArchive';
 import { ProjectArchiveState } from '../src/types/energy';
@@ -92,9 +92,178 @@ async function installFailingLoadReader(page: Page) {
 async function openGenerationWithSolar(page: Page) {
   await page.goto('/');
   await openTab(page, '3. Power Generation');
+  await page.getByLabel('Latitude (degrees north)').fill('37.77');
+  await page.getByLabel('Longitude (degrees east)').fill('-122.4');
   await page.getByLabel('Site timezone (IANA)').fill('UTC');
   await page.locator('button[title="Add Solar Array"]').click();
 }
+
+test('fresh sample explains timezone setup and makes results usable after explicit selection', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Set a site timezone to run this sample' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set site timezone' }).click();
+  const timeZone = page.getByLabel('Site timezone (IANA)');
+  await expect(timeZone).toBeVisible();
+  await expect(timeZone).toHaveValue('');
+  await timeZone.fill('UTC');
+  await openTab(page, '5. Results & Analytics');
+  await expect(page.getByRole('button', { name: 'Table View' })).toBeVisible();
+});
+
+test('uploaded load without a site timezone remains blocked until a timezone is selected', async ({ page }) => {
+  await page.goto('/');
+  await openTab(page, '1. Data & TOU Rates');
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: 'valid-load.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv),
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await expect(page.getByText(/Set a valid site timezone before running a simulation/i)).toBeVisible();
+  await expect(page.getByText('Interval Dataset Ready for Simulation')).not.toBeVisible();
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByText('Interval Dataset Ready for Simulation')).toBeVisible();
+});
+
+test('imports the maximum UTC 2024 quarter-hour load as a complete leap year', async ({ page }) => {
+  await page.goto('/');
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  const leapCsv = [
+    'timestamp,usage_kwh',
+    ...Array.from({ length: 35_136 }, (_, index) => `${new Date(Date.UTC(2024, 0, 1) + index * 15 * 60_000).toISOString()},0.25`),
+  ].join('\n');
+  const heapBefore = await page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
+  const startedAt = Date.now();
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: '2024-quarter-hour-load.csv', mimeType: 'text/csv', buffer: Buffer.from(leapCsv),
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await expect(page.getByText('Exact full-calendar-year coverage is available for lifecycle projections.')).toBeVisible();
+  const heapAfter = await page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
+  console.log(`35,136-row leap-year Chromium import: ${Date.now() - startedAt} ms; renderer JS heap delta: ${heapBefore !== null && heapAfter !== null ? `${((heapAfter - heapBefore) / (1024 * 1024)).toFixed(1)} MiB` : 'unavailable'}`);
+});
+
+test('rejects a resource attachment that exceeds the project data budget without losing active data', async ({ page }) => {
+  await page.goto('/');
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Latitude (degrees north)').fill('37.77');
+  await page.getByLabel('Longitude (degrees east)').fill('-122.4');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  const timestamps = Array.from({ length: 35_136 }, (_, index) =>
+    new Date(Date.UTC(2024, 0, 1) + index * 15 * 60_000).toISOString()
+  );
+  const loadCsv = ['timestamp,usage_kwh', ...timestamps.map((timestamp) => `${timestamp},0.25`)].join('\n');
+  const solarCsv = (offset: number) => ['timestamp,ghi_wm2,dni_wm2,dhi_wm2',
+    ...timestamps.map((timestamp) => `${timestamp},${850.5 + offset},720.25,130.25`),
+  ].join('\n');
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: 'saveable-2024-load.csv', mimeType: 'text/csv', buffer: Buffer.from(loadCsv),
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+
+  await openTab(page, '3. Power Generation');
+  for (let index = 1; index <= 3; index += 1) {
+    await page.locator('button[title="Add Solar Array"]').click();
+    const assetName = `Saveable Array ${index}`;
+    await page.getByLabel('solar asset name').fill(assetName);
+    await page.locator('input[aria-label="Import measured resource CSV"]').setInputFiles({
+      name: `saveable-solar-${index}.csv`, mimeType: 'text/csv', buffer: Buffer.from(solarCsv(index)),
+    });
+    if (index < 3) {
+      await expect(page.getByRole('status').filter({ hasText: `Loaded 35,136 intervals from saveable-solar-${index}.csv` })).toBeVisible();
+    } else {
+      await expect(page.getByText(/aggregate persisted data cannot exceed 9 MiB/i)).toBeVisible();
+    }
+  }
+  await expect(page.getByRole('status').filter({ hasText: 'Unsaved changes' })).toBeVisible();
+  await page.getByRole('button', { name: /Saveable Array 1/ }).click();
+  await expect(page.getByText('Attached: saveable-solar-1.csv')).toBeVisible();
+  await page.getByRole('button', { name: /Saveable Array 2/ }).click();
+  await expect(page.getByText('Attached: saveable-solar-2.csv')).toBeVisible();
+  await page.getByRole('button', { name: /Saveable Array 3/ }).click();
+  await expect(page.getByText('Attached: saveable-solar-3.csv')).not.toBeVisible();
+  await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+});
+
+test('round-trips and recalculates the maximum supported leap-year solar-wind project', async ({ page }) => {
+  // Full-year resources and a multi-MiB project require more than the default
+  // 90 seconds on slower CI runners when both save and reopen are exercised.
+  test.setTimeout(180_000);
+  const inputArchive = await createMaximumLeapYearProjectArchive();
+  const startHeapSampler = async (target: Page) => target.addInitScript(() => {
+    const scope = window as Window & { __voltwiseHeapSamples?: number[]; __voltwiseHeapTimer?: number };
+    scope.__voltwiseHeapSamples = [];
+    scope.__voltwiseHeapTimer = window.setInterval(() => {
+      const used = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize;
+      if (used !== undefined) scope.__voltwiseHeapSamples?.push(used);
+    }, 25);
+  });
+  const peakHeapMiB = async (target: Page) => target.evaluate(() => {
+    const scope = window as Window & { __voltwiseHeapSamples?: number[]; __voltwiseHeapTimer?: number };
+    window.clearInterval(scope.__voltwiseHeapTimer);
+    const samples = scope.__voltwiseHeapSamples ?? [];
+    return samples.length ? Math.max(...samples) / (1024 * 1024) : null;
+  });
+
+  page.on('dialog', (dialog) => dialog.accept());
+  await startHeapSampler(page);
+  await page.goto('/');
+  await openTab(page, '1. Data & TOU Rates');
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles({
+    name: 'maximum-2024-solar-wind.json', mimeType: 'application/json', buffer: inputArchive,
+  });
+  await expect(page.getByRole('status').filter({ hasText: /^Opened maximum-2024-solar-wind\.json\./ })).toBeVisible();
+  await openTab(page, '3. Power Generation');
+  await expect(page.getByText('Attached: Maximum 2024 solar')).toBeVisible();
+  await page.getByRole('button', { name: /Wind Turbine Wind Turbine/ }).click();
+  await expect(page.getByText('Attached: Maximum 2024 wind')).toBeVisible();
+  await openTab(page, '5. Results & Analytics');
+  const exportButton = page.getByRole('button', { name: 'Export Analysis for LLM (.json)' }).first();
+  await expect(exportButton).toBeEnabled({ timeout: 60_000 });
+  const [firstExport] = await Promise.all([page.waitForEvent('download'), exportButton.click()]);
+  const firstAnalysis = JSON.parse(await readFile((await firstExport.path())!, 'utf8'));
+
+  await openTab(page, '1. Data & TOU Rates');
+  const [projectDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Save Project' }).click(),
+  ]);
+  const savedPath = (await projectDownload.path())!;
+  const savedBytes = (await stat(savedPath)).size;
+  expect(savedBytes).toBeLessThan(MAX_PROJECT_ARCHIVE_BYTES - 1024 * 1024);
+  const browserPeakHeapMiB = await peakHeapMiB(page);
+
+  const freshContext = await page.context().browser()!.newContext();
+  const freshPage = await freshContext.newPage();
+  freshPage.on('dialog', (dialog) => dialog.accept());
+  await startHeapSampler(freshPage);
+  await freshPage.goto('/');
+  await openTab(freshPage, '1. Data & TOU Rates');
+  await freshPage.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles({
+    name: 'maximum-roundtrip.json', mimeType: 'application/json', buffer: await readFile(savedPath),
+  });
+  await expect(freshPage.getByRole('region', { name: 'Local Project File' }).getByRole('status'))
+    .toContainText('Opened maximum-roundtrip.json.');
+  await openTab(freshPage, '3. Power Generation');
+  await expect(freshPage.getByText('Attached: Maximum 2024 solar')).toBeVisible();
+  await freshPage.getByRole('button', { name: /Wind Turbine Wind Turbine/ }).click();
+  await expect(freshPage.getByText('Attached: Maximum 2024 wind')).toBeVisible();
+  await openTab(freshPage, '5. Results & Analytics');
+  const freshExportButton = freshPage.getByRole('button', { name: 'Export Analysis for LLM (.json)' }).first();
+  await expect(freshExportButton).toBeEnabled({ timeout: 60_000 });
+  const [secondExport] = await Promise.all([freshPage.waitForEvent('download'), freshExportButton.click()]);
+  const secondAnalysis = JSON.parse(await readFile((await secondExport.path())!, 'utf8'));
+  expect(secondAnalysis.metadata.dataset_summary).toEqual(firstAnalysis.metadata.dataset_summary);
+  expect(secondAnalysis.year_1_results).toEqual(firstAnalysis.year_1_results);
+  expect(secondAnalysis.annual_time_series).toEqual(firstAnalysis.annual_time_series);
+  const reopenedPeakHeapMiB = await peakHeapMiB(freshPage);
+  console.log(`Maximum project round-trip: ${savedBytes} archive bytes; renderer peak JS heap: ${browserPeakHeapMiB === null || reopenedPeakHeapMiB === null ? 'unavailable' : `${browserPeakHeapMiB.toFixed(1)} / ${reopenedPeakHeapMiB.toFixed(1)} MiB (save and reopen)`}`);
+  await freshContext.close();
+});
 
 async function completePendingResourceRead(page: Page) {
   await page.evaluate(() => (window as Window & { resolvePendingResourceRead?: () => void }).resolvePendingResourceRead?.());
@@ -148,6 +317,118 @@ async function createGenerationJourneyArchive(assets: ProjectArchiveState['gener
   };
   return Buffer.from(await serializeProjectArchive(state).arrayBuffer());
 }
+
+async function createMaximumLeapYearProjectArchive(): Promise<Buffer> {
+  const timestamps = Array.from({ length: 35_136 }, (_, index) =>
+    new Date(Date.UTC(2024, 0, 1) + index * 15 * 60_000).toISOString()
+  );
+  const solarId = 'max-solar-resource';
+  const windId = 'max-wind-resource';
+  const solar = createDefaultSolarAsset('max-solar');
+  solar.enabled = false;
+  solar.resourceMode = 'weather_file';
+  solar.externalResourceId = solarId;
+  const wind = createDefaultWindAsset('max-wind');
+  wind.enabled = false;
+  wind.resourceMode = 'interval_file';
+  wind.externalResourceId = windId;
+  const generationConfig = createDefaultGenerationConfig();
+  generationConfig.site = { latitude: 37.7749, longitude: -122.4194, elevationM: 16, timeZone: 'UTC' };
+  generationConfig.assets = [solar, wind];
+  generationConfig.externalResources = [
+    {
+      id: solarId, name: 'Maximum 2024 solar', kind: 'solar_irradiance', sourceTimeZone: 'UTC',
+      intervalHours: 0.25, rowCount: timestamps.length, startTimestampUtc: timestamps[0], endTimestampUtc: timestamps.at(-1)!,
+      records: timestamps.map((timestampUtc) => ({ timestampUtc, ghiWm2: 850.5, dniWm2: 720.25, dhiWm2: 130.25 })),
+    },
+    {
+      id: windId, name: 'Maximum 2024 wind', kind: 'wind_speed', sourceTimeZone: 'UTC',
+      intervalHours: 0.25, rowCount: timestamps.length, startTimestampUtc: timestamps[0], endTimestampUtc: timestamps.at(-1)!,
+      records: timestamps.map((timestampUtc) => ({ timestampUtc, windSpeedMps: 5.25 })),
+    },
+  ];
+  const tou = DEFAULT_TOU_PROFILES[0];
+  const state: ProjectArchiveState = {
+    profiles: DEFAULT_BATTERY_PROFILES,
+    activeProfileId: DEFAULT_BATTERY_PROFILES[0].id,
+    touProfiles: DEFAULT_TOU_PROFILES,
+    activeTouProfileId: tou.id,
+    tiers: tou.tiers,
+    scheduleMatrix: createDefaultScheduleMatrix(),
+    generationConfig,
+    allowSolarExport: false,
+    financials: DEFAULT_MACRO_FINANCIALS,
+    loadDataCsv: ['timestamp,usage_kwh', ...timestamps.map((timestamp) => `${timestamp},0.25`)].join('\n'),
+    loadDataSource: 'uploaded',
+  };
+  return Buffer.from(await serializeProjectArchive(state).arrayBuffer());
+}
+
+async function createNearBudgetLeapYearProjectArchive(): Promise<Buffer> {
+  const archive = await createMaximumLeapYearProjectArchive();
+  const parsed = JSON.parse(archive.toString('utf8')) as {
+    project: {
+      generationConfig: {
+        assets: Array<Record<string, unknown>>;
+        externalResources: Array<Record<string, unknown> & { records: Array<Record<string, unknown>> }>;
+      };
+    };
+  };
+  const windSource = parsed.project.generationConfig.externalResources.find((resource) => resource.kind === 'wind_speed')!;
+  const extraWindId = 'near-budget-wind-resource';
+  const extraWind = createDefaultWindAsset('near-budget-wind');
+  extraWind.enabled = false;
+  extraWind.resourceMode = 'interval_file';
+  extraWind.externalResourceId = extraWindId;
+  parsed.project.generationConfig.assets.push(extraWind as unknown as Record<string, unknown>);
+  parsed.project.generationConfig.externalResources.push({
+    ...windSource,
+    id: extraWindId,
+    name: 'Second measured wind station',
+    records: windSource.records.map((record) => ({
+      ...record,
+      windSpeedMps: Number(record.windSpeedMps) + 0.25,
+    })),
+  });
+  return Buffer.from(JSON.stringify(parsed));
+}
+
+test('saves and reopens an ordinary settings edit on an accepted near-budget project', async ({ page }) => {
+  test.setTimeout(180_000);
+  const inputArchive = await createNearBudgetLeapYearProjectArchive();
+  expect(inputArchive.byteLength).toBeGreaterThan(8 * 1024 * 1024);
+  expect(inputArchive.byteLength).toBeLessThan(11 * 1024 * 1024);
+
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.goto('/');
+  await openTab(page, '1. Data & TOU Rates');
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles({
+    name: 'near-budget-project.json', mimeType: 'application/json', buffer: inputArchive,
+  });
+  await expect(page.getByRole('status').filter({ hasText: /^Opened near-budget-project\.json\./ })).toBeVisible();
+
+  await openTab(page, '3. Power Generation');
+  const solarName = page.getByLabel('solar asset name');
+  await solarName.fill('Updated roof solar array');
+  await expect(page.getByRole('status').filter({ hasText: 'Unsaved changes' })).toBeVisible();
+  await openTab(page, '1. Data & TOU Rates');
+  const [savedProject] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Save Project' }).click(),
+  ]);
+  const savedPath = (await savedProject.path())!;
+  expect((await stat(savedPath)).size).toBeLessThan(12 * 1024 * 1024);
+
+  const freshPage = await page.context().browser()!.newPage();
+  freshPage.on('dialog', (dialog) => dialog.accept());
+  await freshPage.goto('/');
+  await openTab(freshPage, '1. Data & TOU Rates');
+  await freshPage.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles(savedPath);
+  await expect(freshPage.getByRole('region', { name: 'Local Project File' }).getByRole('status'))
+    .toContainText('Opened ');
+  await openTab(freshPage, '3. Power Generation');
+  await expect(freshPage.getByLabel('solar asset name')).toHaveValue('Updated roof solar array');
+});
 
 test('covers sample, imports, settings, results, local save/open, export, and reset at mobile width', async ({ page }) => {
   const pageErrors: string[] = [];

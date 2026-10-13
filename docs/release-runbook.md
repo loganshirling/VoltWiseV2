@@ -11,6 +11,10 @@ The `CI` workflow runs for pull requests and pushes to `main`. Before merging, r
 
 Set branch rules for `main` to require a pull request, require the four checks above, require checks to pass against the latest base, dismiss stale approvals after new commits, require conversation resolution, and block force pushes and branch deletion. Enable GitHub's dependency graph and Dependabot alerts so newly disclosed issues outside a pull request are visible. The workflow cannot enable these repository settings; an owner must configure and verify them in GitHub.
 
+## Repository settings verification record
+
+The CI workflow source contains the `quality`, `dependency-audit`, `dependency-review` (pull-request only), and `secret-scan` jobs listed above. On 2026-10-13, the live GitHub settings could not be verified from the managed workspace: its configured GitHub token was invalid and repository API requests returned `Forbidden`. Therefore this runbook does not assert that `main` protection, dependency graph/alerts, or secret-scanning settings are active. A repository administrator must inspect and record those settings before release qualification.
+
 Review audit output and advisories before changing dependencies. Do not run automatic upgrades as part of CI. Make a deliberate dependency change in its own reviewed pull request, update `bun.lock` intentionally, and rerun the full CI checks.
 
 ## Version and tag policy

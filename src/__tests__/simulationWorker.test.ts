@@ -122,6 +122,15 @@ describe('simulation worker job', () => {
     expect(result.simulationError).toBe(input.preflightError);
     expect(result.activeUnifiedResult).toBeNull();
   });
+
+  it('rejects worker inputs above the shared interval ceiling before simulation', () => {
+    const input = makeInput();
+    input.dataPoints = new Array(35_137).fill(input.dataPoints[0]);
+    const result = executeSimulationJob(input);
+
+    expect(result.simulationError).toBe('Simulation input exceeds the supported maximum of 35,136 intervals.');
+    expect(result.activeUnifiedResult).toBeNull();
+  });
 });
 
 describe('simulation worker client', () => {

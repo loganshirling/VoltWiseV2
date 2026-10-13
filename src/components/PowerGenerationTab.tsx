@@ -88,6 +88,7 @@ function getExternalResourceId(asset: GenerationAsset): string | null | undefine
 interface PowerGenerationTabProps {
   generationConfig: GenerationConfig;
   setGenerationConfig: React.Dispatch<React.SetStateAction<GenerationConfig>>;
+  onImportResourceDataset: (assetId: string, dataset: ExternalResourceDataset) => string | null;
   allowSolarExport: boolean;
   setAllowSolarExport: React.Dispatch<React.SetStateAction<boolean>>;
 }
@@ -95,6 +96,7 @@ interface PowerGenerationTabProps {
 export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
   generationConfig,
   setGenerationConfig,
+  onImportResourceDataset,
   allowSolarExport,
   setAllowSolarExport,
 }) => {
@@ -271,30 +273,12 @@ export const PowerGenerationTab: React.FC<PowerGenerationTabProps> = ({
         return;
       }
       const dataset = parsed.dataset;
-      setGenerationConfig((previous) => {
-        if (
-          resourceImportRequestId.current !== requestId ||
-          !previous.assets.some((asset) => asset.id === targetAssetId)
-        ) return previous;
-        return {
-          ...previous,
-          assets: previous.assets.map((asset) => asset.id === targetAssetId
-            ? ({
-                ...asset,
-                externalResourceId: dataset.id,
-                resourceMode: targetAssetType === 'solar' ? 'weather_file' : 'interval_file',
-              } as GenerationAsset)
-            : asset),
-          externalResources: [
-            ...(previous.externalResources ?? []).filter((resource) => resource.id !== dataset.id),
-            dataset,
-          ].filter((resource) =>
-            resource.id === dataset.id || previous.assets.some((asset) =>
-              asset.id !== targetAssetId && getExternalResourceId(asset) === resource.id
-            )
-          ),
-        };
-      });
+      if (resourceImportRequestId.current !== requestId) return;
+      const saveabilityError = onImportResourceDataset(targetAssetId, dataset);
+      if (saveabilityError) {
+        setResourceImportError(saveabilityError);
+        return;
+      }
       if (resourceImportRequestId.current === requestId) {
         setResourceImportMessage(
           `Loaded ${dataset.rowCount.toLocaleString()} intervals from ${dataset.name} (source zone: ${dataset.sourceTimeZone ?? 'explicit offsets'}; site zone: ${generationConfig.site.timeZone || 'not set'}).${parsed.warnings.length ? ` ${parsed.warnings.join(' ')}` : ''}`

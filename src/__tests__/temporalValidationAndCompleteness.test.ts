@@ -3,6 +3,17 @@ import { parseAndValidateEnergyCsv } from '../utils/csvParser';
 import { formatHour12, formatDayMMDDYYYY } from '../utils/sampleData';
 
 describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
+  function generateQuarterHourCsv(year: number, omitIndex?: number) {
+    const leapYear = new Date(Date.UTC(year, 1, 29)).getUTCMonth() === 1;
+    const intervalCount = (leapYear ? 366 : 365) * 96;
+    const lines = ['Timestamp,Usage kWh'];
+    for (let index = 0; index < intervalCount; index += 1) {
+      if (index === omitIndex) continue;
+      lines.push(`${new Date(Date.UTC(year, 0, 1) + index * 15 * 60_000).toISOString()},0.25`);
+    }
+    return lines.join('\n');
+  }
+
   function generateCsv(days: number, startYear = 2025, startMonth = 0, startDay = 1, options: {
     duplicateRowIndex?: number;
     outOfOrderIndex?: number;
@@ -71,6 +82,26 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     expect(result.completeness?.isSuitableForAnnualProjection).toBe(true);
     expect(result.completeness?.isLeapYear).toBe(true);
     expect(result.completeness?.intervalCount).toBe(8784);
+  });
+
+  it('accepts exact full quarter-hour calendar years in leap and non-leap years', () => {
+    const leap = parseAndValidateEnergyCsv(generateQuarterHourCsv(2024));
+    const common = parseAndValidateEnergyCsv(generateQuarterHourCsv(2025));
+
+    expect(leap.annualProjectionEligible).toBe(true);
+    expect(leap.completeness?.intervalCount).toBe(35_136);
+    expect(leap.completeness?.isLeapYear).toBe(true);
+    expect(common.annualProjectionEligible).toBe(true);
+    expect(common.completeness?.intervalCount).toBe(35_040);
+    expect(common.completeness?.isLeapYear).toBe(false);
+  });
+
+  it('rejects a quarter-hour leap year with a missing row instead of treating it as a complete year', () => {
+    const missing = parseAndValidateEnergyCsv(generateQuarterHourCsv(2024, 96));
+
+    expect(missing.operationallySimulatable).toBe(false);
+    expect(missing.annualProjectionEligible).toBe(false);
+    expect(missing.completeness?.reason).toMatch(/missing or irregular intervals/i);
   });
 
   it('flags a six-month dataset as NOT suitable for annual financial projection', () => {

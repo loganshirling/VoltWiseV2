@@ -15,7 +15,14 @@ import {
 import { parseAndValidateEnergyCsv } from './csvParser';
 import { validateGeneratorAsset } from './generatorModel';
 import { validateWindGenerationAsset } from './windModel';
-import { MAX_GENERATION_ASSETS, MAX_INTERVALS_PER_DATASET, MAX_LOAD_CSV_BYTES, MAX_PROJECT_ARCHIVE_BYTES } from './importLimits';
+import {
+  MAX_GENERATION_ASSETS,
+  MAX_INTERVALS_PER_DATASET,
+  MAX_LOAD_CSV_BYTES,
+  MAX_PROJECT_ACCEPTED_ARCHIVE_BYTES,
+  MAX_PROJECT_ARCHIVE_BYTES,
+  MAX_PROJECT_PERSISTED_DATA_BYTES,
+} from './importLimits';
 
 export type { ProjectArchiveState, ValidatedProjectState } from '../types/energy';
 
@@ -500,7 +507,7 @@ function validateStateFields(projectValue: unknown, legacyV1: boolean): Validate
   };
 }
 
-export function serializeProjectArchive(state: ProjectArchiveState): Blob {
+function buildProjectArchive(state: ProjectArchiveState): ProjectArchiveV2 {
   if (!state || typeof state !== 'object') fail('project state', 'must be an object');
   validateFiniteTree(state, 'project');
   const archive: ProjectArchiveV2 = {
@@ -523,8 +530,50 @@ export function serializeProjectArchive(state: ProjectArchiveState): Blob {
     },
   };
   validateStateFields(archive.project, false);
-  const serialized = JSON.stringify(archive, null, 2);
-  if (new TextEncoder().encode(serialized).byteLength > MAX_PROJECT_ARCHIVE_BYTES) {
+  return archive;
+}
+
+export interface ProjectArchiveSize {
+  archiveBytes: number;
+  persistedDataBytes: number;
+}
+
+function prepareProjectArchive(state: ProjectArchiveState): ProjectArchiveSize & { serialized: string } {
+  const archive = buildProjectArchive(state);
+  const serialized = JSON.stringify(archive);
+  const persistedData = JSON.stringify({
+    loadData: archive.project.loadData,
+    externalResources: archive.project.generationConfig.externalResources ?? [],
+  });
+  const encoder = new TextEncoder();
+  return {
+    archiveBytes: encoder.encode(serialized).byteLength,
+    persistedDataBytes: encoder.encode(persistedData).byteLength,
+    serialized,
+  };
+}
+
+/** Measures the exact compact v2 encoding used for project files and its data-bearing fields. */
+export function measureProjectArchiveSize(state: ProjectArchiveState): ProjectArchiveSize {
+  const { archiveBytes, persistedDataBytes } = prepareProjectArchive(state);
+  return { archiveBytes, persistedDataBytes };
+}
+
+/** Rejects new persisted inputs that would leave less than the reserved settings headroom. */
+export function assertProjectArchiveWithinBudget(state: ProjectArchiveState): ProjectArchiveSize {
+  const size = measureProjectArchiveSize(state);
+  if (size.archiveBytes > MAX_PROJECT_ACCEPTED_ARCHIVE_BYTES) {
+    fail('project archive', `must remain at or below ${MAX_PROJECT_ACCEPTED_ARCHIVE_BYTES / (1024 * 1024)} MiB to reserve 1 MiB for project settings`);
+  }
+  if (size.persistedDataBytes > MAX_PROJECT_PERSISTED_DATA_BYTES) {
+    fail('project archive', `aggregate persisted data cannot exceed ${MAX_PROJECT_PERSISTED_DATA_BYTES / (1024 * 1024)} MiB`);
+  }
+  return size;
+}
+
+export function serializeProjectArchive(state: ProjectArchiveState): Blob {
+  const { serialized, archiveBytes } = prepareProjectArchive(state);
+  if (archiveBytes > MAX_PROJECT_ARCHIVE_BYTES) {
     fail('project archive', `cannot exceed ${MAX_PROJECT_ARCHIVE_BYTES / (1024 * 1024)} MiB`);
   }
   return new Blob([serialized], { type: 'application/json;charset=utf-8' });

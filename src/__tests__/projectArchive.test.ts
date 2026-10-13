@@ -15,10 +15,16 @@ import { generateStandardCsvTemplate } from '../utils/sampleData';
 import { runUnifiedSimulation } from '../utils/simulationRouter';
 import {
   ProjectArchiveState,
+  assertProjectArchiveWithinBudget,
   parseProjectArchive,
   serializeProjectArchive,
 } from '../utils/projectArchive';
-import { MAX_GENERATION_ASSETS, MAX_LOAD_CSV_BYTES } from '../utils/importLimits';
+import {
+  MAX_GENERATION_ASSETS,
+  MAX_LOAD_CSV_BYTES,
+  MAX_PROJECT_ARCHIVE_BYTES,
+  MAX_PROJECT_PERSISTED_DATA_BYTES,
+} from '../utils/importLimits';
 
 function makeProjectState(): ProjectArchiveState {
   const touProfile = DEFAULT_TOU_PROFILES[0];
@@ -68,7 +74,108 @@ async function encodeArchive(state = makeProjectState()): Promise<string> {
   return serializeProjectArchive(state).text();
 }
 
+function makeMaximumLeapYearProjectState(): ProjectArchiveState {
+  const state = makeProjectState();
+  const start = Date.UTC(2024, 0, 1);
+  const timestamps = Array.from({ length: 35_136 }, (_, index) =>
+    new Date(start + index * 15 * 60_000).toISOString()
+  );
+  const solarId = 'solar-max-resource';
+  const windId = 'wind-max-resource';
+  const solar = createDefaultSolarAsset('solar-max');
+  solar.resourceMode = 'weather_file';
+  solar.externalResourceId = solarId;
+  const wind = createDefaultWindAsset('wind-max');
+  wind.resourceMode = 'interval_file';
+  wind.externalResourceId = windId;
+  const generationConfig = createDefaultGenerationConfig();
+  generationConfig.site = { latitude: 37.77, longitude: -122.4, elevationM: 10, timeZone: 'UTC' };
+  generationConfig.assets = [solar, wind];
+  generationConfig.externalResources = [
+    {
+      id: solarId, name: 'Maximum quarter-hour solar', kind: 'solar_irradiance', sourceTimeZone: 'UTC',
+      intervalHours: 0.25, rowCount: timestamps.length, startTimestampUtc: timestamps[0], endTimestampUtc: timestamps.at(-1)!,
+      records: timestamps.map((timestampUtc) => ({ timestampUtc, ghiWm2: 850.5, dniWm2: 720.25, dhiWm2: 130.25 })),
+    },
+    {
+      id: windId, name: 'Maximum quarter-hour wind', kind: 'wind_speed', sourceTimeZone: 'UTC',
+      intervalHours: 0.25, rowCount: timestamps.length, startTimestampUtc: timestamps[0], endTimestampUtc: timestamps.at(-1)!,
+      records: timestamps.map((timestampUtc) => ({ timestampUtc, windSpeedMps: 5.25 })),
+    },
+  ];
+  state.generationConfig = generationConfig;
+  state.loadDataCsv = ['timestamp,usage_kwh', ...timestamps.map((timestamp) => `${timestamp},0.25`)].join('\n');
+  state.loadDataSource = 'uploaded';
+  return state;
+}
+
+function makeNearBudgetLeapYearProjectState(): ProjectArchiveState {
+  const state = makeMaximumLeapYearProjectState();
+  const windSource = state.generationConfig.externalResources!.find((resource) => resource.kind === 'wind_speed')!;
+  const extraWindId = 'wind-near-budget-resource';
+  const extraWind = createDefaultWindAsset('wind-near-budget');
+  extraWind.resourceMode = 'interval_file';
+  extraWind.externalResourceId = extraWindId;
+  state.generationConfig.assets.push(extraWind);
+  state.generationConfig.externalResources!.push({
+    ...windSource,
+    id: extraWindId,
+    name: 'Second measured wind station',
+    records: windSource.records.map((record) => ({ ...record, windSpeedMps: record.windSpeedMps + 0.25 })),
+  });
+  return state;
+}
+
 describe('versioned local project archives', () => {
+  it('round-trips a maximum leap-year load with measured solar and wind while reserving metadata headroom', async () => {
+    const state = makeMaximumLeapYearProjectState();
+    const size = assertProjectArchiveWithinBudget(state);
+
+    expect(size.archiveBytes).toBeLessThan(MAX_PROJECT_ARCHIVE_BYTES - 1024 * 1024);
+    const archive = serializeProjectArchive(state);
+    const restored = await parseProjectArchive(archive);
+    expect(restored.csvResult?.data).toHaveLength(35_136);
+    expect(restored.generationConfig.externalResources?.map((resource) => resource.records.length)).toEqual([35_136, 35_136]);
+  });
+
+  it('rejects a resource combination beyond the measured aggregate persisted-data budget', () => {
+    const state = makeMaximumLeapYearProjectState();
+    const source = state.generationConfig.externalResources![0];
+    const assets = Array.from({ length: 3 }, (_, index) => {
+      const asset = createDefaultSolarAsset(`solar-budget-${index + 1}`);
+      asset.resourceMode = 'weather_file';
+      asset.externalResourceId = `solar-budget-resource-${index + 1}`;
+      return asset;
+    });
+    state.generationConfig.assets = assets;
+    state.generationConfig.externalResources = assets.map((asset, index) => ({
+      ...source,
+      id: asset.externalResourceId!,
+      name: `Solar budget ${index + 1}`,
+    }));
+
+    expect(() => assertProjectArchiveWithinBudget(state)).toThrow(/aggregate persisted data.*9 MiB/i);
+  });
+
+  it('keeps an ordinary asset-name edit saveable on an accepted near-budget leap-year project', async () => {
+    const state = makeNearBudgetLeapYearProjectState();
+    const beforeEdit = assertProjectArchiveWithinBudget(state);
+    expect(beforeEdit.persistedDataBytes).toBeGreaterThan(8 * 1024 * 1024);
+    expect(beforeEdit.persistedDataBytes).toBeLessThan(MAX_PROJECT_PERSISTED_DATA_BYTES);
+    expect(beforeEdit.archiveBytes).toBeLessThan(MAX_PROJECT_ARCHIVE_BYTES - 1024 * 1024);
+
+    const solar = state.generationConfig.assets.find((asset) => asset.type === 'solar')!;
+    solar.name = 'Updated roof solar array';
+    const afterEdit = assertProjectArchiveWithinBudget(state);
+    expect(afterEdit.persistedDataBytes).toBe(beforeEdit.persistedDataBytes);
+    expect(afterEdit.archiveBytes).toBeLessThan(MAX_PROJECT_ARCHIVE_BYTES);
+
+    const reopened = await parseProjectArchive(serializeProjectArchive(state));
+    expect(reopened.generationConfig.assets.find((asset) => asset.type === 'solar')?.name)
+      .toBe('Updated roof solar array');
+    expect(reopened.generationConfig.externalResources).toHaveLength(3);
+  });
+
   it('round-trips editable settings, load input provenance, and external resource records', async () => {
     const state = makeProjectState();
     const restored = await parseProjectArchive(await encodeArchive(state));

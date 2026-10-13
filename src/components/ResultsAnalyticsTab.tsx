@@ -102,6 +102,9 @@ export interface ResultsAnalyticsTabProps {
   // G4E Generation export props:
   generationConfig?: GenerationConfig | null;
   allowSolarExport?: boolean;
+  needsSiteTimezone?: boolean;
+  simulationReadinessReason?: string;
+  onConfigureSiteTimezone?: () => void;
 }
 
 interface ResultsAnalyticsContentProps {
@@ -4588,11 +4591,37 @@ export const ResultsAnalyticsTab: React.FC<ResultsAnalyticsTabProps> = ({
   generationAnalysisError,
   generationConfig,
   allowSolarExport,
+  needsSiteTimezone,
+  simulationReadinessReason,
+  onConfigureSiteTimezone,
 }) => {
   const effectiveSummary = activeAnalysis ? activeAnalysis.annualSummary : activeSimulationSummary;
   const effectiveProfile = activeAnalysis ? activeAnalysis.profile : activeProfile;
 
   if (!effectiveSummary || !effectiveProfile) {
+    if (needsSiteTimezone) {
+      const isSample = loadDataSource === 'synthetic_sample';
+      return (
+        <section className="rounded-xl border border-amber-500/40 bg-amber-950/20 p-8 text-center space-y-3" aria-labelledby="timezone-setup-title">
+          <Activity className="h-8 w-8 text-amber-300 mx-auto" />
+          <h2 id="timezone-setup-title" className="text-lg font-semibold text-amber-100">
+            {isSample ? 'Set a site timezone to run this sample' : 'Set a site timezone to run this simulation'}
+          </h2>
+          <p className="mx-auto max-w-xl text-sm text-slate-300">
+            {isSample
+              ? 'This illustrative synthetic sample has no real location. Choose the IANA timezone that represents the site you want to analyze; VoltWise does not infer it from your device.'
+              : simulationReadinessReason || 'Choose the IANA timezone that matches the site and interval data.'}
+          </p>
+          <button
+            type="button"
+            onClick={onConfigureSiteTimezone}
+            className="rounded-lg border border-amber-400/50 bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-500/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+          >
+            Set site timezone
+          </button>
+        </section>
+      );
+    }
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-12 text-center text-slate-400 space-y-3">
         <Activity className="h-8 w-8 text-slate-500 mx-auto animate-pulse" />
