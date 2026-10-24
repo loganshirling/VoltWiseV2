@@ -4,6 +4,7 @@ import {
   calculateGenerationProjectCosts,
   calculateGenerationAwareFinancials,
   calculateGenerationFinancials,
+  calculateFinancialSettingsOpportunityCostPreview,
   calculateProjectFinancialInputs,
   deriveAnalysisState,
   deriveGenerationHorizonFinancialSummary,
@@ -1525,6 +1526,160 @@ describe('G4A — Financial Safety Gate & Generation Project Cost Contracts', ()
     // Group O: Opportunity Cost Benchmark
     // ========================================================================
     describe('Group O: Opportunity Cost Benchmark with Generation O&M', () => {
+      it('preserves the battery-only preview when no generation is configured', () => {
+        const financials = { ...DEFAULT_MACRO_FINANCIALS, isFinanced: false };
+        const projectInputs = calculateProjectFinancialInputs(10000, 0, financials);
+        const preview = calculateFinancialSettingsOpportunityCostPreview(projectInputs, financials);
+        const priorBatteryOnlyResult = calculateOpportunityCostBenchmark({
+          horizonYears: 15,
+          annualRatePercent: financials.opportunityCostRatePercent,
+          upfrontContribution: projectInputs.upfrontOutOfPocketUsd,
+          monthlyLoanPayment: projectInputs.monthlyLoanPaymentUsd,
+          loanTermYears: 0,
+          replacementEnabled: financials.replacementEnabled,
+          replacementCost: financials.replacementCost,
+          replacementYear: financials.replacementYear,
+        });
+
+        expect(preview).toEqual(priorBatteryOnlyResult);
+      });
+
+      it('keeps preview values unchanged with zero generation maintenance', () => {
+        const financials = { ...DEFAULT_MACRO_FINANCIALS, isFinanced: false };
+        const projectInputs = calculateProjectFinancialInputs(10000, 8000, financials);
+
+        expect(calculateFinancialSettingsOpportunityCostPreview(projectInputs, financials, 0))
+          .toEqual(calculateFinancialSettingsOpportunityCostPreview(projectInputs, financials));
+      });
+
+      it('adds nonzero annual maintenance beginning in Year 1 for exactly 15 years', () => {
+        const financials = { ...DEFAULT_MACRO_FINANCIALS, isFinanced: false, replacementEnabled: false };
+        const projectInputs = calculateProjectFinancialInputs(10000, 5000, financials);
+        const preview = calculateFinancialSettingsOpportunityCostPreview(projectInputs, financials, 125.25);
+
+        expect(preview.yearly).toHaveLength(15);
+        expect(preview.yearly[0].annualContribution).toBe(125.25);
+        expect(preview.yearly[14].annualContribution).toBe(125.25);
+        expect(preview.totalContributions).toBe(projectInputs.upfrontOutOfPocketUsd + 15 * 125.25);
+      });
+
+      it('uses the aggregated maintenance from multiple enabled assets exactly once', () => {
+        const costs = aggregateGenerationProjectCosts([
+          makeSolar('preview-om-a', true, 5000, 100.1),
+          makeWind('preview-om-b', true, 4000, 225.2),
+          makeGenerator('preview-om-disabled', false, 3000, 900),
+        ]);
+        const financials = { ...DEFAULT_MACRO_FINANCIALS, isFinanced: false, replacementEnabled: false };
+        const projectInputs = calculateProjectFinancialInputs(10000, costs.generationCapexUsd, financials);
+        const preview = calculateFinancialSettingsOpportunityCostPreview(
+          projectInputs,
+          financials,
+          costs.annualGenerationMaintenanceUsd
+        );
+
+        expect(costs.annualGenerationMaintenanceUsd).toBe(325.3);
+        expect(preview.yearly.every((year) => year.annualContribution === 325.3)).toBe(true);
+        expect(preview.totalContributions).toBeCloseTo(projectInputs.upfrontOutOfPocketUsd + 15 * 325.3, 2);
+      });
+
+      it('does not include maintenance from disabled generation assets', () => {
+        const costs = aggregateGenerationProjectCosts([
+          makeSolar('preview-disabled', false, 12000, 450),
+        ]);
+        const financials = {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          replacementEnabled: false,
+        };
+        const projectInputs = calculateProjectFinancialInputs(10000, costs.generationCapexUsd, financials);
+        const preview = calculateFinancialSettingsOpportunityCostPreview(
+          projectInputs,
+          financials,
+          costs.annualGenerationMaintenanceUsd
+        );
+
+        expect(costs.annualGenerationMaintenanceUsd).toBe(0);
+        expect(preview.yearly.every((year) => year.annualContribution === 0)).toBe(true);
+      });
+
+      it('combines financed debt service with annual maintenance without double counting', () => {
+        const financials = {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: true,
+          loanDownPaymentPercent: 20,
+          loanTermYears: 5,
+          loanAprPercent: 4,
+          replacementEnabled: false,
+        };
+        const projectInputs = calculateProjectFinancialInputs(10000, 5000, financials);
+        const preview = calculateFinancialSettingsOpportunityCostPreview(projectInputs, financials, 150);
+        const annualLoanPayment = projectInputs.monthlyLoanPaymentUsd * 12;
+
+        expect(preview.yearly[0].annualContribution).toBeCloseTo(annualLoanPayment + 150, 2);
+        expect(preview.yearly[4].annualContribution).toBeCloseTo(annualLoanPayment + 150, 2);
+        expect(preview.yearly[5].annualContribution).toBe(150);
+      });
+
+      it('retains replacement expense timing alongside annual maintenance', () => {
+        const financials = {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: false,
+          replacementEnabled: true,
+          replacementCost: 800,
+          replacementYear: 3,
+        };
+        const projectInputs = calculateProjectFinancialInputs(10000, 5000, financials);
+        const preview = calculateFinancialSettingsOpportunityCostPreview(projectInputs, financials, 60);
+
+        expect(preview.yearly[0].annualContribution).toBe(60);
+        expect(preview.yearly[1].annualContribution).toBe(60);
+        expect(preview.yearly[2].annualContribution).toBe(860);
+        expect(preview.yearly[3].annualContribution).toBe(60);
+      });
+
+      it('reconciles Year 15 with the authoritative generation-aware benchmark', () => {
+        const financials = {
+          ...DEFAULT_MACRO_FINANCIALS,
+          isFinanced: true,
+          loanDownPaymentPercent: 25,
+          loanTermYears: 8,
+          loanAprPercent: 5,
+          replacementEnabled: true,
+          replacementCost: 1200,
+          replacementYear: 10,
+          opportunityCostRatePercent: 6,
+        };
+        const costs: GenerationProjectCostSummary = {
+          generationCapexUsd: 8000,
+          annualGenerationMaintenanceUsd: 275.5,
+          byAsset: [],
+          byType: [] as any,
+          solarMetadata: [],
+        };
+        const projectInputs = calculateProjectFinancialInputs(
+          mockBatteryProfile.installedCost,
+          costs.generationCapexUsd,
+          financials
+        );
+        const preview = calculateFinancialSettingsOpportunityCostPreview(
+          projectInputs,
+          financials,
+          costs.annualGenerationMaintenanceUsd
+        );
+        const analysis = calculateGenerationAwareFinancials({
+          batteryProfile: mockBatteryProfile,
+          operationalProjection: createMockProjection(15, 1000),
+          projectCosts: costs,
+          financials,
+        });
+
+        expect(analysis.annualGenerationMaintenanceUsd).toBe(275.5);
+        expect(Math.round(preview.yearly[14].futureValue * 100) / 100)
+          .toBe(analysis.opportunityCostFutureValueUsd);
+        expect(Math.round(preview.yearly[14].profit * 100) / 100)
+          .toBe(analysis.opportunityCostProfitUsd);
+      });
+
       it('36, 37, 38, 39. Opportunity cost accounts for generation-aware upfront cash, debt service, replacement, and O&M', () => {
         const projection = createMockProjection(5, 3000);
         const costs: GenerationProjectCostSummary = {

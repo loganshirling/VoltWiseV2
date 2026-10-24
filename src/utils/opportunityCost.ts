@@ -9,7 +9,8 @@
  * Cash outlays included:
  * - Year 0: Actual cash committed at purchase (gross cost minus point-of-sale rebates for cash;
  *   down payment amount for financing). Loan principal is NOT treated as user capital.
- * - Years 1+: Actual debt service (loan payments) and replacement expenses occurring that year.
+ * - Years 1+: Actual debt service, replacement expenses, and supplied annual project
+ *   maintenance contributions occurring that year.
  *
  * Battery-specific benefits (solar/battery savings, deferred federal tax credits, VOLL/resilience)
  * are NOT benchmark contributions; they remain returns on the battery side of the comparison.
@@ -18,7 +19,8 @@
  * - Year 0: Initial cash contribution is invested immediately.
  * - Each later year (1..horizon):
  *   1. Grow existing alternative-investment balance by the annual benchmark rate.
- *   2. Determine battery cash outlays occurring in that year (debt service + replacement).
+ *   2. Determine project cash outlays occurring in that year (debt service, replacement,
+ *      and supplied annual contributions such as generation maintenance).
  *   3. Add those outlays to the alternative investment at the end of that year.
  */
 

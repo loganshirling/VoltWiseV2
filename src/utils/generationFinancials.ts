@@ -161,6 +161,33 @@ export function calculateProjectFinancialInputs(
   };
 }
 
+/** Builds the Financial Settings 15-year alternative-investment preview input. */
+export function calculateFinancialSettingsOpportunityCostPreview(
+  projectInputs: ProjectFinancialInputs,
+  financials: MacroFinancials,
+  annualGenerationMaintenanceUsd = 0
+) {
+  const horizonYears = 15;
+  const annualMaintenanceUsd = Math.round(
+    Math.max(0, annualGenerationMaintenanceUsd || 0) * 100
+  ) / 100;
+
+  return calculateOpportunityCostBenchmark({
+    horizonYears,
+    annualRatePercent: financials.opportunityCostRatePercent ?? 4.5,
+    upfrontContribution: projectInputs.upfrontOutOfPocketUsd,
+    monthlyLoanPayment: projectInputs.monthlyLoanPaymentUsd,
+    loanTermYears: projectInputs.isFinanced ? financials.loanTermYears ?? 0 : 0,
+    replacementEnabled: financials.replacementEnabled,
+    replacementCost: financials.replacementCost,
+    replacementYear: financials.replacementYear,
+    additionalAnnualContributions: Array.from(
+      { length: horizonYears },
+      () => annualMaintenanceUsd
+    ),
+  });
+}
+
 /**
  * Aggregates CAPEX and annual O&M for all enabled generation assets.
  * Disabled assets contribute zero.
