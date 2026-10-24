@@ -17,8 +17,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { BatteryProfile, GenerationProjectCostSummary, MacroFinancials } from '../types/energy';
-import { calculateProjectFinancialInputs } from '../utils/generationFinancials';
-import { calculateOpportunityCostBenchmark } from '../utils/opportunityCost';
+import {
+  calculateFinancialSettingsOpportunityCostPreview,
+  calculateProjectFinancialInputs,
+} from '../utils/generationFinancials';
 
 interface FinancialSettingsTabProps {
   financials: MacroFinancials;
@@ -68,17 +70,11 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
 
   // Opportunity cost benchmark calculation preview (unified methodology)
   const oppYears = 15;
-  const upfrontContribution = projectInputs.upfrontOutOfPocketUsd;
-  const oppBenchmark = calculateOpportunityCostBenchmark({
-    horizonYears: oppYears,
-    annualRatePercent: financials.opportunityCostRatePercent ?? 4.5,
-    upfrontContribution,
-    monthlyLoanPayment,
-    loanTermYears: financials.isFinanced ? financials.loanTermYears : 0,
-    replacementEnabled: financials.replacementEnabled,
-    replacementCost: financials.replacementCost,
-    replacementYear: financials.replacementYear,
-  });
+  const oppBenchmark = calculateFinancialSettingsOpportunityCostPreview(
+    projectInputs,
+    financials,
+    generationProjectCosts?.annualGenerationMaintenanceUsd ?? 0
+  );
   const oppFutureVal = Math.round(oppBenchmark.futureValue);
   const oppProfit = Math.round(oppBenchmark.profit);
 
@@ -524,7 +520,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
               <span className="font-bold text-white">${oppFutureVal.toLocaleString()} (+${oppProfit.toLocaleString()})</span>
             </div>
             <p className="text-[10px] text-slate-400 leading-relaxed pt-0.5">
-              Estimates the return you could have earned by investing the actual cash committed to the battery instead: upfront cash/down payment, debt service, and replacement costs (15-year preview).
+              Estimates the return you could have earned by investing the actual project cash outlays instead: upfront cash/down payment, debt service, replacement costs, and annual generation maintenance where applicable (15-year preview).
             </p>
           </div>
         </div>
