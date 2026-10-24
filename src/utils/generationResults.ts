@@ -22,6 +22,18 @@ import {
 
 export type WindResourceModelingDisclosure = 'average' | 'interval' | 'mixed' | null;
 
+export const RESILIENCE_DISCLOSURES = {
+  outageExposureLabel: 'Assumed annual grid-outage exposure',
+  outageExposureNote: 'This is a user-entered input assumption, not simulated backup coverage or a verified historical observation.',
+  autonomyLabel: 'Theoretical Battery Autonomy',
+  autonomyNote: 'This estimate assumes modeled usable battery capacity is available and critical demand stays constant. It does not establish battery state of charge when an outage begins, does not simulate outage sequences, does not include generator contribution, and does not verify inverter, transfer-switch, or islanding capability.',
+  annualVollLabel: 'Assumed Annual VOLL',
+  lifetimeVollLabel: 'Illustrative 25-Year Cumulative VOLL',
+  vollAssumptionNote: 'VOLL estimates are based on user-entered outage assumptions. They are not verified avoided losses or simulated backup performance.',
+  vollIncludedNote: 'VOLL-included companion metrics are assumption-based valuations, not measured project cash flow.',
+  standbyGeneratorNote: 'Standby operation during grid outages is not simulated because no grid-availability timeline exists. These assets contribute 0 modeled generation and 0 operating hours; no generator backup energy or resilience savings are claimed. The battery-autonomy estimate is theoretical, battery-only, and excludes generator contribution. Fixed capital expenditure and annual maintenance remain included in project financials.',
+} as const;
+
 /** Selects a truthful project-level disclosure from enabled wind resource modes. */
 export function selectWindResourceModelingDisclosure(
   assets: GenerationAsset[] | null | undefined

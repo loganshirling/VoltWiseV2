@@ -21,6 +21,7 @@ import {
   calculateFinancialSettingsOpportunityCostPreview,
   calculateProjectFinancialInputs,
 } from '../utils/generationFinancials';
+import { RESILIENCE_DISCLOSURES } from '../utils/generationResults';
 
 interface FinancialSettingsTabProps {
   financials: MacroFinancials;
@@ -88,7 +89,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
             Macro Financials, Lifecycle Costs & Resilience
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Configure clean energy tax credits, loan financing, Time Value of Money (NPV/IRR), mid-life inverter reserves, and outage resilience.
+            Configure tax credits, financing, lifecycle costs, and user-entered outage and resilience assumptions.
           </p>
         </div>
       </div>
@@ -744,10 +745,10 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
             <Zap className="h-5 w-5 text-amber-400" />
             <div>
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200">
-                6. Outage Autonomy & Value of Lost Load (VOLL)
+                6. Outage Assumptions, Battery Autonomy & VOLL
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Quantify blackout backup duration and assign soft economic value to food preservation and emergency power.
+                Review assumed outage exposure, theoretical battery autonomy, and illustrative VOLL values.
               </p>
             </div>
           </div>
@@ -768,8 +769,8 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
           <div className="bg-slate-950/70 rounded-xl p-4 border border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-xs font-semibold text-slate-200 block">Critical Backup Load</label>
-                <span className="text-[11px] text-slate-400">Continuous load during blackout</span>
+                <label className="text-xs font-semibold text-slate-200 block">Assumed Critical Load</label>
+                <span className="text-[11px] text-slate-400">Constant demand used for the autonomy estimate</span>
               </div>
               <span className="text-sm font-bold text-amber-400 font-mono tabular-nums">
                 {financials.criticalLoadPowerKw.toFixed(1)} kW
@@ -808,12 +809,12 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
             />
           </div>
 
-          {/* Average Outage Days per Year */}
+          {/* User-entered Outage Exposure Assumption */}
           <div className="bg-slate-950/70 rounded-xl p-4 border border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-xs font-semibold text-slate-200 block">Outage Days / Year</label>
-                <span className="text-[11px] text-slate-400">Historic grid blackout exposure</span>
+                <label className="text-xs font-semibold text-slate-200 block">Assumed Outage Days / Year</label>
+                <span className="text-[11px] text-slate-400">User-entered exposure; not verified history</span>
               </div>
               <span className="text-sm font-bold text-cyan-400 font-mono tabular-nums">
                 {financials.annualOutageDays.toFixed(1)} days/yr
@@ -832,7 +833,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
             />
 
             <span className="text-[10px] text-slate-400 block">
-              {(financials.annualOutageDays * 24).toFixed(0)} hours of blackout protection annually.
+              {RESILIENCE_DISCLOSURES.outageExposureLabel}: {(financials.annualOutageDays * 24).toFixed(0)} hours. {RESILIENCE_DISCLOSURES.outageExposureNote}
             </span>
           </div>
 
@@ -840,8 +841,8 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
           <div className="bg-slate-950/70 rounded-xl p-4 border border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-xs font-semibold text-slate-200 block">Value of Lost Load (VOLL)</label>
-                <span className="text-[11px] text-slate-400">Assigned outage protection value</span>
+                <label className="text-xs font-semibold text-slate-200 block">Assumed Value of Lost Load ($/day)</label>
+                <span className="text-[11px] text-slate-400">User-entered illustrative outage value</span>
               </div>
               <span className="text-sm font-bold text-emerald-400 font-mono tabular-nums">
                 ${financials.valueOfLostLoadPerDay}/day
@@ -860,7 +861,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
             />
 
             <span className="text-[10px] text-slate-400 block">
-              Covers food spoilage ($150-$400), productivity loss, and HVAC comfort.
+              Used to estimate economic value per assumed outage day; this is not a measured avoided loss.
             </span>
           </div>
         </div>
@@ -869,19 +870,19 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
         <div className="bg-slate-950 rounded-xl p-4 border border-slate-800/80">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
             <div>
-              <span className="text-[10px] text-slate-400 block font-sans">Blackout Autonomy</span>
+              <span className="text-[10px] text-slate-400 block font-sans">{RESILIENCE_DISCLOSURES.autonomyLabel} (battery only)</span>
               <span className="text-sm font-bold text-amber-300 tabular-nums">
                 {autonomyHours} Hours ({autonomyDays} Days)
               </span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block font-sans">Annual Resilience Value</span>
+              <span className="text-[10px] text-slate-400 block font-sans">{RESILIENCE_DISCLOSURES.annualVollLabel}</span>
               <span className="text-sm font-bold text-emerald-400 tabular-nums">
                 ${Math.round(financials.annualOutageDays * financials.valueOfLostLoadPerDay)}/yr
               </span>
             </div>
             <div>
-              <span className="text-[10px] text-slate-400 block font-sans">25-Yr Cumulative VOLL</span>
+              <span className="text-[10px] text-slate-400 block font-sans">{RESILIENCE_DISCLOSURES.lifetimeVollLabel}</span>
               <span className="text-sm font-bold text-cyan-400 tabular-nums">
                 ${Math.round(financials.annualOutageDays * financials.valueOfLostLoadPerDay * 25).toLocaleString()}
               </span>
@@ -889,10 +890,13 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
             <div>
               <span className="text-[10px] text-slate-400 block font-sans">Financial ROI Status</span>
               <span className={`text-xs font-bold ${financials.includeVollInRoi ? 'text-emerald-400' : 'text-slate-400'}`}>
-                {financials.includeVollInRoi ? 'Blended into Total ROI' : 'Excluded from Cash ROI'}
+                {financials.includeVollInRoi ? 'Included in VOLL companion metrics' : 'Excluded; companions equal base results'}
               </span>
             </div>
           </div>
+          <p className="mt-3 text-[10px] leading-relaxed text-slate-400">
+            {RESILIENCE_DISCLOSURES.autonomyNote} {RESILIENCE_DISCLOSURES.vollAssumptionNote}
+          </p>
         </div>
       </div>
     </div>

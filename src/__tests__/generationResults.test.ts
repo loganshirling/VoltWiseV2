@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   deriveGenerationOperationalDisplayMetrics,
   createVollFinancialPresentation,
+  RESILIENCE_DISCLOSURES,
   formatKwh,
   formatUsd,
   formatPercent,
@@ -52,6 +53,24 @@ describe('G4D — Generation Results & Analytics Integration', () => {
   const financials = { ...DEFAULT_MACRO_FINANCIALS };
 
   describe('Results disclosures', () => {
+    it('uses consistent exposure, theoretical autonomy, VOLL, and standby-generator wording', () => {
+      expect(RESILIENCE_DISCLOSURES.outageExposureLabel).toBe('Assumed annual grid-outage exposure');
+      expect(RESILIENCE_DISCLOSURES.outageExposureNote).toMatch(/not simulated backup coverage/i);
+      expect(RESILIENCE_DISCLOSURES.outageExposureNote).toMatch(/verified historical observation/i);
+      expect(RESILIENCE_DISCLOSURES.autonomyLabel).toBe('Theoretical Battery Autonomy');
+      expect(RESILIENCE_DISCLOSURES.autonomyNote).toMatch(/state of charge when an outage begins/i);
+      expect(RESILIENCE_DISCLOSURES.autonomyNote).toMatch(/does not simulate outage sequences/i);
+      expect(RESILIENCE_DISCLOSURES.autonomyNote).toMatch(/inverter, transfer-switch, or islanding capability/i);
+      expect(RESILIENCE_DISCLOSURES.autonomyNote).toMatch(/does not include generator contribution/i);
+      expect(RESILIENCE_DISCLOSURES.annualVollLabel).toBe('Assumed Annual VOLL');
+      expect(RESILIENCE_DISCLOSURES.lifetimeVollLabel).toBe('Illustrative 25-Year Cumulative VOLL');
+      expect(RESILIENCE_DISCLOSURES.vollAssumptionNote).toMatch(/not verified avoided losses or simulated backup performance/i);
+      expect(RESILIENCE_DISCLOSURES.vollIncludedNote).toMatch(/not measured project cash flow/i);
+      expect(RESILIENCE_DISCLOSURES.standbyGeneratorNote).toMatch(/0 modeled generation and 0 operating hours/i);
+      expect(RESILIENCE_DISCLOSURES.standbyGeneratorNote).toMatch(/battery-only, and excludes generator contribution/i);
+      expect(RESILIENCE_DISCLOSURES.standbyGeneratorNote).toMatch(/not simulated/i);
+    });
+
     it('reports both VOLL setting states without changing authoritative base financial values', () => {
       const values = {
         baseNpv: 12450,
