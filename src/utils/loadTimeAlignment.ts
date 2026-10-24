@@ -66,6 +66,8 @@ export interface AnnualProjectionEligibility {
   reason?: string;
 }
 
+const calendarFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
 // Regex matching ISO 8601 and local timestamp formats:
 // YYYY-MM-DD HH:mm[:ss[.sss]] or YYYY-MM-DDTHH:mm[:ss[.sss]] with optional Z or offset
 const TIMESTAMP_REGEX =
@@ -189,11 +191,15 @@ export function getSiteLocalCalendarCoordinates(
   if (!isValidIanaTimeZone(zone)) {
     throw new Error(`Invalid IANA timezone: "${timeZone}".`);
   }
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: zone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  });
+  let formatter = calendarFormatterCache.get(zone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    });
+    calendarFormatterCache.set(zone, formatter);
+  }
   const local = getLocalParts(instantUtc, formatter);
   return {
     ...local,
@@ -390,7 +396,7 @@ export function resolveTimestampToUtc(
  * - regularly spaced UTC instants with spacing equal to intervalHours * 3600 * 1000 ms
  */
 export function alignLoadTimestampsToSite(
-  dataPoints: IntervalDataPoint[],
+  dataPoints: Array<Pick<IntervalDataPoint, 'timestamp'>>,
   intervalHours: number,
   timeZone: string
 ): AlignedLoadTimestamp[] {
