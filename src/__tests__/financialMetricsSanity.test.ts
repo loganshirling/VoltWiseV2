@@ -143,4 +143,83 @@ describe('Financial Metrics Sanity Tests', () => {
       expect(analysis.npv).toBe(analysis.lifetimeNetProfit);
     });
   });
+
+  describe('VOLL-configured financial companions', () => {
+    const financials = {
+      ...DEFAULT_MACRO_FINANCIALS,
+      federalTaxCreditPercent: 0,
+      localRebateFlat: 0,
+      annualElectricityInflationRate: 0,
+      annualBatteryDegradationRate: 0,
+      discountRatePercent: 5,
+      isFinanced: true,
+      loanDownPaymentPercent: 25,
+      loanTermYears: 1,
+      loanAprPercent: 0,
+      replacementEnabled: true,
+      replacementCost: 500,
+      replacementYear: 10,
+      annualOutageDays: 3,
+      valueOfLostLoadPerDay: 400,
+    };
+
+    it('matches companion values to base values when VOLL is excluded', () => {
+      const analysis = calculate15YearFinancials(baseProfile, createSummary(200), {
+        ...financials,
+        includeVollInRoi: false,
+      });
+
+      expect(analysis.npvWithVoll).toBe(analysis.npv);
+      expect(analysis.lifetimeNetProfitWithVoll).toBe(analysis.lifetimeNetProfit);
+      expect(analysis.lifetimeRoiWithVollPercent).toBe(Math.round(analysis.lifetimeRoiPercent * 10) / 10);
+      expect(analysis.annualResilienceValue).toBe(1200);
+      expect(analysis.lifetimeResilienceValue).toBe(30000);
+    });
+
+    it('adds discounted and nominal resilience to companions when enabled without changing base metrics', () => {
+      const summary = createSummary(200);
+      const excluded = calculate15YearFinancials(baseProfile, summary, {
+        ...financials,
+        includeVollInRoi: false,
+      });
+      const included = calculate15YearFinancials(baseProfile, summary, {
+        ...financials,
+        includeVollInRoi: true,
+      });
+      const annualResilience = financials.annualOutageDays * financials.valueOfLostLoadPerDay;
+      const discountedResilience = Array.from({ length: 25 }, (_, index) =>
+        annualResilience / Math.pow(1 + financials.discountRatePercent / 100, index + 1)
+      ).reduce((sum, value) => sum + value, 0);
+      const capitalOutlay = included.upfrontOutOfPocket + included.totalLoanPaymentLifetime + included.replacementCostTotal;
+      const expectedProfit = included.lifetimeNetProfit + annualResilience * 25;
+
+      expect(included.npv).toBe(excluded.npv);
+      expect(included.lifetimeNetProfit).toBe(excluded.lifetimeNetProfit);
+      expect(included.lifetimeRoiPercent).toBe(excluded.lifetimeRoiPercent);
+      expect(included.paybackYears).toBe(excluded.paybackYears);
+      expect(included.projections).toEqual(excluded.projections);
+      expect(included.lifetimeNetProfitWithVoll).toBe(expectedProfit);
+      expect(Math.abs((included.npvWithVoll - excluded.npvWithVoll) - discountedResilience)).toBeLessThan(1);
+      expect(included.lifetimeRoiWithVollPercent)
+        .toBe(Math.round((expectedProfit / capitalOutlay) * 1000) / 10);
+    });
+
+    it('returns base-equivalent companions for zero outage days or zero VOLL rate', () => {
+      for (const zeroCase of [
+        { annualOutageDays: 0, valueOfLostLoadPerDay: 400 },
+        { annualOutageDays: 3, valueOfLostLoadPerDay: 0 },
+      ]) {
+        for (const includeVollInRoi of [false, true]) {
+          const analysis = calculate15YearFinancials(baseProfile, createSummary(200), {
+            ...financials,
+            ...zeroCase,
+            includeVollInRoi,
+          });
+          expect(analysis.npvWithVoll).toBe(analysis.npv);
+          expect(analysis.lifetimeNetProfitWithVoll).toBe(analysis.lifetimeNetProfit);
+          expect(analysis.lifetimeRoiWithVollPercent).toBe(Math.round(analysis.lifetimeRoiPercent * 10) / 10);
+        }
+      }
+    });
+  });
 });

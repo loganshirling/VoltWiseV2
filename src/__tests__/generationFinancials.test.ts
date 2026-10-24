@@ -2355,6 +2355,87 @@ describe('G4A — Financial Safety Gate & Generation Project Cost Contracts', ()
       expect(fin.projections[0].windGeneratedKwh).toBe(0);
       expect(fin.projections[0].netProjectCashFlowUsd).toBe(2400 - 180 + 7800);
     });
+
+    describe('VOLL configured-scenario companions', () => {
+      const projectCosts: GenerationProjectCostSummary = {
+        generationCapexUsd: 8000,
+        annualGenerationMaintenanceUsd: 250,
+        byAsset: [],
+        byType: [] as any,
+        solarMetadata: [],
+      };
+      const baseFinancials = {
+        ...DEFAULT_MACRO_FINANCIALS,
+        isFinanced: true,
+        loanDownPaymentPercent: 25,
+        loanTermYears: 8,
+        loanAprPercent: 5,
+        replacementEnabled: true,
+        replacementCost: 1200,
+        replacementYear: 10,
+        annualOutageDays: 4,
+        valueOfLostLoadPerDay: 500,
+        discountRatePercent: 6,
+      };
+
+      const analyze = (includeVollInRoi: boolean, overrides = {}) => calculateGenerationAwareFinancials({
+        batteryProfile: mockBattery,
+        operationalProjection: Array.from({ length: 15 }, (_, index) =>
+          createMockOperationalYearWithWind(index + 1, 2000)
+        ),
+        projectCosts,
+        financials: { ...baseFinancials, ...overrides, includeVollInRoi },
+      });
+
+      it('matches all companion values to base values when VOLL is excluded', () => {
+        const analysis = analyze(false);
+
+        expect(analysis.npvWithVollUsd).toBe(analysis.npvUsd);
+        expect(analysis.lifetimeNetProfitWithVollUsd).toBe(analysis.lifetimeNetProfitUsd);
+        expect(analysis.lifetimeRoiWithVollPercent).toBe(analysis.lifetimeRoiPercent);
+        expect(analysis.annualResilienceValueUsd).toBe(2000);
+        expect(analysis.lifetimeResilienceValueUsd).toBe(30000);
+      });
+
+      it('includes discounted and nominal resilience when enabled without changing project cash flows or denominator', () => {
+        const excluded = analyze(false);
+        const included = analyze(true);
+        const annualResilience = baseFinancials.annualOutageDays * baseFinancials.valueOfLostLoadPerDay;
+        const discountedResilience = Array.from({ length: 15 }, (_, index) =>
+          annualResilience / Math.pow(1 + baseFinancials.discountRatePercent / 100, index + 1)
+        ).reduce((sum, value) => sum + value, 0);
+        const expectedProfit = included.lifetimeNetProfitUsd + annualResilience * 15;
+        expect(included.npvWithVollUsd).toBeDefined();
+        expect(excluded.npvWithVollUsd).toBeDefined();
+        const includedNpvWithVoll = included.npvWithVollUsd ?? Number.NaN;
+        const excludedNpvWithVoll = excluded.npvWithVollUsd ?? Number.NaN;
+
+        expect(included.npvUsd).toBe(excluded.npvUsd);
+        expect(included.lifetimeNetProfitUsd).toBe(excluded.lifetimeNetProfitUsd);
+        expect(included.lifetimeRoiPercent).toBe(excluded.lifetimeRoiPercent);
+        expect(included.projections).toEqual(excluded.projections);
+        expect(included.totalProjectCashOutlaysUsd).toBe(excluded.totalProjectCashOutlaysUsd);
+        expect(included.opportunityCostFutureValueUsd).toBe(excluded.opportunityCostFutureValueUsd);
+        expect(included.lifetimeNetProfitWithVollUsd).toBe(expectedProfit);
+        expect(includedNpvWithVoll - excludedNpvWithVoll).toBeCloseTo(discountedResilience, 1);
+        expect(included.lifetimeRoiWithVollPercent)
+          .toBe(Math.round((expectedProfit / included.totalProjectCashOutlaysUsd) * 1000) / 10);
+      });
+
+      it('returns base-equivalent companions for zero outage days or zero VOLL rate', () => {
+        for (const zeroCase of [
+          { annualOutageDays: 0, valueOfLostLoadPerDay: 500 },
+          { annualOutageDays: 4, valueOfLostLoadPerDay: 0 },
+        ]) {
+          for (const includeVollInRoi of [false, true]) {
+            const analysis = analyze(includeVollInRoi, zeroCase);
+            expect(analysis.npvWithVollUsd).toBe(analysis.npvUsd);
+            expect(analysis.lifetimeNetProfitWithVollUsd).toBe(analysis.lifetimeNetProfitUsd);
+            expect(analysis.lifetimeRoiWithVollPercent).toBe(analysis.lifetimeRoiPercent);
+          }
+        }
+      });
+    });
   });
 });
 

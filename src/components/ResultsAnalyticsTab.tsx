@@ -146,23 +146,26 @@ const formatSignedUsd = (value: number) =>
 const VollFinancialDisclosure: React.FC<{
   includeVollInRoi: boolean;
   baseNpv: number;
+  baseProfit: number;
   baseRoi: number;
-  companionNpv?: number;
-  companionRoi?: number;
+  companionNpv: number;
+  companionProfit: number;
+  companionRoi: number;
 }> = (props) => {
   const display = createVollFinancialPresentation(props.includeVollInRoi, {
     baseNpv: props.baseNpv,
+    baseProfit: props.baseProfit,
     baseRoi: props.baseRoi,
     companionNpv: props.companionNpv,
+    companionProfit: props.companionProfit,
     companionRoi: props.companionRoi,
   });
   return (
     <div className="rounded-lg border border-emerald-500/20 bg-emerald-950/10 p-2.5 space-y-1 text-[10px] text-slate-300">
       <p>VOLL inclusion setting in Financial Settings: <strong className="text-emerald-300">{display.settingStatus}</strong>.</p>
-      <p>Base 25-year NPV ({formatSignedUsd(display.baseNpv)}) and ROI ({display.baseRoi.toFixed(1)}%) exclude VOLL.</p>
-      {display.companionNpv !== undefined && <p>Engine NPV companion (follows the setting): {formatSignedUsd(display.companionNpv)}.</p>}
-      {display.companionRoi !== undefined && <p>VOLL-adjusted ROI companion: {display.companionRoi.toFixed(1)}%.</p>}
-      <p className="text-slate-400">The financial engine currently calculates the VOLL-adjusted ROI companion independently of this setting.</p>
+      <p>Base 25-year results (exclude VOLL): NPV {formatSignedUsd(display.baseNpv)}, lifetime profit {formatSignedUsd(display.baseProfit)}, ROI {display.baseRoi.toFixed(1)}%.</p>
+      <p><strong className="text-emerald-200">{display.scenarioDescription}:</strong> NPV {formatSignedUsd(display.companionNpv)}, lifetime profit {formatSignedUsd(display.companionProfit)}, ROI {display.companionRoi.toFixed(1)}%.</p>
+      {props.includeVollInRoi && <p className="text-slate-400">VOLL companion values are assumption-based and remain separate from project cash flow.</p>}
     </div>
   );
 };
@@ -2053,9 +2056,11 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             <VollFinancialDisclosure
               includeVollInRoi={financials.includeVollInRoi}
               baseNpv={activeGenerationAnalysis.npvUsd}
+              baseProfit={activeGenerationAnalysis.lifetimeNetProfitUsd}
               baseRoi={activeGenerationAnalysis.lifetimeRoiPercent}
-              companionNpv={activeGenerationAnalysis.npvWithVollUsd}
-              companionRoi={activeGenerationAnalysis.lifetimeRoiWithVollPercent}
+              companionNpv={activeGenerationAnalysis.npvWithVollUsd ?? activeGenerationAnalysis.npvUsd}
+              companionProfit={activeGenerationAnalysis.lifetimeNetProfitWithVollUsd ?? activeGenerationAnalysis.lifetimeNetProfitUsd}
+              companionRoi={activeGenerationAnalysis.lifetimeRoiWithVollPercent ?? activeGenerationAnalysis.lifetimeRoiPercent}
             />
           </div>
         </div>
@@ -2191,8 +2196,10 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             <VollFinancialDisclosure
               includeVollInRoi={financials.includeVollInRoi}
               baseNpv={activeAnalysis.npv}
+              baseProfit={activeAnalysis.lifetimeNetProfit}
               baseRoi={activeAnalysis.lifetimeRoiPercent}
               companionNpv={activeAnalysis.npvWithVoll}
+              companionProfit={activeAnalysis.lifetimeNetProfitWithVoll}
               companionRoi={activeAnalysis.lifetimeRoiWithVollPercent}
             />
           </div>
