@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   deriveGenerationOperationalDisplayMetrics,
+  createVollFinancialPresentation,
   formatKwh,
   formatUsd,
   formatPercent,
@@ -10,6 +11,7 @@ import {
   formatSolarDegradationClause,
   formatGeneratorFuelAssetSummaries,
   formatAggregateGeneratorFuel,
+  selectWindResourceModelingDisclosure,
 } from '../utils/generationResults';
 import {
   aggregateGenerationProjectCosts,
@@ -24,6 +26,7 @@ import {
 import {
   createDefaultGenerationConfig,
   createDefaultAsset,
+  createDefaultWindAsset,
 } from '../utils/generationDefaults';
 import {
   DEFAULT_BATTERY_PROFILES,
@@ -47,6 +50,48 @@ import {
 describe('G4D — Generation Results & Analytics Integration', () => {
   const profile: BatteryProfile = { ...DEFAULT_BATTERY_PROFILES[0] };
   const financials = { ...DEFAULT_MACRO_FINANCIALS };
+
+  describe('Results disclosures', () => {
+    it('reports both VOLL setting states without changing authoritative base financial values', () => {
+      const values = {
+        baseNpv: 12450,
+        baseRoi: 38.2,
+        companionNpv: 15120,
+        companionRoi: 44.7,
+      };
+
+      expect(createVollFinancialPresentation(false, values)).toEqual({
+        ...values,
+        settingStatus: 'Excluded',
+      });
+      expect(createVollFinancialPresentation(true, values)).toEqual({
+        ...values,
+        settingStatus: 'Included',
+      });
+    });
+
+    it('selects average-resource disclosures for annual and monthly wind modes', () => {
+      const annual = { ...createDefaultWindAsset('annual'), enabled: true, resourceMode: 'annual_average' as const };
+      const monthly = { ...createDefaultWindAsset('monthly'), enabled: true, resourceMode: 'monthly_average' as const };
+
+      expect(selectWindResourceModelingDisclosure([annual])).toBe('average');
+      expect(selectWindResourceModelingDisclosure([monthly])).toBe('average');
+    });
+
+    it('selects interval, mixed, and no-wind disclosures from enabled wind assets only', () => {
+      const interval = { ...createDefaultWindAsset('interval'), enabled: true, resourceMode: 'interval_file' as const };
+      const average = { ...createDefaultWindAsset('average'), enabled: true, resourceMode: 'monthly_average' as const };
+      const disabledAverage = { ...average, id: 'disabled', enabled: false };
+      const disabledInterval = { ...interval, id: 'disabled-interval', enabled: false };
+
+      expect(selectWindResourceModelingDisclosure([interval])).toBe('interval');
+      expect(selectWindResourceModelingDisclosure([interval, average])).toBe('mixed');
+      expect(selectWindResourceModelingDisclosure([interval, disabledAverage])).toBe('interval');
+      expect(selectWindResourceModelingDisclosure([average, disabledInterval])).toBe('average');
+      expect(selectWindResourceModelingDisclosure([disabledAverage])).toBeNull();
+      expect(selectWindResourceModelingDisclosure([])).toBeNull();
+    });
+  });
 
   function createMockIntervalData(days: number): IntervalDataPoint[] {
     const data: IntervalDataPoint[] = [];

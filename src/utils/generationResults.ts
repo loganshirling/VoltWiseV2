@@ -12,7 +12,38 @@
  */
 
 import { GenerationAwareSimulationResult } from './generationAwareSimulation';
-import { AnalysisState, SolarAssetMetadata, GeneratorAssetAnnualSummary } from '../types/energy';
+import { AnalysisState, GenerationAsset, SolarAssetMetadata, GeneratorAssetAnnualSummary } from '../types/energy';
+
+export type WindResourceModelingDisclosure = 'average' | 'interval' | 'mixed' | null;
+
+/** Selects a truthful project-level disclosure from enabled wind resource modes. */
+export function selectWindResourceModelingDisclosure(
+  assets: GenerationAsset[] | null | undefined
+): WindResourceModelingDisclosure {
+  const enabledWindAssets = (assets ?? []).filter(
+    (asset) => asset.enabled && asset.type === 'wind'
+  );
+  if (enabledWindAssets.length === 0) return null;
+
+  const hasIntervalResource = enabledWindAssets.some((asset) => asset.resourceMode === 'interval_file');
+  const hasAverageResource = enabledWindAssets.some((asset) => asset.resourceMode !== 'interval_file');
+  if (hasIntervalResource && hasAverageResource) return 'mixed';
+  return hasIntervalResource ? 'interval' : 'average';
+}
+
+/** Read-only wording for the financial setting; Results does not own this state. */
+export function getVollInclusionStatus(includeVollInRoi: boolean): 'Included' | 'Excluded' {
+  return includeVollInRoi ? 'Included' : 'Excluded';
+}
+
+export function createVollFinancialPresentation<T extends {
+  baseNpv: number;
+  baseRoi: number;
+  companionNpv?: number;
+  companionRoi?: number;
+}>(includeVollInRoi: boolean, values: T): T & { settingStatus: 'Included' | 'Excluded' } {
+  return { ...values, settingStatus: getVollInclusionStatus(includeVollInRoi) };
+}
 
 export interface GenerationOperationalDisplayMetrics {
   // Authoritative operational energy flows (kWh)
