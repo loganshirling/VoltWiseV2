@@ -12,7 +12,13 @@
  */
 
 import { GenerationAwareSimulationResult } from './generationAwareSimulation';
-import { AnalysisState, GenerationAsset, SolarAssetMetadata, GeneratorAssetAnnualSummary } from '../types/energy';
+import {
+  AnalysisState,
+  GenerationAsset,
+  GeneratorAssetAnnualSummary,
+  SolarAssetMetadata,
+  WindGenerationAsset,
+} from '../types/energy';
 
 export type WindResourceModelingDisclosure = 'average' | 'interval' | 'mixed' | null;
 
@@ -20,9 +26,9 @@ export type WindResourceModelingDisclosure = 'average' | 'interval' | 'mixed' | 
 export function selectWindResourceModelingDisclosure(
   assets: GenerationAsset[] | null | undefined
 ): WindResourceModelingDisclosure {
-  const enabledWindAssets = (assets ?? []).filter(
-    (asset) => asset.enabled && asset.type === 'wind'
-  );
+  const isEnabledWindAsset = (asset: GenerationAsset): asset is WindGenerationAsset =>
+    asset.enabled && asset.type === 'wind';
+  const enabledWindAssets = (assets ?? []).filter(isEnabledWindAsset);
   if (enabledWindAssets.length === 0) return null;
 
   const hasIntervalResource = enabledWindAssets.some((asset) => asset.resourceMode === 'interval_file');
