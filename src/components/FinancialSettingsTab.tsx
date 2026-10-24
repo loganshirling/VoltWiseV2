@@ -759,7 +759,7 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
                 : 'bg-slate-900 text-slate-400 border border-slate-800'
             }`}
           >
-            {financials.includeVollInRoi ? '✓ VOLL Blended into ROI' : 'VOLL Excluded from Financial ROI'}
+            {financials.includeVollInRoi ? '✓ VOLL Included in Financial Results' : 'VOLL Excluded from Financial Results'}
           </button>
         </div>
 

@@ -1107,7 +1107,8 @@ export function calculate15YearFinancials(
 
   // 13. Value of Lost Load (VOLL) ROI integration
   const lifetimeResilienceValue = cumulativeResilienceValue;
-  const lifetimeNetProfitWithVoll = lifetimeNetProfit + lifetimeResilienceValue;
+  const configuredResilienceValue = financials.includeVollInRoi ? lifetimeResilienceValue : 0;
+  const lifetimeNetProfitWithVoll = lifetimeNetProfit + configuredResilienceValue;
   const lifetimeRoiWithVollPercent = totalCapitalOutlay > 0
     ? (lifetimeNetProfitWithVoll / totalCapitalOutlay) * 100
     : 0;

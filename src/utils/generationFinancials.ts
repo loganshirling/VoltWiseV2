@@ -708,8 +708,9 @@ export function calculateGenerationAwareFinancials(
   }
   const npvWithVollUsd =
     Math.round((npvUsd + (financials.includeVollInRoi ? discountedResilienceTotal : 0)) * 100) / 100;
-  const lifetimeNetProfitWithVollUsd =
-    Math.round((lifetimeNetProfitUsd + lifetimeResilienceValueUsd) * 100) / 100;
+  const lifetimeNetProfitWithVollUsd = Math.round(
+    (lifetimeNetProfitUsd + (financials.includeVollInRoi ? lifetimeResilienceValueUsd : 0)) * 100
+  ) / 100;
   const lifetimeRoiWithVollPercent =
     totalProjectCashOutlaysUsd > 0
       ? Math.round(((lifetimeNetProfitWithVollUsd / totalProjectCashOutlaysUsd) * 100) * 10) / 10

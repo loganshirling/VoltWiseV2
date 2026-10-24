@@ -44,11 +44,22 @@ export function getVollInclusionStatus(includeVollInRoi: boolean): 'Included' | 
 
 export function createVollFinancialPresentation<T extends {
   baseNpv: number;
+  baseProfit: number;
   baseRoi: number;
   companionNpv?: number;
+  companionProfit?: number;
   companionRoi?: number;
-}>(includeVollInRoi: boolean, values: T): T & { settingStatus: 'Included' | 'Excluded' } {
-  return { ...values, settingStatus: getVollInclusionStatus(includeVollInRoi) };
+}>(includeVollInRoi: boolean, values: T): T & {
+  settingStatus: 'Included' | 'Excluded';
+  scenarioDescription: string;
+} {
+  return {
+    ...values,
+    settingStatus: getVollInclusionStatus(includeVollInRoi),
+    scenarioDescription: includeVollInRoi
+      ? 'VOLL-included companion results'
+      : 'Configured companion results equal base results (VOLL excluded)',
+  };
 }
 
 export interface GenerationOperationalDisplayMetrics {

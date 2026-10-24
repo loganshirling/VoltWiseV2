@@ -55,18 +55,22 @@ describe('G4D — Generation Results & Analytics Integration', () => {
     it('reports both VOLL setting states without changing authoritative base financial values', () => {
       const values = {
         baseNpv: 12450,
+        baseProfit: 9900,
         baseRoi: 38.2,
         companionNpv: 15120,
+        companionProfit: 14500,
         companionRoi: 44.7,
       };
 
       expect(createVollFinancialPresentation(false, values)).toEqual({
         ...values,
         settingStatus: 'Excluded',
+        scenarioDescription: 'Configured companion results equal base results (VOLL excluded)',
       });
       expect(createVollFinancialPresentation(true, values)).toEqual({
         ...values,
         settingStatus: 'Included',
+        scenarioDescription: 'VOLL-included companion results',
       });
     });
 
