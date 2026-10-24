@@ -389,8 +389,20 @@ function resolveTimestampToUtcWithCaches(
 }
 
 /** Resolves a single timestamp while strictly validating local-wall timezone input. */
-export function resolveTimestampToUtc(raw: string, sourceIndex: number, timeZone: string): Date {
-  return resolveTimestampToUtcWithCaches(raw, sourceIndex, timeZone);
+export function resolveTimestampToUtc(
+  raw: string,
+  sourceIndex: number,
+  timeZone: string,
+  formatterCache?: Map<string, Intl.DateTimeFormat>,
+  dailyOffsetCache?: Map<string, Set<number>>
+): Date {
+  return resolveTimestampToUtcWithCaches(
+    raw,
+    sourceIndex,
+    timeZone,
+    formatterCache,
+    dailyOffsetCache
+  );
 }
 
 /**
