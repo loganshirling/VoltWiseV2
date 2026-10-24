@@ -272,6 +272,27 @@
         "context-optimization": "skills/context-optimization",
         "filesystem-context": "skills/filesystem-context"
       }
+    },
+    {
+      "repository": "Graphify-Labs/graphify",
+      "commit": "92741d162b2094ffc2fed58cfbd8ee823e9da62c",
+      "skills": [
+        "graphify"
+      ],
+      "sha256": {
+        "graphify/skill-agents.md": "48d3b1bb73b52bbcb6a033384638674e54708a6ec6b8b537d49867e760e4c5bf",
+        "graphify/skills/agents/references/add-watch.md": "1e77351815547334c7e030f018dba513b303d397bf73d11fac47df03ace3b3f4",
+        "graphify/skills/agents/references/exports.md": "c39a2f8062be9a5ac319220d6e66ca586ed0b0798292b1321206834be74c1b33",
+        "graphify/skills/agents/references/extraction-spec.md": "214c474186ed26f47fafd5be941b29c3524d5e8a362814587f1c5d9883795d7c",
+        "graphify/skills/agents/references/github-and-merge.md": "e5ebd90c7686f50363ff7a535556bc2f596d4c47ec1e6c8b95e11e36a0dfea2b",
+        "graphify/skills/agents/references/hooks.md": "7910939007ada7966681da02467302f6f1f7c392f42edecd35994aa639e4dee0",
+        "graphify/skills/agents/references/query.md": "e99011beeff0cf40dc1775b1e0cd2eab0e5f950deeeb8353ae01cbe57adbff00",
+        "graphify/skills/agents/references/transcribe.md": "676a1e39aa6d43cdfcc416ec56616e36f7bad74066a82bd33a9485515b9a865c",
+        "graphify/skills/agents/references/update.md": "c76b855ef9380d766b1a0b271b49bc7b40cf5b5b72558be1a021f99f9a9ea1cc"
+      },
+      "installed_paths": {
+        "graphify": "skills/graphify"
+      }
     }
   ]
 }

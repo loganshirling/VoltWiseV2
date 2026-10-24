@@ -11,6 +11,7 @@ Skills are vendored under `.agents/skills/`, with exact upstream commits and SHA
 | [Vercel Agent Skills](https://github.com/vercel-labs/agent-skills/tree/main/skills) | `web-design-guidelines`, `vercel-react-best-practices` | Accessibility and interaction review; responsive React inputs, render costs and bundle performance. Next.js-specific guidance does not apply to this Vite app. |
 | [Anthropic Skills](https://github.com/anthropics/skills/tree/main/skills) | `frontend-design`, `webapp-testing` | Deliberate visual hierarchy and browser verification of actual user flows. Design guidance is paired with the project usability skill rather than used as an aesthetics-only checklist. |
 | [Context Engineering](https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering/tree/main/skills) | `filesystem-context`, `context-compression`, `context-optimization` | Scoped retrieval, retrievable logs, reliable handoffs and budgeting during long development sessions. These are guidance, not changes to the host's context window or caching. |
+| [Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify) | `graphify` | On request, build a local code/document knowledge graph for architecture exploration. Use the repo-scoped installer; optional hooks are not enabled. |
 | Project-authored | `voltwise-ux`, `voltwise-development-context` | Energy/financial usability and a concrete, compact workflow for this repository. |
 
 ## Which skill to load
@@ -25,6 +26,7 @@ Skills are vendored under `.agents/skills/`, with exact upstream commits and SHA
 | Bug with uncertain cause | `systematic-debugging`, then relevant existing tests |
 | Substantial feature | Relevant Superpowers planning/implementation/verification skills, respecting current authorization and host constraints |
 | Repeated reads, noisy logs, long sessions | `voltwise-development-context`; add the specific context skill when needed |
+| Create or update a codebase map | `graphify` |
 
 ## Research conclusions and next priorities
 
@@ -43,5 +45,7 @@ Not selected: Next.js/server/deployment skills (this is a client Vite app), mobi
 Installation validation checked all 27 skill entry points for names, descriptions and duplicate identifiers, and matched 172 upstream files against recorded hashes. The context-compression helper's two existing unit tests passed. The webapp-testing server helper started a temporary Vite server, verified sample results → CSV upload tab → results navigation with Playwright and no browser runtime errors, and stopped that server. This validates the installed structure and those helpers; it does not establish the effectiveness of every upstream workflow or a complete accessibility audit.
 
 Superpowers, Ponytail and Context Engineering MIT notices are in `.agents/licenses/`. Anthropic selected skills retain their Apache-2.0 `LICENSE.txt` files. Vercel declares MIT in its upstream README and React skill metadata; that README is preserved in `.agents/licenses/vercel/` because the inspected source has no standalone license file. Project-authored guidance is identified separately from upstream copies.
+
+Graphify is Apache-2.0; its license is preserved in `.agents/licenses/graphify/`. The Graphify skill is installed for the generic Agents/Codex-compatible project skill path; optional Git hooks were not installed.
 
 To update, inspect the authoritative upstream change and license, replace only the selected skill folders, and refresh their commit and file hashes in `skills-lock.json`. Do not run arbitrary installer scripts or silently overwrite local customizations. Upstream file contents are unmodified; the React skill directory is named to match its declared `vercel-react-best-practices` identifier. Project-specific adaptations live in root instructions and the two local skills.
