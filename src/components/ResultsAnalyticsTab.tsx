@@ -58,6 +58,7 @@ import {
   GenerationOperationalDisplayMetrics,
   resolveMultiProfileMatrixState,
   selectWindResourceModelingDisclosure,
+  RESILIENCE_DISCLOSURES,
   formatSolarDegradationClause,
   formatSolarDegradationSummary,
 } from '../utils/generationResults';
@@ -165,7 +166,7 @@ const VollFinancialDisclosure: React.FC<{
       <p>VOLL inclusion setting in Financial Settings: <strong className="text-emerald-300">{display.settingStatus}</strong>.</p>
       <p>Base 25-year results (exclude VOLL): NPV {formatSignedUsd(display.baseNpv)}, lifetime profit {formatSignedUsd(display.baseProfit)}, ROI {display.baseRoi.toFixed(1)}%.</p>
       <p><strong className="text-emerald-200">{display.scenarioDescription}:</strong> NPV {formatSignedUsd(display.companionNpv)}, lifetime profit {formatSignedUsd(display.companionProfit)}, ROI {display.companionRoi.toFixed(1)}%.</p>
-      {props.includeVollInRoi && <p className="text-slate-400">VOLL companion values are assumption-based and remain separate from project cash flow.</p>}
+      {props.includeVollInRoi && <p className="text-slate-400">{RESILIENCE_DISCLOSURES.vollIncludedNote}</p>}
     </div>
   );
 };
@@ -872,7 +873,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
         <p className="mt-1 text-xs text-slate-400">Tariff rates and financial assumptions are configurable user inputs; results and exports reflect the current selections.</p>
         <p className="mt-1 text-xs text-slate-400">These are estimates, not a utility bill or a guarantee. The energy-cost comparison omits demand charges, fixed fees, taxes, and other bill adjustments.</p>
         <p className="mt-1 text-xs text-slate-400">Lifecycle projections apply configured assumptions to a representative full-year load profile; future use, rates, weather, and equipment performance may differ.</p>
-        <p className="mt-1 text-xs text-slate-400">Resilience value uses user-entered outage assumptions. It does not simulate a chronological outage sequence.</p>
+        <p className="mt-1 text-xs text-slate-400">{RESILIENCE_DISCLOSURES.vollAssumptionNote} Outage exposure is not simulated backup coverage.</p>
       </aside>
       {/* HEADER BAR */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
@@ -1504,7 +1505,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <div className="p-3 bg-amber-950/20 border border-amber-500/30 rounded-lg text-xs text-amber-200/90 flex items-start gap-2.5">
                   <ShieldAlert className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
                   <div className="leading-relaxed">
-                    <strong className="text-amber-100 font-semibold">Standby Generator Notice:</strong> Standby assets do not chronologically simulate grid outages because no grid-availability timeline exists. They produce 0 kWh of modeled generation and 0 operating hours, with zero claimed outage energy, autonomy, or resilience savings. Fixed capital expenditure and annual maintenance are fully accounted for in project financials.
+                    <strong className="text-amber-100 font-semibold">Standby Generator Notice:</strong> {RESILIENCE_DISCLOSURES.standbyGeneratorNote}
                   </div>
                 </div>
               )}
@@ -2025,34 +2026,35 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             </span>
           </div>
 
-          {/* Panel 4: Outage Autonomy & Value of Lost Load */}
+          {/* Panel 4: Resilience Estimates & Assumed VOLL */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-2.5">
             <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-300">
               <span className="flex items-center gap-1.5">
                 <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                25-Year Resilience & VOLL
+                Resilience Estimates & Assumed VOLL
               </span>
               <span className="text-[10px] font-mono text-emerald-400">
-                +${Math.round(activeGenerationAnalysis.annualResilienceValueUsd ?? (financials.annualOutageDays * financials.valueOfLostLoadPerDay))}/yr
+                {financials.includeVollInRoi ? 'VOLL included in companion results' : 'VOLL excluded from companions'}
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Resilience value based on {financials.criticalLoadPowerKw} kW critical demand at ${financials.valueOfLostLoadPerDay}/day:
+              {RESILIENCE_DISCLOSURES.vollAssumptionNote}
             </p>
             <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 space-y-1 text-xs font-mono">
               <div className="flex justify-between">
-                <span className="text-slate-400">Critical Demand:</span>
+                <span className="text-slate-400">Assumed Critical Load:</span>
                 <span className="text-white font-bold">{financials.criticalLoadPowerKw} kW</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Annual VOLL:</span>
+                <span className="text-slate-400">{RESILIENCE_DISCLOSURES.annualVollLabel}:</span>
                 <span className="text-emerald-400 font-bold">+${Math.round(activeGenerationAnalysis.annualResilienceValueUsd ?? (financials.annualOutageDays * financials.valueOfLostLoadPerDay)).toLocaleString()}/yr</span>
               </div>
               <div className="flex justify-between pt-1 border-t border-slate-800">
-                <span className="text-slate-400">25-Year Resilience Value:</span>
+                <span className="text-slate-400">{RESILIENCE_DISCLOSURES.lifetimeVollLabel}:</span>
                 <span className="text-cyan-300 font-bold">+${Math.round(activeGenerationAnalysis.lifetimeResilienceValueUsd ?? (financials.annualOutageDays * financials.valueOfLostLoadPerDay * 25)).toLocaleString()}</span>
               </div>
             </div>
+            <p className="text-[10px] leading-relaxed text-slate-400">{RESILIENCE_DISCLOSURES.autonomyNote}</p>
             <VollFinancialDisclosure
               includeVollInRoi={financials.includeVollInRoi}
               baseNpv={activeGenerationAnalysis.npvUsd}
@@ -2167,32 +2169,35 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             </span>
           </div>
 
-          {/* Panel 4: Outage Autonomy & Value of Lost Load */}
+          {/* Panel 4: Resilience Estimates & Assumed VOLL */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 space-y-2.5">
             <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-300">
               <span className="flex items-center gap-1.5">
                 <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                25-Year Resilience & VOLL
+                Resilience Estimates & Assumed VOLL
               </span>
-              <span className="text-[10px] font-mono text-emerald-400">+{activeAnalysis.outageAutonomyHours}h Autonomy</span>
+              <span className="text-[10px] font-mono text-emerald-400">
+                {financials.includeVollInRoi ? 'VOLL included in companion results' : 'VOLL excluded from companions'}
+              </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Blackout protection at {activeAnalysis.criticalLoadPowerKw} kW critical demand:
+              {RESILIENCE_DISCLOSURES.vollAssumptionNote}
             </p>
             <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 space-y-1 text-xs font-mono">
               <div className="flex justify-between">
-                <span className="text-slate-400">Backup Duration:</span>
+                <span className="text-slate-400">{RESILIENCE_DISCLOSURES.autonomyLabel} (battery only):</span>
                 <span className="text-amber-300 font-bold">{activeAnalysis.outageAutonomyHours}h ({activeAnalysis.outageAutonomyDays} days)</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Annual VOLL:</span>
+                <span className="text-slate-400">{RESILIENCE_DISCLOSURES.annualVollLabel}:</span>
                 <span className="text-emerald-400 font-bold">+${activeAnalysis.annualResilienceValue}/yr</span>
               </div>
               <div className="flex justify-between pt-1 border-t border-slate-800">
-                <span className="text-slate-400">25-Year Resilience Value:</span>
+                <span className="text-slate-400">{RESILIENCE_DISCLOSURES.lifetimeVollLabel}:</span>
                 <span className="text-cyan-300 font-bold">+${activeAnalysis.lifetimeResilienceValue.toLocaleString()}</span>
               </div>
             </div>
+            <p className="text-[10px] leading-relaxed text-slate-400">{RESILIENCE_DISCLOSURES.autonomyNote}</p>
             <VollFinancialDisclosure
               includeVollInRoi={financials.includeVollInRoi}
               baseNpv={activeAnalysis.npv}
@@ -4316,7 +4321,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                   <th className="py-3 px-4 text-right">25-Year NPV</th>
                   <th className="py-3 px-4 text-right">25-Year IRR</th>
                   <th className="py-3 px-4 text-right">25-Year LCOS</th>
-                  <th className="py-3 px-4 text-right">Autonomy</th>
+                  <th className="py-3 px-4 text-right">Theoretical Battery Autonomy</th>
                   <th className="py-3 px-4 text-center">Action</th>
                 </tr>
               </thead>
