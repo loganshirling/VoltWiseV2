@@ -2,6 +2,7 @@ import { IntervalSimulationResult } from '../types/energy';
 import {
   alignLoadTimestampsToSite,
   getSiteLocalCalendarCoordinates,
+  SiteLocalCalendarContext,
 } from './loadTimeAlignment';
 
 export interface ResultDayInterval {
@@ -66,7 +67,13 @@ export function groupResultIntervalsBySiteDay(
 ): ResultIntervalDay[] {
   if (intervals.length === 0) return [];
 
-  const aligned = alignLoadTimestampsToSite(intervals, intervalHours, timeZone);
+  const calendarContext = new SiteLocalCalendarContext(timeZone);
+  const aligned = alignLoadTimestampsToSite(
+    intervals,
+    intervalHours,
+    calendarContext.timeZone,
+    calendarContext
+  );
   const days = new Map<string, Omit<ResultIntervalDay, 'dayIndex'>>();
 
   for (const { sourceIndex, instantUtc } of aligned) {
@@ -75,7 +82,7 @@ export function groupResultIntervalsBySiteDay(
       throw new Error(`Timestamp alignment returned an unknown interval index: ${sourceIndex}.`);
     }
 
-    const local = getSiteLocalCalendarCoordinates(instantUtc, timeZone);
+    const local = getSiteLocalCalendarCoordinates(instantUtc, calendarContext);
     const dateKey = `${local.year}-${String(local.month + 1).padStart(2, '0')}-${String(local.day).padStart(2, '0')}`;
     let group = days.get(dateKey);
     if (!group) {

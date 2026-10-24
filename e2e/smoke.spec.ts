@@ -145,6 +145,57 @@ test('imports the maximum UTC 2024 quarter-hour load as a complete leap year', a
   console.log(`35,136-row leap-year Chromium import: ${Date.now() - startedAt} ms; renderer JS heap delta: ${heapBefore !== null && heapAfter !== null ? `${((heapAfter - heapBefore) / (1024 * 1024)).toFixed(1)} MiB` : 'unavailable'}`);
 });
 
+test('two-day quarter-hour results reconcile day dispatch and monthly source totals', async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on('pageerror', (error) => browserErrors.push(error.message));
+  await page.goto('/');
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+
+  const csv = [
+    'timestamp,usage_kwh',
+    ...Array.from({ length: 192 }, (_, index) => {
+      const date = new Date(Date.UTC(2025, 4, 1) + index * 15 * 60_000);
+      return `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)},0.25`;
+    }),
+  ].join('\n');
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: 'two-day-quarter-hour-load.csv', mimeType: 'text/csv', buffer: Buffer.from(csv),
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await expect(page.getByText('Interval Dataset Ready for Simulation')).toBeVisible();
+  await openTab(page, '5. Results & Analytics');
+
+  await expect(page.getByText(/Day 2 of 2/)).toBeVisible();
+  const dayTotals = page.getByText(/Day Total Charged:/);
+  await expect(dayTotals).toBeVisible();
+  const totalsText = await dayTotals.textContent();
+  const charged = Number(totalsText?.match(/Day Total Charged:\s*([\d.]+)/)?.[1]);
+  const discharged = Number(totalsText?.match(/Day Total Discharged:\s*([\d.]+)/)?.[1]);
+
+  await page.getByRole('button', { name: 'Table View' }).click();
+  const rows = page.locator('table tbody tr:has(td:nth-child(7)):not(:has(td:nth-child(8)))');
+  await expect(rows).toHaveCount(96);
+  const firstTimestamp = await rows.first().locator('td').first().textContent();
+  const secondTimestamp = await rows.nth(1).locator('td').first().textContent();
+  expect(firstTimestamp).toMatch(/2025-05-02 12:00 AM/);
+  expect(secondTimestamp).toMatch(/2025-05-02 12:15 AM/);
+
+  const actions = await rows.locator('td:nth-child(4)').allTextContents();
+  const rowCharge = actions.reduce((sum, action) => sum + (Number(action.match(/\+([\d.]+) kWh/)?.[1]) || 0), 0);
+  const rowDischarge = actions.reduce((sum, action) => sum + (Number(action.match(/-([\d.]+) kWh/)?.[1]) || 0), 0);
+  expect(Number(rowCharge.toFixed(1))).toBe(charged);
+  expect(Number(rowDischarge.toFixed(1))).toBe(discharged);
+
+  await page.getByRole('button', { name: 'Median Daily by Month' }).click();
+  const mayRow = page.locator('table tbody tr').filter({ hasText: 'May' });
+  await expect(mayRow).toHaveCount(1);
+  const monthlyTotal = Number((await mayRow.locator('td').nth(6).textContent())?.replace(/[^\d.]/g, ''));
+  expect(monthlyTotal).toBe(48);
+  expect(browserErrors).toEqual([]);
+});
+
 test('rejects a resource attachment that exceeds the project data budget without losing active data', async ({ page }) => {
   await page.goto('/');
   await openTab(page, '3. Power Generation');

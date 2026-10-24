@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   calculateMonthlyConsumptionStats,
   findNearestSeasonDayIndex,
@@ -40,6 +40,23 @@ function createUtcIntervals(start: string, count: number, intervalHours: number)
 }
 
 describe('Results interval aggregation', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('reuses timezone formatters across 35,136 local quarter-hour intervals', () => {
+    const formatter = vi.spyOn(Intl, 'DateTimeFormat');
+    const intervals = Array.from({ length: 35_136 }, (_, index) => {
+      const date = new Date(Date.UTC(2024, 0, 1) + index * 15 * 60_000);
+      const timestamp = `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)}`;
+      return createInterval(timestamp);
+    });
+
+    const days = groupResultIntervalsBySiteDay(intervals, 0.25, 'UTC');
+
+    expect(days).toHaveLength(366);
+    expect(days.every((day) => day.intervals.length === 96)).toBe(true);
+    expect(formatter).toHaveBeenCalledTimes(1);
+  });
+
   it('groups 48 hourly intervals into two complete local days', () => {
     const intervals = createUtcIntervals('2025-01-01T00:00:00Z', 48, 1);
     const days = groupResultIntervalsBySiteDay(intervals, 1, 'UTC');
