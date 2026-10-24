@@ -6,6 +6,28 @@ import {
 } from '../utils/externalResourceParser';
 
 describe('G7A — External Resource CSV Parser', () => {
+  it('resolves timezone-local solar and wind CSV timestamps through the shared formatter cache', () => {
+    const solar = parseSolarIrradianceCsv([
+      'timestamp,ghi_wm2,dni_wm2,dhi_wm2',
+      '2026-01-15 14:00,800,650,150',
+      '2026-01-15 15:00,850,700,150',
+    ].join('\n'), { sourceTimeZone: 'America/Detroit' });
+    const wind = parseWindSpeedCsv([
+      'timestamp,wind_speed_mps',
+      '2026-01-15 14:00,5.0',
+      '2026-01-15 15:00,6.0',
+    ].join('\n'), { sourceTimeZone: 'America/Detroit' });
+
+    expect(solar.isValid).toBe(true);
+    expect(solar.dataset?.records.map((record) => record.timestampUtc)).toEqual([
+      '2026-01-15T19:00:00.000Z', '2026-01-15T20:00:00.000Z',
+    ]);
+    expect(wind.isValid).toBe(true);
+    expect(wind.dataset?.records.map((record) => record.timestampUtc)).toEqual([
+      '2026-01-15T19:00:00.000Z', '2026-01-15T20:00:00.000Z',
+    ]);
+  });
+
   it('rejects resource curves above the supported interval ceiling before row parsing', () => {
     const csv = ['timestamp,wind_speed_mps', ...Array.from({ length: 35_137 }, () => 'row')].join('\n');
     const result = parseWindSpeedCsv(csv);

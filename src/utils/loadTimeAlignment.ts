@@ -66,6 +66,25 @@ export interface AnnualProjectionEligibility {
   reason?: string;
 }
 
+/** A formatter scoped to one operation, avoiding repeated construction without a global cache. */
+export class SiteLocalCalendarContext {
+  readonly timeZone: string;
+  readonly formatter: Intl.DateTimeFormat;
+
+  constructor(timeZone: string) {
+    this.timeZone = typeof timeZone === 'string' ? timeZone.trim() : '';
+    try {
+      this.formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: this.timeZone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+      });
+    } catch {
+      throw new Error(`Invalid IANA timezone: "${timeZone}".`);
+    }
+  }
+}
+
 // Regex matching ISO 8601 and local timestamp formats:
 // YYYY-MM-DD HH:mm[:ss[.sss]] or YYYY-MM-DDTHH:mm[:ss[.sss]] with optional Z or offset
 const TIMESTAMP_REGEX =
@@ -180,21 +199,15 @@ function getLocalParts(date: Date, dtf: Intl.DateTimeFormat): LocalParts {
 /** Maps an absolute interval instant to tariff calendar coordinates for a site. */
 export function getSiteLocalCalendarCoordinates(
   instantUtc: Date,
-  timeZone: string
+  timeZone: string | SiteLocalCalendarContext
 ): SiteLocalCalendarCoordinates {
   if (!(instantUtc instanceof Date) || !Number.isFinite(instantUtc.getTime())) {
     throw new Error('A valid UTC instant is required.');
   }
-  const zone = typeof timeZone === 'string' ? timeZone.trim() : '';
-  if (!isValidIanaTimeZone(zone)) {
-    throw new Error(`Invalid IANA timezone: "${timeZone}".`);
-  }
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: zone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  });
-  const local = getLocalParts(instantUtc, formatter);
+  const context = timeZone instanceof SiteLocalCalendarContext
+    ? timeZone
+    : new SiteLocalCalendarContext(timeZone);
+  const local = getLocalParts(instantUtc, context.formatter);
   return {
     ...local,
     month: local.month - 1,
@@ -271,7 +284,7 @@ function getTimeZoneOffsetMs(date: Date, dtf: Intl.DateTimeFormat): number {
 /**
  * Resolves a single timestamp string to an authoritative UTC Date instant.
  */
-export function resolveTimestampToUtc(
+function resolveTimestampToUtcWithCaches(
   raw: string,
   sourceIndex: number,
   timeZone: string,
@@ -298,26 +311,21 @@ export function resolveTimestampToUtc(
 
   // Local wall-clock timestamp: require valid non-empty IANA timezone
   const trimmedZone = typeof timeZone === 'string' ? timeZone.trim() : '';
-  if (!isValidIanaTimeZone(trimmedZone)) {
-    throw new Error(
-      `Invalid IANA timezone: "${timeZone}". A valid, non-empty IANA timezone is required to resolve local wall-clock timestamp "${raw}".`
-    );
-  }
-
   let dtf: Intl.DateTimeFormat;
   if (formatterCache && formatterCache.has(trimmedZone)) {
     dtf = formatterCache.get(trimmedZone)!;
   } else {
-    dtf = new Intl.DateTimeFormat('en-US', {
-      timeZone: trimmedZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23',
-    });
+    try {
+      dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: trimmedZone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+      });
+    } catch {
+      throw new Error(
+        `Invalid IANA timezone: "${timeZone}". A valid, non-empty IANA timezone is required to resolve local wall-clock timestamp "${raw}".`
+      );
+    }
     if (formatterCache) {
       formatterCache.set(trimmedZone, dtf);
     }
@@ -380,6 +388,23 @@ export function resolveTimestampToUtc(
   return matchingCandidates[0];
 }
 
+/** Resolves a single timestamp while strictly validating local-wall timezone input. */
+export function resolveTimestampToUtc(
+  raw: string,
+  sourceIndex: number,
+  timeZone: string,
+  formatterCache?: Map<string, Intl.DateTimeFormat>,
+  dailyOffsetCache?: Map<string, Set<number>>
+): Date {
+  return resolveTimestampToUtcWithCaches(
+    raw,
+    sourceIndex,
+    timeZone,
+    formatterCache,
+    dailyOffsetCache
+  );
+}
+
 /**
  * Aligns load data points to authoritative UTC instants using the site's IANA timezone.
  *
@@ -390,9 +415,10 @@ export function resolveTimestampToUtc(
  * - regularly spaced UTC instants with spacing equal to intervalHours * 3600 * 1000 ms
  */
 export function alignLoadTimestampsToSite(
-  dataPoints: IntervalDataPoint[],
+  dataPoints: Array<Pick<IntervalDataPoint, 'timestamp'>>,
   intervalHours: number,
-  timeZone: string
+  timeZone: string,
+  calendarContext?: SiteLocalCalendarContext
 ): AlignedLoadTimestamp[] {
   if (!Array.isArray(dataPoints) || dataPoints.length === 0) {
     throw new Error('dataPoints must be a non-empty array.');
@@ -408,7 +434,13 @@ export function alignLoadTimestampsToSite(
     );
   }
 
-  const formatterCache = new Map<string, Intl.DateTimeFormat>();
+  const normalizedZone = typeof timeZone === 'string' ? timeZone.trim() : '';
+  if (calendarContext && calendarContext.timeZone !== normalizedZone) {
+    throw new Error(`Invalid IANA timezone: "${timeZone}".`);
+  }
+  const formatterCache = calendarContext
+    ? new Map([[calendarContext.timeZone, calendarContext.formatter]])
+    : new Map<string, Intl.DateTimeFormat>();
   const dailyOffsetCache = new Map<string, Set<number>>();
   const aligned: AlignedLoadTimestamp[] = [];
 
@@ -420,7 +452,7 @@ export function alignLoadTimestampsToSite(
       );
     }
 
-    const instantUtc = resolveTimestampToUtc(
+    const instantUtc = resolveTimestampToUtcWithCaches(
       dp.timestamp,
       i,
       timeZone,

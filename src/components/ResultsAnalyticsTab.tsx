@@ -77,6 +77,12 @@ import {
   deriveGenerationHorizonFinancialSummary,
 } from '../utils/generationFinancials';
 import { formatEnabledGenerationLabels, formatUsdAmount } from '../utils/generationLabels';
+import {
+  calculateMonthlyConsumptionStats,
+  findNearestSeasonDayIndex,
+  groupResultIntervalsBySiteDay,
+  sumResultIntervalEnergy,
+} from '../utils/resultsIntervalAggregation';
 
 export interface ResultsAnalyticsTabProps {
   activeAnalysis: ProfileFinancialAnalysis | null;
@@ -243,7 +249,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
   );
   const [hoveredPoint, setHoveredPoint] = useState<any | null>(null);
 
-  // Day selection for 24-hr dispatch explorer (0 to 364)
+  // Index into the observed local calendar-day groups for dispatch exploration.
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(195);
   const [hoveredHour, setHoveredHour] = useState<number | null>(null);
   const [activeDispatchView, setActiveDispatchView] = useState<'chart' | 'median-month' | 'heatmap' | 'table'>('chart');
@@ -274,21 +280,56 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
 
   const projections: YearProjection[] = activeAnalysis?.projections ?? [];
 
-  // Extract 24 hours for the selected day from the annual simulation
-  const intervalCount = annualSummary.intervalResults.length;
-  const daysInDataset = Math.max(1, Math.floor(intervalCount / 24));
-  const safeDayIndex = Math.min(selectedDayIndex, daysInDataset - 1);
-  const startInterval = safeDayIndex * 24;
-  const dayIntervals = annualSummary.intervalResults.slice(startInterval, startInterval + 24);
+  const resultDayGrouping = useMemo(() => {
+    if (!annualSummary.intervalResults.length) return { days: [], error: null as string | null };
+    const timeZone = generationConfig?.site.timeZone;
+    if (!timeZone) {
+      return { days: [], error: 'A site timezone is required to group dispatch intervals by local calendar day.' };
+    }
+    try {
+      return {
+        days: groupResultIntervalsBySiteDay(
+          annualSummary.intervalResults,
+          annualSummary.intervalHours,
+          timeZone
+        ),
+        error: null as string | null,
+      };
+    } catch (error: unknown) {
+      return {
+        days: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, [annualSummary.intervalResults, annualSummary.intervalHours, generationConfig?.site.timeZone]);
+  const dayGroups = resultDayGrouping.days;
+  const daysInDataset = dayGroups.length;
+  const safeDayIndex = daysInDataset > 0
+    ? Math.max(0, Math.min(selectedDayIndex, daysInDataset - 1))
+    : 0;
+  const selectedDay = dayGroups[safeDayIndex];
+  const dayIntervals = selectedDay?.intervals.map((entry) => entry.result) ?? [];
+  const dayIntervalLabels = selectedDay?.intervals.map((entry) => entry.timeLabel) ?? [];
+  const dayDateStr = selectedDay?.dateKey ?? 'Unavailable';
 
-  // Day metadata
-  const firstInterval = dayIntervals[0];
-  const dayDateStr = firstInterval?.timestamp?.split(' ')[0] || `Day ${safeDayIndex + 1}`;
+  const dailyEnergyTotals = sumResultIntervalEnergy(selectedDay?.intervals ?? []);
 
   // Quick season preset handlers
   const handleSeasonSelect = (dayIndex: number) => {
-    setSelectedDayIndex(Math.min(dayIndex, daysInDataset - 1));
+    if (daysInDataset > 0) setSelectedDayIndex(Math.max(0, Math.min(dayIndex, daysInDataset - 1)));
   };
+
+  const seasonPresets = [
+    { name: 'Winter Day', months: [11, 0, 1], targetMonth: 0, targetDay: 15 },
+    { name: 'Spring Equinox', months: [2, 3, 4], targetMonth: 2, targetDay: 20 },
+    { name: 'Summer Peak', months: [5, 6, 7], targetMonth: 6, targetDay: 15 },
+    { name: 'Autumn Evening', months: [8, 9, 10], targetMonth: 9, targetDay: 15 },
+  ].map((preset) => {
+    return {
+      ...preset,
+      dayIndex: findNearestSeasonDayIndex(dayGroups, preset.months, preset.targetMonth, preset.targetDay),
+    };
+  });
 
   // Find best performing profile in allAnalyses
   const fastestPaybackProfile = [...allAnalyses]
@@ -744,7 +785,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
     setHoveredPoint(closest);
   };
 
-  // 12-Month x 24-Hour Battery SoC Heatmap Calculation
+  // 12-Month x 24-Clock-Hour Battery SoC Heatmap Calculation
   const heatmapData = useMemo(() => {
     if (!annualSummary || !annualSummary.intervalResults.length) return [];
     const grid = Array.from({ length: 12 }, () =>
@@ -755,15 +796,15 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
       }))
     );
 
-    annualSummary.intervalResults.forEach((interval: IntervalSimulationResult) => {
-      const date = new Date(interval.timestamp.replace(' ', 'T'));
-      const m = isNaN(date.getMonth()) ? 0 : date.getMonth();
-      const h = interval.hour;
-      if (m >= 0 && m < 12 && h >= 0 && h < 24) {
-        grid[m][h].socSum += interval.batterySocPercent;
-        grid[m][h].loadSum += interval.homeLoadKwh;
-        grid[m][h].count += 1;
-      }
+    if (annualSummary.intervalHours <= 0) return [];
+    dayGroups.forEach((day) => {
+      day.intervals.forEach(({ result, hour }) => {
+        if (day.month >= 0 && day.month < 12 && hour >= 0 && hour < 24) {
+          grid[day.month][hour].socSum += result.batterySocPercent;
+          grid[day.month][hour].loadSum += result.homeLoadKwh / annualSummary.intervalHours;
+          grid[day.month][hour].count += 1;
+        }
+      });
     });
 
     return grid.map((monthRow) =>
@@ -772,224 +813,15 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
         avgLoad: cell.count > 0 ? Math.round((cell.loadSum / cell.count) * 100) / 100 : 0,
       }))
     );
-  }, [annualSummary]);
+  }, [annualSummary.intervalHours, dayGroups]);
 
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-  // Median Daily Power Consumption Grouped by Month Calculation
-  const monthlyConsumptionStats = useMemo(() => {
-    if (!annualSummary || !annualSummary.intervalResults || annualSummary.intervalResults.length === 0) {
-      return {
-        months: [],
-        annualMedian: 0,
-        annualMean: 0,
-        peakMonth: null,
-        lowestMonth: null,
-        seasonalSwingPercent: 0,
-      };
-    }
-
-    // 1. Group interval results by calendar day
-    const dayMap = new Map<
-      string,
-      {
-        month: number;
-        dayIndex: number;
-        homeLoadSum: number;
-        withBatteryGridSum: number;
-        batteryDischargeSum: number;
-        intervalsCount: number;
-      }
-    >();
-
-    annualSummary.intervalResults.forEach((interval: IntervalSimulationResult, idx: number) => {
-      let dayKey = '';
-      let month = 0;
-
-      if (interval.timestamp) {
-        const parts = interval.timestamp.split(' ');
-        dayKey = parts[0];
-
-        if (dayKey.includes('-')) {
-          const segs = dayKey.split('-');
-          if (segs.length >= 2) {
-            month = Math.max(0, Math.min(11, parseInt(segs[1], 10) - 1));
-          }
-        } else if (dayKey.includes('/')) {
-          const segs = dayKey.split('/');
-          if (segs.length >= 2) {
-            month = Math.max(0, Math.min(11, parseInt(segs[0], 10) - 1));
-          }
-        } else {
-          const d = new Date(interval.timestamp.replace(' ', 'T'));
-          if (!isNaN(d.getTime())) {
-            month = d.getMonth();
-          }
-        }
-      } else {
-        const dIdx = Math.floor(idx / 24);
-        dayKey = `Day_${dIdx}`;
-        month = Math.min(11, Math.floor(dIdx / 30.5));
-      }
-
-      const existing = dayMap.get(dayKey);
-      if (existing) {
-        existing.homeLoadSum += interval.homeLoadKwh;
-        existing.withBatteryGridSum += interval.gridImportKwh;
-        existing.batteryDischargeSum += interval.batteryDischargeKwh;
-        existing.intervalsCount += 1;
-      } else {
-        dayMap.set(dayKey, {
-          month,
-          dayIndex: Math.floor(idx / 24),
-          homeLoadSum: interval.homeLoadKwh,
-          withBatteryGridSum: interval.gridImportKwh,
-          batteryDischargeSum: interval.batteryDischargeKwh,
-          intervalsCount: 1,
-        });
-      }
-    });
-
-    // 2. Aggregate days into their respective month (0..11)
-    const monthDailyLoads: number[][] = Array.from({ length: 12 }, () => []);
-    const monthDailyWithBattery: number[][] = Array.from({ length: 12 }, () => []);
-    const monthDailyDischarge: number[][] = Array.from({ length: 12 }, () => []);
-    const monthFirstDayIndices: number[] = Array.from({ length: 12 }, () => 0);
-    const allDailyLoads: number[] = [];
-
-    dayMap.forEach((dayData) => {
-      if (dayData.month >= 0 && dayData.month < 12) {
-        const dailyLoad =
-          dayData.intervalsCount > 0 && dayData.intervalsCount < 24
-            ? (dayData.homeLoadSum / dayData.intervalsCount) * 24
-            : dayData.homeLoadSum;
-
-        const dailyWithBattery =
-          dayData.intervalsCount > 0 && dayData.intervalsCount < 24
-            ? (dayData.withBatteryGridSum / dayData.intervalsCount) * 24
-            : dayData.withBatteryGridSum;
-
-        const dailyDischarge =
-          dayData.intervalsCount > 0 && dayData.intervalsCount < 24
-            ? (dayData.batteryDischargeSum / dayData.intervalsCount) * 24
-            : dayData.batteryDischargeSum;
-
-        const roundedLoad = Math.round(dailyLoad * 100) / 100;
-        monthDailyLoads[dayData.month].push(roundedLoad);
-        monthDailyWithBattery[dayData.month].push(Math.round(dailyWithBattery * 100) / 100);
-        monthDailyDischarge[dayData.month].push(Math.round(dailyDischarge * 100) / 100);
-        allDailyLoads.push(roundedLoad);
-
-        if (monthDailyLoads[dayData.month].length === 1) {
-          monthFirstDayIndices[dayData.month] = dayData.dayIndex;
-        }
-      }
-    });
-
-    const calcStats = (vals: number[]) => {
-      if (vals.length === 0) {
-        return { median: 0, mean: 0, min: 0, max: 0, p25: 0, p75: 0, total: 0, count: 0 };
-      }
-      const sorted = [...vals].sort((a, b) => a - b);
-      const count = sorted.length;
-      const sum = sorted.reduce((a, b) => a + b, 0);
-      const mean = Math.round((sum / count) * 10) / 10;
-      const mid = Math.floor(count / 2);
-      const median =
-        count % 2 !== 0
-          ? sorted[mid]
-          : Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
-      const p25 = sorted[Math.floor(count * 0.25)];
-      const p75 = sorted[Math.floor(count * 0.75)];
-      const min = sorted[0];
-      const max = sorted[count - 1];
-      return { median, mean, min, max, p25, p75, total: Math.round(sum), count };
-    };
-
-    const monthNamesList = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const fullMonthNames = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-    const seasons = [
-      'Winter',
-      'Winter',
-      'Spring',
-      'Spring',
-      'Spring',
-      'Summer',
-      'Summer',
-      'Summer',
-      'Autumn',
-      'Autumn',
-      'Autumn',
-      'Winter',
-    ];
-
-    const monthsData = monthNamesList.map((name, m) => {
-      const loadStats = calcStats(monthDailyLoads[m]);
-      const batteryStats = calcStats(monthDailyWithBattery[m]);
-      const dischargeStats = calcStats(monthDailyDischarge[m]);
-      const repDayIndex = monthFirstDayIndices[m] || Math.min(m * 30 + 15, daysInDataset - 1);
-
-      return {
-        monthIndex: m,
-        shortName: name,
-        fullName: fullMonthNames[m],
-        season: seasons[m],
-        repDayIndex,
-        daysCount: loadStats.count,
-        medianDailyKwh: loadStats.median,
-        meanDailyKwh: loadStats.mean,
-        minDailyKwh: loadStats.min,
-        maxDailyKwh: loadStats.max,
-        p25DailyKwh: loadStats.p25,
-        p75DailyKwh: loadStats.p75,
-        totalMonthlyKwh: loadStats.total,
-        medianWithBatteryKwh: batteryStats.median,
-        medianDischargeKwh: dischargeStats.median,
-        reductionPercent:
-          loadStats.median > 0
-            ? Math.max(0, Math.round(((loadStats.median - batteryStats.median) / loadStats.median) * 100))
-            : 0,
-      };
-    });
-
-    const annualStats = calcStats(allDailyLoads);
-    const validMonths = monthsData.filter((m) => m.daysCount > 0);
-    const peakMonth =
-      validMonths.length > 0
-        ? [...validMonths].sort((a, b) => b.medianDailyKwh - a.medianDailyKwh)[0]
-        : null;
-    const lowestMonth =
-      validMonths.length > 0
-        ? [...validMonths].sort((a, b) => a.medianDailyKwh - b.medianDailyKwh)[0]
-        : null;
-
-    const seasonalSwingPercent =
-      lowestMonth && lowestMonth.medianDailyKwh > 0 && peakMonth
-        ? Math.round(((peakMonth.medianDailyKwh - lowestMonth.medianDailyKwh) / lowestMonth.medianDailyKwh) * 100)
-        : 0;
-
-    return {
-      months: monthsData,
-      annualMedian: annualStats.median,
-      annualMean: annualStats.mean,
-      peakMonth,
-      lowestMonth,
-      seasonalSwingPercent,
-    };
-  }, [annualSummary, daysInDataset]);
+  // Monthly load and battery statistics use the same validated local-day groups as dispatch navigation.
+  const monthlyConsumptionStats = useMemo(
+    () => calculateMonthlyConsumptionStats(dayGroups),
+    [dayGroups]
+  );
 
   // Maximum load in day for 24-hour chart scale
   const maxDayLoad = Math.max(
@@ -1113,7 +945,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             <span>Intervals: <strong>{completeness?.intervalCount || annualSummary.totalIntervals}</strong> (Expected: {completeness?.expectedIntervalCount})</span>
             {completeness?.startDate && <span>Start: <strong>{completeness.startDate}</strong></span>}
             {completeness?.endDate && <span>End: <strong>{completeness.endDate}</strong></span>}
-            <span className="text-amber-400 font-semibold">Exploratory 24h dispatch views remain active below</span>
+            <span className="text-amber-400 font-semibold">Exploratory local-day dispatch views remain active below</span>
           </div>
         </div>
       )}
@@ -1134,7 +966,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             {hasGenerator && activeGenerationAnalysis && <span>Year-1 Net Operational Value: <strong>{formatUsdAmount(activeGenerationAnalysis.year1NetOperationalSavingsUsd ?? activeGenerationAnalysis.year1ElectricitySavingsUsd - (activeGenerationAnalysis.year1GeneratorOperatingCostUsd ?? 0))}/yr</strong></span>}
             <span>Grid Import: <strong>{annualSummary.annualGridImportKwh.toLocaleString()} kWh</strong></span>
             <span>Grid Export: <strong>{annualSummary.annualGridExportKwh.toLocaleString()} kWh</strong></span>
-            <span className="text-sky-400 font-semibold">24h dispatch explorer and operational analytics are active below</span>
+            <span className="text-sky-400 font-semibold">Local-day dispatch explorer and operational analytics are active below</span>
           </div>
         </div>
       )}
@@ -3384,16 +3216,16 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
         )}
       </div>
 
-      {/* VISUALIZATION 2: 24-HOUR DISPATCH EXPLORER & HEATMAP */}
+      {/* VISUALIZATION 2: LOCAL-DAY DISPATCH EXPLORER & HEATMAP */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
               <Zap className="h-4 w-4 text-emerald-400" />
-              24-Hour Battery Dispatch & Electrochemical Cycling
+              Calendar-Day Battery Dispatch & Electrochemical Cycling
             </h3>
             <p className="text-xs text-slate-400">
-              Hour-by-hour operational dispatch, TOU rate arbitrage, grid import offset, and state-of-charge tracking.
+              Observed-interval dispatch, TOU rate arbitrage, grid import offset, and state-of-charge tracking.
             </p>
           </div>
 
@@ -3407,7 +3239,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                24h Profile
+                Daily Profile
               </button>
               <button
                 onClick={() => setActiveDispatchView('median-month')}
@@ -3444,7 +3276,13 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
           </div>
         </div>
 
-        {/* 24-HOUR DISPATCH CHART */}
+        {resultDayGrouping.error && (
+          <p role="alert" className="rounded-lg border border-amber-500/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+            Daily interval views are unavailable: {resultDayGrouping.error}
+          </p>
+        )}
+
+        {/* CALENDAR-DAY DISPATCH CHART */}
         {activeDispatchView === 'chart' && (
           <div className="space-y-4">
             {/* Day Selector & Seasonal Presets */}
@@ -3452,26 +3290,23 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               <div className="flex items-center gap-2">
                 <span className="text-slate-400">Active Day:</span>
                 <span className="font-mono font-bold text-white bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                  {dayDateStr} (Day {safeDayIndex + 1} of {daysInDataset})
+                  {dayDateStr}{selectedDay ? ` (Day ${safeDayIndex + 1} of ${daysInDataset})` : ''}
                 </span>
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-slate-500 text-[11px] mr-1">Jump to Season:</span>
-                {[
-                  { name: 'Winter Day', day: 15 },
-                  { name: 'Spring Equinox', day: 80 },
-                  { name: 'Summer Peak', day: 195 },
-                  { name: 'Autumn Evening', day: 285 },
-                ].map((s) => (
+                {seasonPresets.map((s) => (
                   <button
                     key={s.name}
-                    onClick={() => handleSeasonSelect(s.day)}
+                    type="button"
+                    disabled={s.dayIndex === null}
+                    onClick={() => s.dayIndex !== null && handleSeasonSelect(s.dayIndex)}
                     className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
-                      safeDayIndex === s.day
+                      safeDayIndex === s.dayIndex
                         ? 'bg-cyan-500 text-slate-950 font-bold'
                         : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-                    }`}
+                    } disabled:cursor-not-allowed disabled:opacity-40`}
                   >
                     {s.name}
                   </button>
@@ -3487,7 +3322,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               </div>
             </div>
 
-            {/* Hourly Dispatch Chart Bars */}
+            {/* Interval Dispatch Chart Bars */}
             <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/90 space-y-3">
               <div className="flex items-center justify-between text-xs text-slate-400">
                 <div className="flex items-center gap-4">
@@ -3505,7 +3340,9 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                   </span>
                 </div>
                 <span className="font-mono text-emerald-400">
-                  Day Total Discharged: {dayIntervals.reduce((s: number, i: IntervalSimulationResult) => s + i.batteryDischargeKwh, 0).toFixed(1)} kWh
+                  Day Total Charged: {dailyEnergyTotals.batteryChargeKwh.toFixed(1)} kWh
+                  <span className="mx-2 text-slate-600">·</span>
+                  Day Total Discharged: {dailyEnergyTotals.batteryDischargeKwh.toFixed(1)} kWh
                 </span>
               </div>
 
@@ -3548,11 +3385,13 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 })}
               </div>
 
-              {/* Hours Labels */}
+              {/* Sampled labels are taken from the actual aligned local interval timestamps. */}
               <div className="flex min-w-0 justify-between overflow-hidden text-[10px] text-slate-500 font-mono px-0.5">
-                {Array.from({ length: 24 }).map((_, h) => (
-                  <span key={h} className="min-w-0 flex-1 text-center text-slate-400">
-                    {h % 3 === 0 ? `${h}:00` : ''}
+                {dayIntervals.map((_, index) => (
+                  <span key={index} className="min-w-0 flex-1 text-center text-slate-400">
+                    {index % Math.max(1, Math.ceil(dayIntervals.length / 12)) === 0
+                      ? dayIntervalLabels[index]
+                      : ''}
                   </span>
                 ))}
               </div>
@@ -3561,7 +3400,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               {hoveredHour !== null && dayIntervals[hoveredHour] && (
                 <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 text-xs font-mono flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <span className="text-white font-bold">{hoveredHour}:00 {hoveredHour < 12 ? 'AM' : 'PM'}</span>
+                    <span className="text-white font-bold">{dayIntervalLabels[hoveredHour]}</span>
                     <span className="text-slate-400 ml-2">Tier: <strong className="text-cyan-400">{dayIntervals[hoveredHour].tierName}</strong> (${dayIntervals[hoveredHour].buyRate.toFixed(2)}/kWh)</span>
                   </div>
                   <div className="flex items-center gap-3">
@@ -3880,10 +3719,11 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                             onMouseEnter={() => setHoveredMonthIndex(idx)}
                             onMouseLeave={() => setHoveredMonthIndex(null)}
                             onClick={() => {
+                              if (m.repDayIndex === null) return;
                               setSelectedDayIndex(m.repDayIndex);
                               setActiveDispatchView('chart');
                             }}
-                            className="cursor-pointer"
+                            className={m.repDayIndex === null ? 'cursor-default opacity-50' : 'cursor-pointer'}
                           >
                             {/* Hover Column Highlight */}
                             <rect
@@ -4089,13 +3929,16 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                       </div>
 
                       <button
+                        type="button"
+                        disabled={activeMonth.repDayIndex === null}
                         onClick={() => {
+                          if (activeMonth.repDayIndex === null) return;
                           setSelectedDayIndex(activeMonth.repDayIndex);
                           setActiveDispatchView('chart');
                         }}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-sans font-medium transition-colors border border-emerald-500/30"
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[11px] font-sans font-medium transition-colors border border-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        <span>Open {activeMonth.shortName} in 24h Hourly Dispatch</span>
+                        <span>Open {activeMonth.shortName} in Daily Dispatch</span>
                         <ArrowRight className="h-3 w-3" />
                       </button>
                     </div>
@@ -4251,14 +4094,17 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                           </td>
                           <td className="py-2 px-3 text-center">
                             <button
+                              type="button"
+                              disabled={m.repDayIndex === null}
                               onClick={() => {
+                                if (m.repDayIndex === null) return;
                                 setSelectedDayIndex(m.repDayIndex);
                                 setActiveDispatchView('chart');
                               }}
-                              className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] transition-colors"
-                              title="Inspect representative 24h dispatch day for this month"
+                              className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                              title="Inspect the observed day closest to this month's median load"
                             >
-                              Inspect 24h
+                              Inspect day
                             </button>
                           </td>
                         </tr>
@@ -4336,7 +4182,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                   <strong className="text-emerald-400">
                     {monthNames[hoveredHeatmapCell.month]} at {hoveredHeatmapCell.hour}:00
                   </strong>{' '}
-                  · Avg Battery State of Charge: <strong className="text-emerald-400">{hoveredHeatmapCell.avgSoc}%</strong> · Avg Home Load Demand: <strong className="text-slate-300">{hoveredHeatmapCell.avgLoad} kWh</strong>
+                  · Avg Battery State of Charge: <strong className="text-emerald-400">{hoveredHeatmapCell.avgSoc}%</strong> · Avg Home Load Power: <strong className="text-slate-300">{hoveredHeatmapCell.avgLoad} kW</strong>
                 </div>
               ) : (
                 <div className="text-slate-400 text-xs font-sans">
@@ -4347,26 +4193,26 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
           </div>
         )}
 
-        {/* 24-HOUR TABLE VIEW */}
+        {/* INTERVAL TABLE VIEW */}
         {activeDispatchView === 'table' && (
           <div className="overflow-x-auto max-h-96 rounded-lg border border-slate-800">
             <table className="w-full text-left text-xs font-mono">
               <thead className="bg-slate-950 text-slate-400 sticky top-0 border-b border-slate-800">
                 <tr>
-                  <th className="py-2.5 px-3">Hour</th>
+                  <th className="py-2.5 px-3">Local Timestamp</th>
                   <th className="py-2.5 px-3">TOU Tier</th>
                   <th className="py-2.5 px-3 text-right">Home Load</th>
                   <th className="py-2.5 px-3 text-right">Battery Action</th>
                   <th className="py-2.5 px-3 text-right">Battery SoC</th>
                   <th className="py-2.5 px-3 text-right">Grid Import</th>
-                  <th className="py-2.5 px-3 text-right">Hourly Savings</th>
+                  <th className="py-2.5 px-3 text-right">Interval Savings</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80 bg-slate-900/40 text-slate-300">
-                {dayIntervals.map((d: IntervalSimulationResult, h: number) => (
-                  <tr key={h} className="hover:bg-slate-800/50 transition-colors">
+                {dayIntervals.map((d: IntervalSimulationResult, index: number) => (
+                  <tr key={index} className="hover:bg-slate-800/50 transition-colors">
                     <td className="py-2 px-3 font-bold text-slate-200">
-                      {h}:00 {h < 12 ? 'AM' : 'PM'}
+                      {dayDateStr} {dayIntervalLabels[index]}
                     </td>
                     <td className="py-2 px-3">
                       <span className="text-slate-300">{d.tierName}</span>{' '}

@@ -26,6 +26,19 @@ function createMockPoint(
 }
 
 describe('G2D — Load/Solar Timestamp Alignment', () => {
+  it('supports uncached and caller-cached timestamp resolution', () => {
+    const timestamp = '2026-01-15 14:00';
+    const uncached = resolveTimestampToUtc(timestamp, 0, 'America/Detroit');
+    const formatterCache = new Map<string, Intl.DateTimeFormat>();
+    const firstCached = resolveTimestampToUtc(timestamp, 0, 'America/Detroit', formatterCache);
+    const secondCached = resolveTimestampToUtc(timestamp, 1, 'America/Detroit', formatterCache);
+
+    expect(uncached.toISOString()).toBe('2026-01-15T19:00:00.000Z');
+    expect(firstCached).toEqual(uncached);
+    expect(secondCached).toEqual(uncached);
+    expect(formatterCache.size).toBe(1);
+  });
+
   describe('canonical annual projection eligibility', () => {
     const yearPoints = (year: number): IntervalDataPoint[] => {
       const start = Date.UTC(year, 0, 1);
