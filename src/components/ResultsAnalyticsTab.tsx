@@ -54,8 +54,10 @@ import {
 import { GenerationAwareSimulationResult } from '../utils/generationAwareSimulation';
 import {
   deriveGenerationOperationalDisplayMetrics,
+  createVollFinancialPresentation,
   GenerationOperationalDisplayMetrics,
   resolveMultiProfileMatrixState,
+  selectWindResourceModelingDisclosure,
   formatSolarDegradationClause,
   formatSolarDegradationSummary,
 } from '../utils/generationResults';
@@ -138,6 +140,33 @@ interface ResultsAnalyticsContentProps {
   allowSolarExport?: boolean;
 }
 
+const formatSignedUsd = (value: number) =>
+  `${value >= 0 ? '+' : '-'}$${Math.abs(value).toLocaleString()}`;
+
+const VollFinancialDisclosure: React.FC<{
+  includeVollInRoi: boolean;
+  baseNpv: number;
+  baseRoi: number;
+  companionNpv?: number;
+  companionRoi?: number;
+}> = (props) => {
+  const display = createVollFinancialPresentation(props.includeVollInRoi, {
+    baseNpv: props.baseNpv,
+    baseRoi: props.baseRoi,
+    companionNpv: props.companionNpv,
+    companionRoi: props.companionRoi,
+  });
+  return (
+    <div className="rounded-lg border border-emerald-500/20 bg-emerald-950/10 p-2.5 space-y-1 text-[10px] text-slate-300">
+      <p>VOLL inclusion setting in Financial Settings: <strong className="text-emerald-300">{display.settingStatus}</strong>.</p>
+      <p>Base 25-year NPV ({formatSignedUsd(display.baseNpv)}) and ROI ({display.baseRoi.toFixed(1)}%) exclude VOLL.</p>
+      {display.companionNpv !== undefined && <p>Engine NPV companion (follows the setting): {formatSignedUsd(display.companionNpv)}.</p>}
+      {display.companionRoi !== undefined && <p>VOLL-adjusted ROI companion: {display.companionRoi.toFixed(1)}%.</p>}
+      <p className="text-slate-400">The financial engine currently calculates the VOLL-adjusted ROI companion independently of this setting.</p>
+    </div>
+  );
+};
+
 const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
   activeAnalysis,
   allAnalyses,
@@ -185,6 +214,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
   const hasSolar = enabledGenerationTypes.has('solar');
   const hasWind = enabledGenerationTypes.has('wind');
   const hasGenerator = enabledGenerationTypes.has('generator');
+  const windDisclosure = selectWindResourceModelingDisclosure(generationConfig?.assets);
 
   const hasStandbyGenerator = Boolean(
     generationConfig?.assets?.some(
@@ -244,9 +274,6 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
   const [showNetCashFlow, setShowNetCashFlow] = useState<boolean>(true);
   const [showOpportunityCost, setShowOpportunityCost] = useState<boolean>(true);
   const [showNpvCurve, setShowNpvCurve] = useState<boolean>(false);
-  const [includeVollInMetrics, setIncludeVollInMetrics] = useState<boolean>(
-    financials?.includeVollInRoi || false
-  );
   const [hoveredPoint, setHoveredPoint] = useState<any | null>(null);
 
   // Index into the observed local calendar-day groups for dispatch exploration.
@@ -1525,12 +1552,18 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             </div>}
           </div>
 
-          {/* Average-Resource Wind Modeling Disclosure */}
-          {hasWind && (
+          {/* Wind Resource Modeling Disclosure */}
+          {windDisclosure && (
             <div className="p-3 bg-sky-950/20 border border-sky-500/20 rounded-lg text-xs text-sky-200/90 flex items-start gap-2.5">
               <Info className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
               <div className="leading-relaxed">
-                <strong className="text-sky-100 font-semibold">Average-Resource Wind Modeling:</strong> VoltWise evaluates average wind-speed statistics through the configured manufacturer power curve to calculate deterministic expected turbine energy rather than reconstructed observed hourly wind weather. Modeled battery interaction reflects this expected-profile approximation. Higher-fidelity interval wind-resource ingestion remains a future capability.
+                {windDisclosure === 'average' ? (
+                  <><strong className="text-sky-100 font-semibold">Average-Resource Wind Modeling:</strong> Output is modeled from configured annual or monthly wind-speed statistics and the configured turbine power curve.</>
+                ) : windDisclosure === 'interval' ? (
+                  <><strong className="text-sky-100 font-semibold">Interval-Resource Wind Modeling:</strong> Output uses validated, time-aligned measured wind-speed records and the configured turbine model. The records describe wind resource; turbine electrical output is modeled.</>
+                ) : (
+                  <><strong className="text-sky-100 font-semibold">Mixed Wind Resource Modeling:</strong> This project combines validated, time-aligned measured wind-resource records with annual or monthly statistical inputs. Turbine electrical output is modeled using the configured turbine models.</>
+                )}
               </div>
             </div>
           )}
@@ -2017,15 +2050,13 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <span className="text-cyan-300 font-bold">+${Math.round(activeGenerationAnalysis.lifetimeResilienceValueUsd ?? (financials.annualOutageDays * financials.valueOfLostLoadPerDay * 25)).toLocaleString()}</span>
               </div>
             </div>
-            <div className="flex items-center justify-between text-[10px]">
-              <span className="text-slate-400">Blend VOLL into ROI:</span>
-              <button
-                onClick={() => setIncludeVollInMetrics(!includeVollInMetrics)}
-                className={`px-1.5 py-0.5 rounded font-mono font-semibold transition-colors ${includeVollInMetrics ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}
-              >
-                {includeVollInMetrics ? 'Active (Blended)' : 'Off (Pure Utility)'}
-              </button>
-            </div>
+            <VollFinancialDisclosure
+              includeVollInRoi={financials.includeVollInRoi}
+              baseNpv={activeGenerationAnalysis.npvUsd}
+              baseRoi={activeGenerationAnalysis.lifetimeRoiPercent}
+              companionNpv={activeGenerationAnalysis.npvWithVollUsd}
+              companionRoi={activeGenerationAnalysis.lifetimeRoiWithVollPercent}
+            />
           </div>
         </div>
       ) : hasFinancialAnalysis && activeAnalysis ? (
@@ -2157,15 +2188,13 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                 <span className="text-cyan-300 font-bold">+${activeAnalysis.lifetimeResilienceValue.toLocaleString()}</span>
               </div>
             </div>
-            <div className="flex items-center justify-between text-[10px]">
-              <span className="text-slate-400">Blend VOLL into ROI:</span>
-              <button
-                onClick={() => setIncludeVollInMetrics(!includeVollInMetrics)}
-                className={`px-1.5 py-0.5 rounded font-mono font-semibold transition-colors ${includeVollInMetrics ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}
-              >
-                {includeVollInMetrics ? 'Active (Blended)' : 'Off (Pure Utility)'}
-              </button>
-            </div>
+            <VollFinancialDisclosure
+              includeVollInRoi={financials.includeVollInRoi}
+              baseNpv={activeAnalysis.npv}
+              baseRoi={activeAnalysis.lifetimeRoiPercent}
+              companionNpv={activeAnalysis.npvWithVoll}
+              companionRoi={activeAnalysis.lifetimeRoiWithVollPercent}
+            />
           </div>
         </div>
       ) : isGenerationFinancialPending ? (
