@@ -5,9 +5,13 @@ import { MAX_PROJECT_ACCEPTED_ARCHIVE_BYTES, MAX_PROJECT_PERSISTED_DATA_BYTES } 
 import { assertProjectArchiveWithinBudget, parseProjectArchive, serializeProjectArchive } from '../utils/projectArchive';
 import { createMaximumLeapYearProjectState } from '../../e2e/helpers/maximumLeapYearProject';
 import {
+  classifyPerformanceReadiness,
+  classifyPerformanceWorkerCompletion,
   getPerformanceUiCoverageStatus,
   PERFORMANCE_NAVIGATION_SEQUENCE,
   PERFORMANCE_NAVIGATION_TABS,
+  PERFORMANCE_READINESS_NAVIGATION_ACTION,
+  preservesOperationalRequestIdentity,
 } from '../../e2e/helpers/performanceNavigationActions';
 import standardPlaywrightConfig from '../../playwright.config';
 import performancePlaywrightConfig from '../../playwright.performance.config';
@@ -88,6 +92,56 @@ describe('isolated Playwright performance configuration', () => {
     }
     expect(getPerformanceUiCoverageStatus(14)).toBe('NOT_FULLY_MEASURED');
     expect(getPerformanceUiCoverageStatus(15)).toBe('MEASURED');
+  });
+
+  it('returns to Results in a separate unmeasured readiness-navigation action', () => {
+    expect(PERFORMANCE_READINESS_NAVIGATION_ACTION).toEqual({
+      tab: '5. Results & Analytics',
+      measured: false,
+    });
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE).toHaveLength(15);
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE.at(-1)).toBe('1. Data & TOU Rates');
+  });
+
+  it('distinguishes worker completion from pending financial Results and rejects worker errors', () => {
+    const completedWorkers = {
+      projectionActive: false,
+      runRequests: [{ requestId: 42 }],
+      runSuccesses: [{}],
+      projectionRequests: Array.from({ length: 25 }, () => ({})),
+      projectionResponses: Array.from({ length: 25 }, () => ({})),
+      workerErrors: [],
+      alerts: [],
+      resultsReady: false,
+      evidence: '',
+    };
+    expect(classifyPerformanceWorkerCompletion(completedWorkers)).toBe('complete');
+    expect(classifyPerformanceReadiness(completedWorkers)).toBe('financial-pending');
+    expect(classifyPerformanceReadiness({ ...completedWorkers, resultsReady: true })).toBe('ready');
+    expect(classifyPerformanceReadiness({
+      ...completedWorkers,
+      resultsReady: true,
+      workerErrors: [{ type: 'error' }],
+    })).toBe('error');
+    expect(classifyPerformanceWorkerCompletion({
+      ...completedWorkers,
+      workerErrors: [{ type: 'error' }],
+    })).toBe('error');
+    expect(classifyPerformanceReadiness({
+      ...completedWorkers,
+      projectionResponses: completedWorkers.projectionResponses.slice(0, 24),
+      resultsReady: true,
+    })).toBe('projecting');
+    expect(classifyPerformanceWorkerCompletion({
+      ...completedWorkers,
+      projectionResponses: completedWorkers.projectionResponses.slice(0, 24),
+    })).toBe('pending');
+  });
+
+  it('requires the imported operational worker request identity to remain unchanged', () => {
+    expect(preservesOperationalRequestIdentity(42, { runRequests: [{ requestId: 42 }] })).toBe(true);
+    expect(preservesOperationalRequestIdentity(42, { runRequests: [{ requestId: 43 }] })).toBe(false);
+    expect(preservesOperationalRequestIdentity(42, { runRequests: [{ requestId: 42 }, { requestId: 43 }] })).toBe(false);
   });
 
   it('discovers only perf specs in the dedicated single-worker Chromium project', () => {
