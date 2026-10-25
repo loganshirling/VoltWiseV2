@@ -146,9 +146,12 @@ describe('Issue 4 — JSON Export Correctness and Consistency', () => {
     });
 
     it('preserves supplied completeness duration metadata', () => {
-      const suppliedCsvResult = {
+      const completeness = mockCsvResult.completeness;
+      if (!completeness) throw new Error('The mock CSV result must include completeness metadata.');
+
+      const suppliedCsvResult: CsvValidationResult = {
         ...mockCsvResult,
-        completeness: { ...mockCsvResult.completeness, durationDays: 364 },
+        completeness: { ...completeness, durationDays: 364 },
       };
       const exported = exportForIntervals(35_040, 0.25, suppliedCsvResult);
 
