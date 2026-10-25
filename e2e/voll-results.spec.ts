@@ -1,4 +1,12 @@
 import { expect, test, Page } from '@playwright/test';
+import {
+  DEFAULT_BATTERY_PROFILES,
+  DEFAULT_MACRO_FINANCIALS,
+  DEFAULT_TOU_PROFILES,
+} from '../src/utils/simulationEngine';
+import { createDefaultGenerationConfig, createDefaultSolarAsset } from '../src/utils/generationDefaults';
+import { serializeProjectArchive } from '../src/utils/projectArchive';
+import type { ProjectArchiveState } from '../src/types/energy';
 
 type FinancialValues = {
   npv: number;
@@ -44,8 +52,71 @@ async function readDisplayedResults(page: Page): Promise<VollResults> {
   };
 }
 
+type GenerationFinancialReadiness = {
+  state: 'initializing' | 'projecting' | 'ready' | 'financial-pending' | 'simulation-error' | 'unexpected-results';
+  evidence: string;
+};
+
+async function readGenerationFinancialReadiness(page: Page): Promise<GenerationFinancialReadiness> {
+  const mainText = (await page.locator('main').innerText()).replace(/\s+/g, ' ').trim();
+  const simulationError = await page.getByRole('alert').allTextContents();
+  if (simulationError.length > 0) {
+    return { state: 'simulation-error', evidence: simulationError.join(' ').replace(/\s+/g, ' ').trim() };
+  }
+
+  const progress = await page.getByRole('status').allTextContents();
+  const progressText = progress.join(' ').replace(/\s+/g, ' ').trim();
+  if (progressText.includes('Updating simulation in the background') || mainText.includes('Running full-year dispatch simulation')) {
+    return { state: 'projecting', evidence: progressText || mainText.slice(-500) };
+  }
+
+  if (mainText.includes('Lifecycle Finance Unavailable') || mainText.includes('Multi-year lifecycle financial modeling is unavailable')) {
+    return { state: 'financial-pending', evidence: mainText.slice(-1_200) };
+  }
+
+  if (mainText.includes('VOLL inclusion setting in Financial Settings:')) {
+    const generationMarker = await page.getByText('Modeled Generation & Grid Dispatch Results').count();
+    const annualProjectionMarker = await page.getByText(/Annual modeled projections:/).count();
+    if (generationMarker === 0 || annualProjectionMarker === 0) {
+      return {
+        state: 'unexpected-results',
+        evidence: `VOLL disclosure rendered outside generation lifecycle Results (generation marker count ${generationMarker}, annual projection marker count ${annualProjectionMarker}): ${mainText.slice(-1_200)}`,
+      };
+    }
+    return { state: 'ready', evidence: 'VOLL financial disclosure is visible.' };
+  }
+
+  if (
+    mainText.includes('Modeled Generation & Grid Dispatch Results') ||
+    mainText.includes('Base 25-year results') ||
+    mainText.includes('Please upload interval data or select a preset battery profile')
+  ) {
+    return { state: 'unexpected-results', evidence: `Unexpected or incomplete Results mode: ${mainText.slice(-1_200)}` };
+  }
+
+  return { state: 'initializing', evidence: mainText.slice(-1_200) };
+}
+
+async function waitForGenerationFinancialReadiness(page: Page) {
+  await expect.poll(
+    async () => {
+      const readiness = await readGenerationFinancialReadiness(page);
+      const working = readiness.state === 'projecting' || readiness.state === 'initializing';
+      return { state: working ? 'working' : readiness.state, evidence: readiness.evidence };
+    },
+    {
+      message: 'Generation-aware Results must reach a terminal financial-results state.',
+      timeout: 75_000,
+      intervals: [250, 500, 1_000],
+    }
+  ).not.toMatchObject({ state: 'working' });
+
+  const readiness = await readGenerationFinancialReadiness(page);
+  expect(readiness.state, `Generation-aware Results did not reach financial readiness: ${JSON.stringify(readiness)}`).toBe('ready');
+}
+
 async function expectVollSetting(page: Page, included: boolean) {
-  await expect(page.getByText('VOLL inclusion setting in Financial Settings:')).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText('VOLL inclusion setting in Financial Settings:')).toBeVisible();
   await expect(page.getByText(included ? 'Included' : 'Excluded', { exact: true })).toBeVisible();
   await expect(page.getByText('Assumed Annual VOLL:', { exact: true })).toBeVisible();
   await expect(page.getByText('Illustrative 25-Year Cumulative VOLL:', { exact: true })).toBeVisible();
@@ -80,6 +151,7 @@ async function toggleVollAndReadResults(page: Page, include: boolean, generation
   await current.click();
 
   await openTab(page, '5. Results & Analytics');
+  if (generationAware) await waitForGenerationFinancialReadiness(page);
   await expectVollSetting(page, include);
   await expectResultsPath(page, generationAware);
   return readDisplayedResults(page);
@@ -87,6 +159,7 @@ async function toggleVollAndReadResults(page: Page, include: boolean, generation
 
 async function exerciseVollPropagation(page: Page, generationAware: boolean) {
   await openTab(page, '5. Results & Analytics');
+  if (generationAware) await waitForGenerationFinancialReadiness(page);
   await expectVollSetting(page, false);
   await expectResultsPath(page, generationAware);
   const excluded = await readDisplayedResults(page);
@@ -120,22 +193,50 @@ test('VOLL Financial Settings toggle propagates through battery-only Results wit
 });
 
 test('VOLL Financial Settings toggle propagates through generation-aware Results without refresh', async ({ page }) => {
-  test.setTimeout(180_000);
+  const profile = DEFAULT_BATTERY_PROFILES[0];
+  const tou = DEFAULT_TOU_PROFILES[0];
+  const generationConfig = createDefaultGenerationConfig();
+  generationConfig.site = { latitude: 37.77, longitude: -122.4, elevationM: 0, timeZone: 'UTC' };
+  const solar = createDefaultSolarAsset('voll-results-solar', 'VOLL Results Solar');
+  solar.dcCapacityKw = 5;
+  solar.inverterAcCapacityKw = 5;
+  solar.installedCostUsd = 5_000;
+  solar.monthlyPeakSunHoursPerDay = Array(12).fill(4.5);
+  generationConfig.assets = [solar];
+
+  const loadDataCsv = [
+    'timestamp,usage_kwh',
+    ...Array.from({ length: 8_760 }, (_, hour) => `${new Date(Date.UTC(2025, 0, 1, hour)).toISOString()},1`),
+  ].join('\n');
+  const project: ProjectArchiveState = {
+    profiles: [profile],
+    activeProfileId: profile.id,
+    touProfiles: [tou],
+    activeTouProfileId: tou.id,
+    tiers: tou.tiers,
+    scheduleMatrix: tou.scheduleMatrix,
+    generationConfig,
+    allowSolarExport: false,
+    financials: {
+      ...DEFAULT_MACRO_FINANCIALS,
+      annualOutageDays: 2.5,
+      valueOfLostLoadPerDay: 100,
+      includeVollInRoi: false,
+    },
+    loadDataCsv,
+    loadDataSource: 'uploaded',
+  };
+  const projectArchive = Buffer.from(await serializeProjectArchive(project).arrayBuffer());
+
   await page.goto('/');
-  await openTab(page, '3. Power Generation');
-  await page.locator('button[title="Add Solar Array"]').click();
-  await expect(page.locator('input[type="checkbox"][aria-label$=" enabled"]')).toBeChecked();
-  await page.getByLabel('Nameplate DC capacity (kW DC)').fill('5');
-  await page.getByLabel('Inverter AC capacity (kW AC)').fill('5');
-  for (const month of [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ]) {
-    await page.getByLabel(`${month} peak sun hours per day`).fill('5');
-  }
-  await page.getByLabel('Latitude (degrees north)').fill('37.77');
-  await page.getByLabel('Longitude (degrees east)').fill('-122.4');
-  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('input[aria-label="Choose a VoltWise project JSON file"]').setInputFiles({
+    name: 'voll-generation-fixture.json',
+    mimeType: 'application/json',
+    buffer: projectArchive,
+  });
+  await expect(page.getByRole('status').filter({ hasText: 'Opened voll-generation-fixture.json' })).toBeVisible();
 
   await openTab(page, '4. Financials & Settings');
   await configureNonzeroVollInputs(page);
