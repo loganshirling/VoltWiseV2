@@ -40,13 +40,13 @@ jobs:
           cpu_limit="$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unavailable)"
           memory_limit="$(cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo unavailable)"
           {
-            echo "- Source SHA: `$GITHUB_SHA`"
+            printf -- '- Source SHA: `%s`\n' "$GITHUB_SHA"
             echo "- Workflow run: [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
             echo "- OS / architecture: ${os_name:-Linux} / $(uname -m)"
             echo "- CPU: ${cpu_model:-unavailable}; $(nproc) visible logical cores"
             echo "- Memory: ${available_mb:-unavailable} available / ${total_mb:-unavailable} total"
             echo "- Cgroup CPU quota: $cpu_limit"
-            echo "- Cgroup memory limit: $memory_limit bytes (or `unavailable`)"
+            printf -- '- Cgroup memory limit: %s bytes (or `unavailable`)\n' "$memory_limit"
           } > "$RUNNER_TEMP/performance-environment.md"
 
       - name: Set up Bun
@@ -222,9 +222,9 @@ jobs:
             echo "## Maximum active generation performance feasibility"
             echo
             echo "- Status: **$status**"
-            echo "- Source SHA: `$GITHUB_SHA`"
+            printf -- '- Source SHA: `%s`\n' "$GITHUB_SHA"
             echo "- Workflow run: [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
-            echo "- Exact scenario: `generation-25y-leap-mixed`, worker path, 35,136 intervals, one battery profile"
+            printf -- '- Exact scenario: `%s`, worker path, 35,136 intervals, one battery profile\n' 'generation-25y-leap-mixed'
             echo "- Warm-up and measured trial: ${WARMUP_STATUS:-not completed}"
             echo "- Measured trial: ${MEASURED_TRIAL_MS:-not available} ms (single observation; not a p95)"
             echo "- Total benchmark wall time: ${TOTAL_WALL_MS:-not available} ms"
