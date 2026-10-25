@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -243,6 +244,36 @@ class ProcessMemorySamplerTests(unittest.TestCase):
         })
         self.assertEqual(inconsistent["status"], "NOT_VERIFIED")
         self.assertIsNone(inconsistent.get("peakPssBytes"))
+
+
+class WorkflowStepReferenceTests(unittest.TestCase):
+    def test_all_outcome_references_match_declared_step_ids(self) -> None:
+        workflow_path = Path(__file__).resolve().parents[2] / ".github/workflows/browser-performance-qualification.yml"
+        lines = workflow_path.read_text(encoding="utf-8").splitlines()
+        step_blocks: list[str] = []
+        current: list[str] = []
+        for line in lines:
+            if line.startswith("      - name: "):
+                if current:
+                    step_blocks.append("\n".join(current))
+                current = [line]
+            elif current:
+                current.append(line)
+        if current:
+            step_blocks.append("\n".join(current))
+
+        declared_ids = {
+            match.group(1)
+            for block in step_blocks
+            if (match := re.search(r"(?m)^        id: ([A-Za-z0-9_-]+)$", block))
+        }
+        bun_step = next(block for block in step_blocks if block.startswith("      - name: Set up Bun\n"))
+        self.assertRegex(bun_step, r"(?m)^        id: setup_bun$")
+        self.assertIn("${{ steps.setup_bun.outcome }}", "\n".join(lines))
+
+        referenced_ids = set(re.findall(r"steps\.([A-Za-z0-9_-]+)\.outcome", "\n".join(lines)))
+        self.assertTrue(referenced_ids)
+        self.assertEqual(referenced_ids - declared_ids, set())
 
 
 if __name__ == "__main__":
