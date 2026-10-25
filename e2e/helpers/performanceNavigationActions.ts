@@ -1,11 +1,11 @@
 import type { Page } from '@playwright/test';
 
 export const PERFORMANCE_NAVIGATION_TABS = [
-  '1. Data & TOU Rates',
   '2. Battery Profiles',
   '3. Power Generation',
   '4. Financials & Settings',
   '5. Results & Analytics',
+  '1. Data & TOU Rates',
 ] as const;
 
 export const PERFORMANCE_NAVIGATION_SEQUENCE = [

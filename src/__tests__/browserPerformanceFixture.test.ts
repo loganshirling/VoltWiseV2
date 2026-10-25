@@ -68,6 +68,20 @@ describe('maximum leap-year browser-performance fixture', () => {
 describe('isolated Playwright performance configuration', () => {
   it('plans 15 top-level navigation actions and marks incomplete projection coverage', () => {
     expect(PERFORMANCE_NAVIGATION_SEQUENCE).toHaveLength(15);
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE[0]).not.toBe('1. Data & TOU Rates');
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE).toEqual([
+      ...PERFORMANCE_NAVIGATION_TABS,
+      ...PERFORMANCE_NAVIGATION_TABS,
+      ...PERFORMANCE_NAVIGATION_TABS,
+    ]);
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE.slice(1).every((tab, index) => tab !== PERFORMANCE_NAVIGATION_SEQUENCE[index])).toBe(true);
+    expect(PERFORMANCE_NAVIGATION_TABS).toEqual([
+      '2. Battery Profiles',
+      '3. Power Generation',
+      '4. Financials & Settings',
+      '5. Results & Analytics',
+      '1. Data & TOU Rates',
+    ]);
     expect(PERFORMANCE_NAVIGATION_SEQUENCE.every((tab) => PERFORMANCE_NAVIGATION_TABS.includes(tab))).toBe(true);
     for (const unavailableResultsControl of ['Table View', 'Daily Profile', 'Median Daily by Month', '12-Month Heatmap']) {
       expect(PERFORMANCE_NAVIGATION_SEQUENCE).not.toContain(unavailableResultsControl);
