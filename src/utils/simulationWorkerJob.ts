@@ -45,6 +45,70 @@ export interface SimulationJobResult {
   generationFinancialError: string | null;
 }
 
+/**
+ * Returns the financial-input portion of the simulation effect key, excluding
+ * the three VOLL companion assumptions that can be recalculated from completed
+ * operational output.
+ */
+export function getNonVollFinancialDependencyKey(financials: MacroFinancials): string {
+  return JSON.stringify([
+    financials.federalTaxCreditPercent,
+    financials.federalTaxCreditRealizationYear,
+    financials.localRebateFlat,
+    financials.annualElectricityInflationRate,
+    financials.annualBatteryDegradationRate,
+    financials.discountRatePercent,
+    financials.opportunityCostVehicle,
+    financials.opportunityCostRatePercent,
+    financials.replacementEnabled,
+    financials.replacementCost,
+    financials.replacementYear,
+    financials.isFinanced,
+    financials.loanAprPercent,
+    financials.loanTermYears,
+    financials.loanDownPaymentPercent,
+    financials.criticalLoadPowerKw,
+  ]);
+}
+
+/** Recalculates financial analyses from compatible completed operational results. */
+export function recalculateSimulationJobFinancials(
+  result: SimulationJobResult,
+  input: SimulationJobInput,
+  financials: MacroFinancials
+): SimulationJobResult {
+  const allAnalyses = result.allAnalyses.flatMap((analysis) => {
+    const profile = input.profiles.find((candidate) => candidate.id === analysis.profile.id);
+    const summary = result.allSimulationSummaries[analysis.profile.id];
+    return profile && summary ? [calculate15YearFinancials(profile, summary, financials)] : [];
+  });
+
+  let activeGenerationAnalysis: GenerationFinancialAnalysis | null = null;
+  let generationFinancialError: string | null = null;
+  if (
+    result.activeUnifiedResult?.mode === 'generation-aware' &&
+    result.activeGenerationOperationalProjection
+  ) {
+    try {
+      activeGenerationAnalysis = calculateGenerationAwareFinancials({
+        batteryProfile: input.profiles.find((profile) => profile.id === input.activeProfileId) ?? input.profiles[0],
+        operationalProjection: result.activeGenerationOperationalProjection,
+        projectCosts: aggregateGenerationProjectCosts(input.generationConfig),
+        financials,
+      });
+    } catch (error) {
+      generationFinancialError = errorMessage(error, 'Failed to calculate generation financial lifecycle analysis.');
+    }
+  }
+
+  return {
+    ...result,
+    allAnalyses,
+    activeGenerationAnalysis,
+    generationFinancialError,
+  };
+}
+
 export interface SimulationWorkerRunMessage {
   type: 'run';
   requestId: number;
