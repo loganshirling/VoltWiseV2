@@ -5,11 +5,19 @@ import { generateRealistic8760Dataset } from '../src/utils/sampleData';
 import { runUnifiedSimulation } from '../src/utils/simulationRouter';
 import { calculateGenerationOperationalProjection } from '../src/utils/generationProjection';
 import { attachGenerationProjection, executeGenerationProjectionYear, executeSimulationJob, SimulationJobInput } from '../src/utils/simulationWorkerJob';
+import { aggregateGenerationProjectCosts, calculateGenerationAwareFinancials } from '../src/utils/generationFinancials';
+import { validateDirectGenerationBenchmarkResult, validateLegacyUnifiedResult, validateWorkerBaseResult, validateWorkerBenchmarkResult } from './benchmark-validation';
 
 const scenario = process.argv[2] ?? '8760-single';
 const runCount = Number(process.argv[3] ?? 6);
 const executionPath = process.argv[4] ?? 'direct';
 const bunVersion = (process.versions as NodeJS.ProcessVersions & { bun?: string }).bun;
+const supportedScenarios = new Set([
+  '8760-single', '8760-multi', '35040-single', '35040-multi', '35136-single', '35136-multi',
+  'generation-25y', 'generation-25y-mixed', 'generation-25y-leap-mixed',
+]);
+if (!supportedScenarios.has(scenario)) throw new Error(`Unsupported benchmark scenario '${scenario}'.`);
+if (!['direct', 'worker', 'clone'].includes(executionPath)) throw new Error(`Unsupported benchmark execution path '${executionPath}'.`);
 if (!Number.isInteger(runCount) || runCount < 1) throw new Error('Run count must be a positive integer.');
 
 const hourly = generateRealistic8760Dataset().dataPoints;
@@ -128,7 +136,7 @@ const workerInput: SimulationJobInput = {
   financials: DEFAULT_MACRO_FINANCIALS,
 };
 
-function runScenario(): void {
+function runScenario(): (() => void) | undefined {
   if (executionPath === 'clone') {
     // Projection workers receive the complete input once for each projected year.
     const messages = scenario.startsWith('generation-25y') ? 25 : 1;
@@ -137,14 +145,15 @@ function runScenario(): void {
   }
   if (executionPath === 'worker') {
     const result = executeSimulationJob(workerInput);
-    if (scenario.startsWith('generation-25y') && result.activeUnifiedResult?.mode === 'generation-aware') {
+    validateWorkerBaseResult(result, scenario);
+    if (scenario.startsWith('generation-25y')) {
       const years = Array.from({ length: 25 }, (_, index) => executeGenerationProjectionYear(workerInput, index + 1));
       attachGenerationProjection(result, workerInput, years);
     }
-    return;
+    return () => validateWorkerBenchmarkResult(result, scenario, scenario === 'generation-25y-leap-mixed' ? workerInput : undefined);
   }
   if (scenario.startsWith('generation-25y')) {
-    calculateGenerationOperationalProjection({
+    const operationalProjection = calculateGenerationOperationalProjection({
       dataPoints: isMaximumMeasuredProject ? maximumProjectDataPoints : hourly,
       intervalHours: isMaximumMeasuredProject ? 0.25 : 1,
       tiers: tou.tiers,
@@ -158,11 +167,21 @@ function runScenario(): void {
       projectionYears: 25,
       isSuitableForAnnual: true,
     });
-    return;
+    // Keep the direct-path timing comparable with historical projection-only runs.
+    // The financial validation still runs for every warm-up and measured trial, outside its timer.
+    return () => {
+      const financialAnalysis = calculateGenerationAwareFinancials({
+        batteryProfile: DEFAULT_BATTERY_PROFILES[0],
+        operationalProjection,
+        projectCosts: aggregateGenerationProjectCosts(generationConfig),
+        financials: DEFAULT_MACRO_FINANCIALS,
+      });
+      validateDirectGenerationBenchmarkResult(operationalProjection, financialAnalysis, scenario, workerInput);
+    };
   }
 
   for (const batteryProfile of profiles) {
-    runUnifiedSimulation({
+    const result = runUnifiedSimulation({
       dataPoints,
       intervalHours,
       tiers: tou.tiers,
@@ -172,15 +191,36 @@ function runScenario(): void {
       generationConfig: emptyGenerationConfig,
       allowSolarExport: false,
     });
+    validateLegacyUnifiedResult(result);
   }
 }
 
-runScenario(); // Warm the JIT before collecting timings.
+function runStage(stage: string): (() => void) | undefined {
+  try {
+    return runScenario();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Benchmark scenario '${scenario}' failed during ${stage}: ${message}`, { cause: error });
+  }
+}
+
+function validateStage(stage: string, validate: (() => void) | undefined): void {
+  if (!validate) return;
+  try {
+    validate();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Benchmark scenario '${scenario}' failed during ${stage}: ${message}`, { cause: error });
+  }
+}
+
+validateStage('warm-up validation', runStage('warm-up')); // Warm the JIT before collecting timings.
 const timings: number[] = [];
 for (let index = 0; index < runCount; index += 1) {
   const start = performance.now();
-  runScenario();
+  const validate = runStage(`measured trial ${index + 1}/${runCount}`);
   timings.push(performance.now() - start);
+  validateStage(`measured trial ${index + 1}/${runCount} validation`, validate);
 }
 timings.sort((a, b) => a - b);
 const percentileIndex = Math.ceil(timings.length * 0.95) - 1;
