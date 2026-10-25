@@ -10,6 +10,7 @@ import performancePlaywrightConfig from '../../playwright.performance.config';
 describe('maximum leap-year browser-performance fixture', () => {
   it('keeps the ordinary smoke archive generation assets disabled', () => {
     const smokeState = createMaximumLeapYearProjectState();
+    expect(smokeState.allowSolarExport).toBe(false);
     expect(smokeState.profiles).toHaveLength(DEFAULT_BATTERY_PROFILES.length);
     expect(smokeState.generationConfig.assets.map((asset) => asset.enabled)).toEqual([false, false]);
     expect(smokeState.generationConfig.assets.map((asset) => asset.type)).toEqual(['solar', 'wind']);
@@ -17,6 +18,7 @@ describe('maximum leap-year browser-performance fixture', () => {
 
   it('builds an enabled, aligned, archive-valid 2024 performance project with one profile', async () => {
     const state = createMaximumLeapYearProjectState('performance');
+    expect(state.allowSolarExport).toBe(true);
     expect(state.profiles).toHaveLength(1);
     expect(state.activeProfileId).toBe(state.profiles[0].id);
     expect(state.generationConfig.site.timeZone).toBe('UTC');

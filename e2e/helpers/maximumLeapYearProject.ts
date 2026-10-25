@@ -65,7 +65,7 @@ export function createMaximumLeapYearProjectState(mode: MaximumLeapYearProjectMo
     tiers: tou.tiers,
     scheduleMatrix: createDefaultScheduleMatrix(),
     generationConfig,
-    allowSolarExport: false,
+    allowSolarExport: performance,
     financials: DEFAULT_MACRO_FINANCIALS,
     loadDataCsv: ['timestamp,usage_kwh', ...timestamps.map((timestamp) => `${timestamp},0.25`)].join('\n'),
     loadDataSource: 'uploaded',
