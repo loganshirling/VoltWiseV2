@@ -97,22 +97,26 @@ async function readGenerationFinancialReadiness(page: Page): Promise<GenerationF
   return { state: 'initializing', evidence: mainText.slice(-1_200) };
 }
 
-async function waitForGenerationFinancialReadiness(page: Page) {
-  await expect.poll(
-    async () => {
-      const readiness = await readGenerationFinancialReadiness(page);
-      const working = readiness.state === 'projecting' || readiness.state === 'initializing';
-      return { state: working ? 'working' : readiness.state, evidence: readiness.evidence };
-    },
-    {
-      message: 'Generation-aware Results must reach a terminal financial-results state.',
-      timeout: 75_000,
-      intervals: [250, 500, 1_000],
-    }
-  ).not.toMatchObject({ state: 'working' });
+async function waitForGenerationFinancialReadiness(page: Page, phase: string) {
+  const startedAt = Date.now();
+  await test.step(phase, async () => {
+    await expect.poll(
+      async () => {
+        const readiness = await readGenerationFinancialReadiness(page);
+        const working = readiness.state === 'projecting' || readiness.state === 'initializing';
+        return { state: working ? 'working' : readiness.state, evidence: readiness.evidence };
+      },
+      {
+        message: `${phase}: generation-aware Results must reach a terminal financial-results state.`,
+        timeout: 75_000,
+        intervals: [250, 500, 1_000],
+      }
+    ).not.toMatchObject({ state: 'working' });
 
-  const readiness = await readGenerationFinancialReadiness(page);
-  expect(readiness.state, `Generation-aware Results did not reach financial readiness: ${JSON.stringify(readiness)}`).toBe('ready');
+    const readiness = await readGenerationFinancialReadiness(page);
+    expect(readiness.state, `${phase}: Results did not reach financial readiness: ${JSON.stringify(readiness)}`).toBe('ready');
+  });
+  console.info(`[VOLL E2E] ${phase}: ${((Date.now() - startedAt) / 1_000).toFixed(1)}s`);
 }
 
 async function expectVollSetting(page: Page, included: boolean) {
@@ -151,7 +155,12 @@ async function toggleVollAndReadResults(page: Page, include: boolean, generation
   await current.click();
 
   await openTab(page, '5. Results & Analytics');
-  if (generationAware) await waitForGenerationFinancialReadiness(page);
+  if (generationAware) {
+    await waitForGenerationFinancialReadiness(
+      page,
+      include ? 'VOLL-enabled financial readiness' : 'VOLL-disabled financial readiness'
+    );
+  }
   await expectVollSetting(page, include);
   await expectResultsPath(page, generationAware);
   return readDisplayedResults(page);
@@ -159,7 +168,7 @@ async function toggleVollAndReadResults(page: Page, include: boolean, generation
 
 async function exerciseVollPropagation(page: Page, generationAware: boolean) {
   await openTab(page, '5. Results & Analytics');
-  if (generationAware) await waitForGenerationFinancialReadiness(page);
+  if (generationAware) await waitForGenerationFinancialReadiness(page, 'Initial financial readiness');
   await expectVollSetting(page, false);
   await expectResultsPath(page, generationAware);
   const excluded = await readDisplayedResults(page);
@@ -193,6 +202,7 @@ test('VOLL Financial Settings toggle propagates through battery-only Results wit
 });
 
 test('VOLL Financial Settings toggle propagates through generation-aware Results without refresh', async ({ page }) => {
+  test.setTimeout(240_000);
   const profile = DEFAULT_BATTERY_PROFILES[0];
   const tou = DEFAULT_TOU_PROFILES[0];
   const generationConfig = createDefaultGenerationConfig();
