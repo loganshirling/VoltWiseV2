@@ -2,6 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createMaximumLeapYearProjectArchive } from './helpers/maximumLeapYearProject';
 import {
+  PERFORMANCE_EXPORT_HORIZON_YEARS,
+  selectPerformanceExportHorizon,
+} from './helpers/performanceExportHorizon';
+import {
   classifyPerformanceReadiness,
   classifyPerformanceWorkerCompletion,
   getPerformanceUiCoverageStatus,
@@ -222,6 +226,8 @@ function validateGenerationExport(payloadValue: unknown) {
     'horizon_tax_credit_inflows_usd', 'horizon_roi_pct', 'total_project_cash_outlays_usd',
     'opportunity_cost_future_value_usd', 'opportunity_cost_profit_usd', 'project_vs_opportunity_cost_usd',
   ]) finiteMetric(financial, key, 'generation financial analysis');
+  expect(finiteMetric(financial, 'horizon_years', 'generation financial analysis'))
+    .toBe(PERFORMANCE_EXPORT_HORIZON_YEARS);
   for (const key of ['simple_payback_years', 'discounted_payback_years']) {
     const value = financial[key];
     if (value !== null) {
@@ -354,6 +360,20 @@ test('measures the maximum active measured solar/wind production-browser workloa
   await openTab(page, '5. Results & Analytics');
   await expect(page.getByText('Modeled Generation & Grid Dispatch Results')).toBeVisible();
   await expect(page.getByText(/Annual modeled projections:/)).toBeVisible();
+  await selectPerformanceExportHorizon({
+    clickPreset: async (label) => page.getByRole('button', { name: label, exact: true }).first().click({ timeout: 10_000 }),
+    readSliderValue: async (accessibleName) => page.getByRole('slider', { name: accessibleName, exact: true }).first().inputValue(),
+    assertImportedRunStable: async () => {
+      const snapshot = await readProjectSnapshot(page, baseline);
+      expect(snapshot.state, `Results must stay ready while selecting the export horizon: ${snapshot.evidence}`).toBe('ready');
+      expect(snapshot.runRequests).toHaveLength(1);
+      expect(snapshot.runRequests[0]?.requestId).toBe(firstRunRequest.requestId);
+      expect(snapshot.runSuccesses).toHaveLength(1);
+      expect(snapshot.projectionRequests).toHaveLength(25);
+      expect(snapshot.projectionResponses).toHaveLength(25);
+      expect(snapshot.workerErrors).toEqual([]);
+    },
+  });
   const heapAfterCompletionBytes = await readHeapBytes(page);
   const exportButton = page.getByRole('button', { name: 'Export Analysis for LLM (.json)' }).first();
   await expect(exportButton).toBeEnabled();
