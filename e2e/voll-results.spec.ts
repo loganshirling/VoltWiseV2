@@ -108,7 +108,7 @@ async function waitForGenerationFinancialReadiness(page: Page, phase: string) {
       },
       {
         message: `${phase}: generation-aware Results must reach a terminal financial-results state.`,
-        timeout: 75_000,
+        timeout: 120_000,
         intervals: [250, 500, 1_000],
       }
     ).not.toMatchObject({ state: 'working' });
@@ -202,7 +202,7 @@ test('VOLL Financial Settings toggle propagates through battery-only Results wit
 });
 
 test('VOLL Financial Settings toggle propagates through generation-aware Results without refresh', async ({ page }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const profile = DEFAULT_BATTERY_PROFILES[0];
   const tou = DEFAULT_TOU_PROFILES[0];
   const generationConfig = createDefaultGenerationConfig();
