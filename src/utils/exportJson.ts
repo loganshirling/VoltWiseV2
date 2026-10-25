@@ -315,7 +315,7 @@ export function buildExportLlmJson(params: ExportLlmJsonParams): LlmExportPayloa
         end_date: completeness?.endDate || csvResult?.endDate || '',
         total_intervals: completeness?.intervalCount || annualSummary.totalIntervals,
         interval_duration_hours: completeness?.intervalDurationHours || annualSummary.intervalHours,
-        duration_days: completeness?.durationDays || Math.round(annualSummary.totalIntervals / 24),
+        duration_days: completeness?.durationDays || Math.round((annualSummary.totalIntervals * annualSummary.intervalHours) / 24),
         total_home_load_kwh: annualSummary.totalHomeLoadKwh,
         is_suitable_for_annual_projection: csvResult?.annualProjectionEligible ?? false,
         completeness_reason: completeness?.reason ?? null,
