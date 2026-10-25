@@ -50,7 +50,12 @@ import {
   isValidIanaTimeZone,
 } from './utils/loadTimeAlignment';
 import { createSimulationWorkerClient, SimulationRunResult, SimulationTaskHandle } from './utils/simulationWorkerClient';
-import { SimulationJobInput, SimulationJobResult } from './utils/simulationWorkerJob';
+import {
+  getNonVollFinancialDependencyKey,
+  recalculateSimulationJobFinancials,
+  SimulationJobInput,
+  SimulationJobResult,
+} from './utils/simulationWorkerJob';
 import { assertProjectArchiveWithinBudget } from './utils/projectArchive';
 import { Zap, ChevronRight, Activity, ArrowRight, Bookmark, AlertTriangle } from 'lucide-react';
 
@@ -276,6 +281,9 @@ export default function App() {
     annualProjectionEligibility.eligible
   );
 
+  // VOLL is applied to completed analyses below, so these edits keep the operational input stable.
+  const nonVollFinancialDependencyKey = getNonVollFinancialDependencyKey(financials);
+
   const simulationInput = useMemo<SimulationJobInput | null>(() => {
     if (!csvResult || !csvResult.schemaValid || !csvResult.chronologicallyValid || csvResult.data.length === 0) {
       return null;
@@ -315,7 +323,7 @@ export default function App() {
     allowSolarExport,
     siteLoadAlignmentEligibility,
     isSuitableForAnnual,
-    financials,
+    nonVollFinancialDependencyKey,
   ]);
 
   useEffect(() => {
@@ -366,7 +374,12 @@ export default function App() {
 
   const currentSimulationState = simulationWorkerState.input === simulationInput ? simulationWorkerState : null;
   const simulationPending = Boolean(simulationInput && (!currentSimulationState || currentSimulationState.status === 'pending'));
-  const simulationOutput = currentSimulationState?.status === 'completed' ? currentSimulationState.output : null;
+  const completedSimulationOutput = currentSimulationState?.status === 'completed' ? currentSimulationState.output : null;
+  const simulationOutput = useMemo(() => {
+    if (!completedSimulationOutput || !simulationInput) return null;
+    if (simulationInput.financials === financials) return completedSimulationOutput;
+    return recalculateSimulationJobFinancials(completedSimulationOutput, simulationInput, financials);
+  }, [completedSimulationOutput, simulationInput, financials]);
   const simulationError = simulationOutput?.simulationError || currentSimulationState?.error || null;
   const allSimulationSummaries = simulationOutput?.allSimulationSummaries ?? {};
   const allAnalyses = simulationOutput?.allAnalyses ?? [];
