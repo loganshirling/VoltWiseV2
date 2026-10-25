@@ -217,6 +217,21 @@ describe('VOLL-only financial recalculation', () => {
       site: { latitude: 37.77, longitude: -122.4, elevationM: 0, timeZone: 'UTC' },
       assets: [solar],
     };
+    const initialFinancials = {
+      ...input.financials,
+      federalTaxCreditPercent: 25,
+      federalTaxCreditRealizationYear: 3,
+      localRebateFlat: 500,
+      isFinanced: true,
+      loanAprPercent: 5,
+      loanTermYears: 10,
+      loanDownPaymentPercent: 15,
+      replacementEnabled: true,
+      replacementCost: 1_200,
+      replacementYear: 10,
+      discountRatePercent: 6,
+    };
+    input.financials = initialFinancials;
 
     const years = Array.from({ length: 25 }, (_, index) => createProjectionYear(index + 1));
     const projection = Object.assign([...years], { horizonYears: 25, years });
@@ -240,11 +255,11 @@ describe('VOLL-only financial recalculation', () => {
         batteryProfile: profile,
         operationalProjection: projection,
         projectCosts: costs,
-        financials: input.financials,
+        financials: initialFinancials,
       }),
     });
     const includedFinancials = {
-      ...input.financials,
+      ...initialFinancials,
       annualOutageDays: 3,
       valueOfLostLoadPerDay: 200,
       includeVollInRoi: true,
@@ -266,6 +281,11 @@ describe('VOLL-only financial recalculation', () => {
     expect(included.activeGenerationAnalysis?.lifetimeNetProfitUsd).toBe(result.activeGenerationAnalysis?.lifetimeNetProfitUsd);
     expect(included.activeGenerationAnalysis?.lifetimeRoiPercent).toBe(result.activeGenerationAnalysis?.lifetimeRoiPercent);
     expect(included.activeGenerationAnalysis?.lifetimeResilienceValueUsd).toBe(15_000);
+    expect(included.activeGenerationAnalysis?.isFinanced).toBe(true);
+    expect(included.activeGenerationAnalysis?.generationCapexUsd).toBe(5_000);
+    expect(included.activeGenerationAnalysis?.annualGenerationMaintenanceUsd).toBe(100);
+    expect(included.activeGenerationAnalysis?.projections[9].replacementExpenseUsd).toBe(1_200);
+    expect(included.activeGenerationAnalysis?.projections[2].taxCreditInflowUsd).toBeGreaterThan(0);
     expect(included.activeGenerationAnalysis?.npvWithVollUsd).toBeGreaterThan(included.activeGenerationAnalysis?.npvUsd ?? 0);
     expect(included.activeGenerationAnalysis?.lifetimeNetProfitWithVollUsd).toBeGreaterThan(included.activeGenerationAnalysis?.lifetimeNetProfitUsd ?? 0);
     expect(included.activeGenerationAnalysis?.lifetimeRoiWithVollPercent).toBeGreaterThan(included.activeGenerationAnalysis?.lifetimeRoiPercent ?? 0);
