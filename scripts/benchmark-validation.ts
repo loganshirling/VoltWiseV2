@@ -1,9 +1,9 @@
 import type {
   GenerationConfig,
-  GenerationFinancialAnalysis,
-  GenerationOperationalProjection,
   GenerationOperationalYear,
   IntervalDataPoint,
+  SolarGenerationAsset,
+  WindGenerationAsset,
 } from '../src/types/energy';
 import { alignLoadTimestampsToSite } from '../src/utils/loadTimeAlignment';
 import type { SimulationJobInput, SimulationJobResult } from '../src/utils/simulationWorkerJob';
@@ -17,7 +17,7 @@ const REQUIRED_OPERATIONAL_VALUES: (keyof GenerationOperationalYear)[] = [
   'batteryCapacityRetentionFactor', 'batteryUsableCapacityKwh',
 ];
 
-const REQUIRED_FINANCIAL_VALUES: (keyof GenerationFinancialAnalysis)[] = [
+const REQUIRED_FINANCIAL_VALUES = [
   'batteryCapexUsd', 'generationCapexUsd', 'grossProjectCapexUsd', 'immediateRebateUsd',
   'deferredFederalTaxCreditUsd', 'incentivesAmountUsd', 'netInstalledProjectCostUsd',
   'upfrontOutOfPocketUsd', 'loanPrincipalUsd', 'monthlyLoanPaymentUsd', 'totalLoanPaymentsUsd',
@@ -52,7 +52,11 @@ function validateGenerationProjection(
   analysisValue: unknown,
   scenario: string
 ): void {
-  const projection = objectValue(projectionValue, 'generation projection');
+  if (projectionValue === null || typeof projectionValue !== 'object') {
+    throw new Error('generation projection is missing or invalid.');
+  }
+  // The authoritative projection is an array with horizonYears and years properties.
+  const projection = projectionValue as Record<string, unknown>;
   if (projection.horizonYears !== 25) throw new Error('generation projection horizon must be 25 years.');
   const years = arrayValue(projection.years, 'generation projection years');
   if (years.length !== 25) throw new Error(`generation projection must contain exactly 25 years; found ${years.length}.`);
@@ -121,8 +125,12 @@ function validateMaximumMeasuredFixture(
     }
   });
   if (generationConfig.site.timeZone !== 'UTC') throw new Error('maximum mixed fixture site timezone must be UTC.');
-  const solar = generationConfig.assets.find((asset) => asset.type === 'solar' && asset.enabled);
-  const wind = generationConfig.assets.find((asset) => asset.type === 'wind' && asset.enabled);
+  const solar = generationConfig.assets.find(
+    (asset): asset is SolarGenerationAsset => asset.type === 'solar' && asset.enabled
+  );
+  const wind = generationConfig.assets.find(
+    (asset): asset is WindGenerationAsset => asset.type === 'wind' && asset.enabled
+  );
   if (!solar || solar.resourceMode !== 'weather_file' || !solar.externalResourceId) throw new Error('maximum mixed fixture requires enabled measured solar.');
   if (!wind || wind.resourceMode !== 'interval_file' || !wind.externalResourceId) throw new Error('maximum mixed fixture requires enabled measured wind.');
   const resources = generationConfig.externalResources ?? [];
@@ -195,8 +203,8 @@ export function validateLegacyUnifiedResult(resultValue: unknown): void {
 }
 
 export function validateDirectGenerationBenchmarkResult(
-  projection: GenerationOperationalProjection,
-  analysis: GenerationFinancialAnalysis,
+  projection: unknown,
+  analysis: unknown,
   scenario: string,
   input: Pick<SimulationJobInput, 'dataPoints' | 'intervalHours' | 'generationConfig'>
 ): void {

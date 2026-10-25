@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { validateWorkerBenchmarkResult } from '../../scripts/benchmark-validation';
+import { createDefaultGenerationConfig } from '../../src/utils/generationDefaults';
+import { validateDirectGenerationBenchmarkResult, validateWorkerBenchmarkResult } from '../../scripts/benchmark-validation';
 
 const annualSummary = {
   totalIntervals: 8760,
@@ -43,7 +44,14 @@ const operationalYear = (year: number, solarGeneratedKwh = 100, windGeneratedKwh
   equivalentFullCycles: 100,
   batteryCapacityRetentionFactor: 0.99,
   batteryUsableCapacityKwh: 9.9,
+  solarAssets: [],
 });
+
+const operationalYears = (solar = 100, wind = 100) =>
+  Array.from({ length: 25 }, (_, index) => operationalYear(index + 1, solar, wind));
+
+const hybridProjection = (years: unknown[] = operationalYears()) =>
+  Object.assign([...years], { horizonYears: 25, years });
 
 const financialYear = (year: number) => ({
   year,
@@ -81,7 +89,7 @@ const generationResult = (options: {
   allAnalyses: [],
   simulationError: null,
   activeGenerationOperationalProjection: options.projection === undefined
-    ? { horizonYears: 25, years: options.years ?? Array.from({ length: 25 }, (_, index) => operationalYear(index + 1, options.solar, options.wind)) }
+    ? hybridProjection(options.years ?? operationalYears(options.solar, options.wind))
     : options.projection,
   generationProjectionError: options.projectionError ?? null,
   activeGenerationAnalysis: options.analysis === undefined
@@ -129,8 +137,19 @@ describe('benchmark result validation', () => {
     }, '8760-single')).not.toThrow();
   });
 
-  it('accepts a valid generation-aware result with 25 years', () => {
+  it('accepts the authoritative hybrid array/object projection on the worker path', () => {
+    expect(Array.isArray(generationResult().activeGenerationOperationalProjection)).toBe(true);
     expect(() => validateWorkerBenchmarkResult(generationResult(), 'generation-25y-mixed')).not.toThrow();
+  });
+
+  it('accepts the authoritative hybrid array/object projection on the direct path', () => {
+    const result = generationResult();
+    expect(() => validateDirectGenerationBenchmarkResult(
+      hybridProjection(),
+      result.activeGenerationAnalysis,
+      'generation-25y',
+      { dataPoints: [], intervalHours: 1, generationConfig: createDefaultGenerationConfig() }
+    )).not.toThrow();
   });
 
   it('rejects simulation errors', () => {
