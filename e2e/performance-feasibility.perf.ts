@@ -37,7 +37,10 @@ declare global {
 
 type WorkerBaseline = { requests: number; responses: number };
 
-type ProjectSnapshot = PerformanceNavigationSnapshot & {
+type ProjectSnapshot = Omit<
+  PerformanceNavigationSnapshot,
+  'runRequests' | 'runSuccesses' | 'projectionRequests' | 'projectionResponses' | 'workerErrors'
+> & {
   at: number;
   runRequests: WorkerMessageRecord[];
   runSuccesses: WorkerMessageRecord[];
