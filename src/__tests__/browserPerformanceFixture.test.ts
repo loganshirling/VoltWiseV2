@@ -5,6 +5,13 @@ import { MAX_PROJECT_ACCEPTED_ARCHIVE_BYTES, MAX_PROJECT_PERSISTED_DATA_BYTES } 
 import { assertProjectArchiveWithinBudget, parseProjectArchive, serializeProjectArchive } from '../utils/projectArchive';
 import { createMaximumLeapYearProjectState } from '../../e2e/helpers/maximumLeapYearProject';
 import {
+  PERFORMANCE_EXPORT_HORIZON_MEASURED,
+  PERFORMANCE_EXPORT_HORIZON_PRESET,
+  PERFORMANCE_EXPORT_HORIZON_SLIDER,
+  PERFORMANCE_EXPORT_HORIZON_YEARS,
+  selectPerformanceExportHorizon,
+} from '../../e2e/helpers/performanceExportHorizon';
+import {
   classifyPerformanceReadiness,
   classifyPerformanceWorkerCompletion,
   getPerformanceUiCoverageStatus,
@@ -70,6 +77,40 @@ describe('maximum leap-year browser-performance fixture', () => {
 });
 
 describe('isolated Playwright performance configuration', () => {
+  it('selects and verifies the 25-year export horizon outside UI responsiveness measurements', async () => {
+    const calls: string[] = [];
+    expect(PERFORMANCE_EXPORT_HORIZON_YEARS).toBe(25);
+    expect(PERFORMANCE_EXPORT_HORIZON_PRESET).toBe('25Y');
+    expect(PERFORMANCE_EXPORT_HORIZON_SLIDER).toBe('Projection horizon (years)');
+    expect(PERFORMANCE_EXPORT_HORIZON_MEASURED).toBe(false);
+
+    await selectPerformanceExportHorizon({
+      assertImportedRunStable: async () => { calls.push('verify-worker-identity-and-counts'); },
+      clickPreset: async (label) => { calls.push(`click:${label}`); },
+      readSliderValue: async (accessibleName) => {
+        calls.push(`read:${accessibleName}`);
+        return '25';
+      },
+    });
+
+    expect(calls).toEqual([
+      'verify-worker-identity-and-counts',
+      'click:25Y',
+      'read:Projection horizon (years)',
+      'verify-worker-identity-and-counts',
+    ]);
+  });
+
+  it('fails closed if the export horizon preset does not select 25 years', async () => {
+    const calls: string[] = [];
+    await expect(selectPerformanceExportHorizon({
+      assertImportedRunStable: async () => { calls.push('verify'); },
+      clickPreset: async () => { calls.push('click'); },
+      readSliderValue: async () => '15',
+    })).rejects.toThrow('expected 25');
+    expect(calls).toEqual(['verify', 'click']);
+  });
+
   it('plans 15 top-level navigation actions and marks incomplete projection coverage', () => {
     expect(PERFORMANCE_NAVIGATION_SEQUENCE).toHaveLength(15);
     expect(PERFORMANCE_NAVIGATION_SEQUENCE[0]).not.toBe('1. Data & TOU Rates');
