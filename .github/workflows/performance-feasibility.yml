@@ -1,0 +1,255 @@
+name: Maximum Active Generation Performance Feasibility
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maximum-active-generation-performance-feasibility
+  cancel-in-progress: false
+
+jobs:
+  feasibility:
+    name: Maximum active solar and wind feasibility screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Require the default branch
+        id: ref_guard
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "This workflow only runs from main; received $GITHUB_REF." >&2
+            exit 1
+          fi
+
+      - name: Record runner environment
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpu_model="$(awk -F: '/model name/ {gsub(/^ +/, "", $2); print $2; exit}' /proc/cpuinfo || true)"
+          os_name="$(. /etc/os-release && echo "$PRETTY_NAME")"
+          available_mb="$(awk '/MemAvailable:/ {printf "%.0f MiB", $2 / 1024}' /proc/meminfo || true)"
+          total_mb="$(awk '/MemTotal:/ {printf "%.0f MiB", $2 / 1024}' /proc/meminfo || true)"
+          cpu_limit="$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo unavailable)"
+          memory_limit="$(cat /sys/fs/cgroup/memory.max 2>/dev/null || cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo unavailable)"
+          {
+            echo "- Source SHA: `$GITHUB_SHA`"
+            echo "- Workflow run: [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            echo "- OS / architecture: ${os_name:-Linux} / $(uname -m)"
+            echo "- CPU: ${cpu_model:-unavailable}; $(nproc) visible logical cores"
+            echo "- Memory: ${available_mb:-unavailable} available / ${total_mb:-unavailable} total"
+            echo "- Cgroup CPU quota: $cpu_limit"
+            echo "- Cgroup memory limit: $memory_limit bytes (or `unavailable`)"
+          } > "$RUNNER_TEMP/performance-environment.md"
+
+      - name: Set up Bun
+        id: setup_bun
+        if: steps.ref_guard.outcome == 'success'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+
+      - name: Verify Bun version
+        id: verify_bun
+        if: steps.setup_bun.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(bun --version)"
+          if [[ "$version" != "1.4.3" ]]; then
+            echo "Expected Bun 1.4.3, found $version." >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "- Bun: $version" >> "$RUNNER_TEMP/performance-environment.md"
+
+      - name: Cache Bun packages
+        if: steps.verify_bun.outcome == 'success'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.3-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.3-
+
+      - name: Install locked dependencies
+        id: install
+        if: steps.verify_bun.outcome == 'success'
+        run: bun install --frozen-lockfile
+
+      - name: Run one bounded feasibility benchmark
+        id: benchmark
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          log_file="$RUNNER_TEMP/performance-feasibility.log"
+          start_ms="$(date +%s%3N)"
+
+          set +e
+          timeout --signal=INT --kill-after=15s 4m bun run scripts/benchmark-simulation.ts generation-25y-leap-mixed 1 worker 2>&1 | tee "$log_file"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+
+          benchmark_status="${pipeline_status[0]}"
+          tee_status="${pipeline_status[1]}"
+          end_ms="$(date +%s%3N)"
+          total_wall_ms="$((end_ms - start_ms))"
+          echo "exit_code=$benchmark_status" >> "$GITHUB_OUTPUT"
+          echo "total_wall_ms=$total_wall_ms" >> "$GITHUB_OUTPUT"
+
+          if [[ "$benchmark_status" -ne 0 ]]; then
+            if [[ "$benchmark_status" -eq 124 ]]; then
+              reason="Benchmark exceeded the four-minute limit; timeout returned 124."
+            elif [[ "$benchmark_status" -eq 137 ]]; then
+              reason="Benchmark process was killed (exit 137); possible memory exhaustion or forced termination."
+            else
+              reason="Benchmark command failed with exit code $benchmark_status."
+            fi
+            echo "failure_reason=$reason" >> "$GITHUB_OUTPUT"
+            exit "$benchmark_status"
+          fi
+          if [[ "$tee_status" -ne 0 ]]; then
+            echo "failure_reason=Failed to retain benchmark output (tee exit $tee_status)." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          parser_error="$RUNNER_TEMP/performance-parser-error.log"
+          if ! python3 - "$log_file" "$GITHUB_OUTPUT" 2>"$parser_error" <<'PY'
+          import json
+          import math
+          import sys
+
+          log_path, output_path = sys.argv[1:]
+          with open(log_path, encoding="utf-8") as log_file:
+              reports = []
+              for line in log_file:
+                  try:
+                      report = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if isinstance(report, dict) and report.get("scenario") == "generation-25y-leap-mixed":
+                      reports.append(report)
+
+          if len(reports) != 1:
+              raise SystemExit(f"Expected exactly one benchmark JSON report; found {len(reports)}.")
+
+          report = reports[0]
+          expected = {
+              "executionPath": "worker",
+              "intervals": 35136,
+              "profiles": 1,
+              "runs": 1,
+          }
+          for key, value in expected.items():
+              if report.get(key) != value:
+                  raise SystemExit(f"Benchmark JSON {key} was {report.get(key)!r}; expected {value!r}.")
+          if not str(report.get("runtime", "")).startswith("Bun 1.4.3 "):
+              raise SystemExit(f"Benchmark JSON has unexpected runtime: {report.get('runtime')!r}.")
+          timings = report.get("latencyMs")
+          if not isinstance(timings, list) or len(timings) != 1 or not isinstance(timings[0], (int, float)) or not math.isfinite(timings[0]):
+              raise SystemExit("Benchmark JSON must contain one finite measured-trial duration.")
+          rss = report.get("maxRssMb")
+          if not isinstance(rss, (int, float)) or not math.isfinite(rss) or rss <= 0:
+              raise SystemExit("Benchmark JSON must contain a positive finite process maxRssMb.")
+
+          with open(output_path, "a", encoding="utf-8") as output_file:
+              output_file.write(f"runtime={report['runtime']}\n")
+              output_file.write(f"intervals={report['intervals']}\n")
+              output_file.write(f"measured_trial_ms={timings[0]}\n")
+              output_file.write(f"peak_process_rss_mb={rss}\n")
+              output_file.write("validation_status=PASS\n")
+              output_file.write("warmup_and_trial_status=COMPLETE\n")
+          PY
+          then
+            reason="$(tail -n 1 "$parser_error")"
+            echo "failure_reason=${reason:-Benchmark JSON validation failed.}" >> "$GITHUB_OUTPUT"
+            cat "$parser_error" >&2
+            exit 1
+          fi
+
+      - name: Publish feasibility summary
+        if: always()
+        shell: bash
+        env:
+          REF_GUARD_OUTCOME: ${{ steps.ref_guard.outcome }}
+          SETUP_BUN_OUTCOME: ${{ steps.setup_bun.outcome }}
+          VERIFY_BUN_OUTCOME: ${{ steps.verify_bun.outcome }}
+          BUN_VERSION: ${{ steps.verify_bun.outputs.version }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
+          BENCHMARK_EXIT_CODE: ${{ steps.benchmark.outputs.exit_code }}
+          BENCHMARK_REASON: ${{ steps.benchmark.outputs.failure_reason }}
+          TOTAL_WALL_MS: ${{ steps.benchmark.outputs.total_wall_ms }}
+          RUNTIME: ${{ steps.benchmark.outputs.runtime }}
+          INTERVALS: ${{ steps.benchmark.outputs.intervals }}
+          MEASURED_TRIAL_MS: ${{ steps.benchmark.outputs.measured_trial_ms }}
+          PEAK_RSS_MB: ${{ steps.benchmark.outputs.peak_process_rss_mb }}
+          VALIDATION_STATUS: ${{ steps.benchmark.outputs.validation_status }}
+          WARMUP_STATUS: ${{ steps.benchmark.outputs.warmup_and_trial_status }}
+        run: |
+          set -euo pipefail
+          status="PASS"
+          reason=""
+
+          if [[ "$REF_GUARD_OUTCOME" != "success" ]]; then
+            status="FAIL"
+            reason="Workflow dispatch was not from refs/heads/main."
+          elif [[ "$SETUP_BUN_OUTCOME" != "success" || "$VERIFY_BUN_OUTCOME" != "success" ]]; then
+            status="INCOMPLETE"
+            reason="Bun 1.4.3 setup or version verification did not complete."
+          elif [[ "$INSTALL_OUTCOME" != "success" ]]; then
+            status="INCOMPLETE"
+            reason="Frozen dependency installation did not complete."
+          elif [[ "$BENCHMARK_OUTCOME" != "success" ]]; then
+            reason="${BENCHMARK_REASON:-Benchmark failed or did not emit a valid JSON report.}"
+            if [[ "$BENCHMARK_EXIT_CODE" == "124" ]]; then
+              status="INCOMPLETE"
+            else
+              status="FAIL"
+            fi
+          fi
+
+          {
+            echo "## Maximum active generation performance feasibility"
+            echo
+            echo "- Status: **$status**"
+            echo "- Source SHA: `$GITHUB_SHA`"
+            echo "- Workflow run: [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            echo "- Exact scenario: `generation-25y-leap-mixed`, worker path, 35,136 intervals, one battery profile"
+            echo "- Warm-up and measured trial: ${WARMUP_STATUS:-not completed}"
+            echo "- Measured trial: ${MEASURED_TRIAL_MS:-not available} ms (single observation; not a p95)"
+            echo "- Total benchmark wall time: ${TOTAL_WALL_MS:-not available} ms"
+            echo "- Peak benchmark-process RSS: ${PEAK_RSS_MB:-not available} MiB"
+            echo "- Fail-closed calculation validation: ${VALIDATION_STATUS:-not completed}"
+            echo "- Runtime: ${RUNTIME:-Bun ${BUN_VERSION:-version not confirmed}; benchmark report unavailable}"
+            echo
+            if [[ -f "$RUNNER_TEMP/performance-environment.md" ]]; then
+              cat "$RUNNER_TEMP/performance-environment.md"
+              echo
+            fi
+            echo "Historical comparison: the 500 MiB engine budget was measured on smaller 8,760-interval generation jobs. This single maximum-size feasibility result is descriptive and is not judged against that limit."
+            if [[ -n "$reason" ]]; then
+              echo
+              echo "Reason: $reason"
+            fi
+            if [[ "$BENCHMARK_OUTCOME" == "failure" && -f "$RUNNER_TEMP/performance-feasibility.log" ]]; then
+              echo
+              echo "### Recent benchmark diagnostics"
+              echo '```text'
+              tail -n 25 "$RUNNER_TEMP/performance-feasibility.log"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$status" != "PASS" ]]; then
+            exit 1
+          fi
