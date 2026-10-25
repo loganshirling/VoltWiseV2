@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createMaximumLeapYearProjectArchive } from './helpers/maximumLeapYearProject';
+import { getPerformanceUiCoverageStatus, measurePerformanceNavigationSequence } from './helpers/performanceNavigationActions';
 
 type WorkerMessageRecord = {
   type: string;
@@ -254,37 +255,6 @@ function validateGenerationExport(payloadValue: unknown) {
   return { solarYearOneKwh: solarYearOne, windYearOneKwh: windYearOne, annualProjectionYears: annualProjection.length };
 }
 
-async function runSafeUiActions(page: Page, baseline: WorkerBaseline) {
-  const actions: Array<{ name: string; run: () => Promise<void> }> = [
-    { name: 'navigate to financial settings', run: () => openTab(page, '4. Financials & Settings') },
-    { name: 'navigate to generation settings', run: () => openTab(page, '3. Power Generation') },
-    { name: 'navigate to load settings', run: () => openTab(page, '1. Data & TOU Rates') },
-    { name: 'navigate to battery profiles', run: () => openTab(page, '2. Battery Profiles') },
-    { name: 'navigate to results', run: () => openTab(page, '5. Results & Analytics') },
-    { name: 'switch dispatch to table view', run: () => page.getByRole('button', { name: 'Table View', exact: true }).click({ timeout: 10_000 }) },
-    { name: 'switch dispatch to daily profile', run: () => page.getByRole('button', { name: 'Daily Profile', exact: true }).click({ timeout: 10_000 }) },
-    { name: 'switch dispatch to monthly median', run: () => page.getByRole('button', { name: 'Median Daily by Month', exact: true }).click({ timeout: 10_000 }) },
-    { name: 'switch dispatch to heatmap', run: () => page.getByRole('button', { name: '12-Month Heatmap', exact: true }).click({ timeout: 10_000 }) },
-    { name: 'return dispatch to table view', run: () => page.getByRole('button', { name: 'Table View', exact: true }).click({ timeout: 10_000 }) },
-    { name: 'navigate to load settings again', run: () => openTab(page, '1. Data & TOU Rates') },
-    { name: 'return to results', run: () => openTab(page, '5. Results & Analytics') },
-    { name: 'return dispatch to daily profile', run: () => page.getByRole('button', { name: 'Daily Profile', exact: true }).click({ timeout: 10_000 }) },
-    { name: 'return dispatch to table view', run: () => page.getByRole('button', { name: 'Table View', exact: true }).click({ timeout: 10_000 }) },
-    { name: 'finish on results', run: () => openTab(page, '5. Results & Analytics') },
-  ];
-  const measurements: Array<{ name: string; durationMs: number; duringProjection: boolean }> = [];
-  for (const action of actions) {
-    const before = await readProjectSnapshot(page, baseline);
-    if (!before.projectionActive) break;
-    const startedAt = await page.evaluate(() => performance.now());
-    await action.run();
-    const finishedAt = await page.evaluate(() => performance.now());
-    measurements.push({ name: action.name, durationMs: finishedAt - startedAt, duringProjection: before.projectionActive });
-    if (!(await readProjectSnapshot(page, baseline)).projectionActive) break;
-  }
-  return measurements;
-}
-
 async function readHeapBytes(page: Page): Promise<number | null> {
   return page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
 }
@@ -339,7 +309,7 @@ test('measures the maximum active measured solar/wind production-browser workloa
   const firstProjectionRequest = projectionStarted.projectionRequests[0];
   expect(firstProjectionRequest).toBeDefined();
 
-  const uiMeasurements = await runSafeUiActions(page, baseline);
+  const uiMeasurements = await measurePerformanceNavigationSequence(page, () => readProjectSnapshot(page, baseline));
   const readinessPollMs = await remainingReadinessMs();
   await expect.poll(async () => (await readProjectSnapshot(page, baseline)).state, {
     message: 'The imported measured solar/wind project must complete all projection years and generation financial Results.',
@@ -412,7 +382,7 @@ test('measures the maximum active measured solar/wind production-browser workloa
       individualActions: uiMeasurements.map((measurement) => ({ ...measurement, durationMs: Number(measurement.durationMs.toFixed(1)) })),
       observedNearestRankP95Ms: nearestRankP95(activeActionDurations) === null ? null : Number(nearestRankP95(activeActionDurations)!.toFixed(1)),
       observedMaximumMs: activeActionDurations.length ? Number(Math.max(...activeActionDurations).toFixed(1)) : null,
-      status: activeActionDurations.length >= 15 ? 'MEASURED' : 'NOT_FULLY_MEASURED',
+      status: getPerformanceUiCoverageStatus(activeActionDurations.length),
     },
     memory: {
       measurement: 'renderer JavaScript heap; not total browser memory or process-tree RSS',

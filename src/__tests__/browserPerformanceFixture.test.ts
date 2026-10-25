@@ -4,6 +4,11 @@ import { DEFAULT_BATTERY_PROFILES } from '../utils/simulationEngine';
 import { MAX_PROJECT_ACCEPTED_ARCHIVE_BYTES, MAX_PROJECT_PERSISTED_DATA_BYTES } from '../utils/importLimits';
 import { assertProjectArchiveWithinBudget, parseProjectArchive, serializeProjectArchive } from '../utils/projectArchive';
 import { createMaximumLeapYearProjectState } from '../../e2e/helpers/maximumLeapYearProject';
+import {
+  getPerformanceUiCoverageStatus,
+  PERFORMANCE_NAVIGATION_SEQUENCE,
+  PERFORMANCE_NAVIGATION_TABS,
+} from '../../e2e/helpers/performanceNavigationActions';
 import standardPlaywrightConfig from '../../playwright.config';
 import performancePlaywrightConfig from '../../playwright.performance.config';
 
@@ -61,6 +66,30 @@ describe('maximum leap-year browser-performance fixture', () => {
 });
 
 describe('isolated Playwright performance configuration', () => {
+  it('plans 15 top-level navigation actions and marks incomplete projection coverage', () => {
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE).toHaveLength(15);
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE[0]).not.toBe('1. Data & TOU Rates');
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE).toEqual([
+      ...PERFORMANCE_NAVIGATION_TABS,
+      ...PERFORMANCE_NAVIGATION_TABS,
+      ...PERFORMANCE_NAVIGATION_TABS,
+    ]);
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE.slice(1).every((tab, index) => tab !== PERFORMANCE_NAVIGATION_SEQUENCE[index])).toBe(true);
+    expect(PERFORMANCE_NAVIGATION_TABS).toEqual([
+      '2. Battery Profiles',
+      '3. Power Generation',
+      '4. Financials & Settings',
+      '5. Results & Analytics',
+      '1. Data & TOU Rates',
+    ]);
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE.every((tab) => PERFORMANCE_NAVIGATION_TABS.includes(tab))).toBe(true);
+    for (const unavailableResultsControl of ['Table View', 'Daily Profile', 'Median Daily by Month', '12-Month Heatmap']) {
+      expect(PERFORMANCE_NAVIGATION_SEQUENCE).not.toContain(unavailableResultsControl);
+    }
+    expect(getPerformanceUiCoverageStatus(14)).toBe('NOT_FULLY_MEASURED');
+    expect(getPerformanceUiCoverageStatus(15)).toBe('MEASURED');
+  });
+
   it('discovers only perf specs in the dedicated single-worker Chromium project', () => {
     expect(standardPlaywrightConfig.testMatch).toBe('**/*.spec.ts');
     expect(performancePlaywrightConfig.testMatch).toBe('**/*.perf.ts');
