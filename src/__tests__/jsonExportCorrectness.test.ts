@@ -96,6 +96,68 @@ describe('Issue 4 — JSON Export Correctness and Consistency', () => {
     },
   };
 
+  describe('legacy export interval-duration metadata', () => {
+    const exportForIntervals = (
+      totalIntervals: number,
+      intervalHours: number,
+      csvResult?: CsvValidationResult | null,
+    ) => {
+      const summary = { ...dummySummary, totalIntervals, intervalHours, intervalResults: [] };
+      const analysis = calculate15YearFinancials(profile, summary, DEFAULT_MACRO_FINANCIALS);
+      return buildExportLlmJson({
+        activeAnalysis: analysis,
+        projectionHorizon: 15,
+        tiers,
+        activeTouProfile: touProfile,
+        financials: DEFAULT_MACRO_FINANCIALS,
+        ...(csvResult === undefined ? {} : { csvResult }),
+      });
+    };
+
+    it('derives 365 days for a 35,040-interval quarter-hour year with null CSV metadata', () => {
+      const exported = exportForIntervals(35_040, 0.25, null);
+
+      expect(exported.metadata.dataset_summary.duration_days).toBe(365);
+      expect(exported.metadata.dataset_summary.total_intervals).toBe(35_040);
+      expect(exported.metadata.dataset_summary.interval_duration_hours).toBe(0.25);
+      expect(exported.metadata.dataset_summary.total_home_load_kwh).toBe(dummySummary.totalHomeLoadKwh);
+    });
+
+    it('derives 365 days when the optional CSV result is omitted', () => {
+      const exported = exportForIntervals(35_040, 0.25);
+
+      expect(exported.metadata.dataset_summary.duration_days).toBe(365);
+    });
+
+    it('keeps the hourly-year fallback at 365 days', () => {
+      const exported = exportForIntervals(8_760, 1, null);
+
+      expect(exported.metadata.dataset_summary.duration_days).toBe(365);
+      expect(exported.metadata.dataset_summary.total_intervals).toBe(8_760);
+      expect(exported.metadata.dataset_summary.interval_duration_hours).toBe(1);
+    });
+
+    it('derives 366 days for a 35,136-interval quarter-hour leap year', () => {
+      const exported = exportForIntervals(35_136, 0.25, null);
+
+      expect(exported.metadata.dataset_summary.duration_days).toBe(366);
+      expect(exported.metadata.dataset_summary.total_intervals).toBe(35_136);
+      expect(exported.metadata.dataset_summary.interval_duration_hours).toBe(0.25);
+    });
+
+    it('preserves supplied completeness duration metadata', () => {
+      const suppliedCsvResult = {
+        ...mockCsvResult,
+        completeness: { ...mockCsvResult.completeness, durationDays: 364 },
+      };
+      const exported = exportForIntervals(35_040, 0.25, suppliedCsvResult);
+
+      expect(exported.metadata.dataset_summary.duration_days).toBe(364);
+      expect(exported.metadata.dataset_summary.total_intervals).toBe(8_760);
+      expect(exported.metadata.dataset_summary.interval_duration_hours).toBe(1);
+    });
+  });
+
   it('ensures 15-year export contains 15-year metrics rather than 25-year metrics', () => {
     const analysis = calculate15YearFinancials(profile, dummySummary, DEFAULT_MACRO_FINANCIALS);
 
