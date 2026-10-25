@@ -1,7 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { createMaximumLeapYearProjectArchive } from './helpers/maximumLeapYearProject';
-import { getPerformanceUiCoverageStatus, measurePerformanceNavigationSequence } from './helpers/performanceNavigationActions';
+import {
+  classifyPerformanceReadiness,
+  classifyPerformanceWorkerCompletion,
+  getPerformanceUiCoverageStatus,
+  measurePerformanceNavigationSequence,
+  returnToResultsForReadiness,
+  type PerformanceNavigationSnapshot,
+  type PerformanceReadinessState,
+} from './helpers/performanceNavigationActions';
 
 type WorkerMessageRecord = {
   type: string;
@@ -29,16 +37,18 @@ declare global {
 
 type WorkerBaseline = { requests: number; responses: number };
 
-type ProjectSnapshot = {
+type ProjectSnapshot = Omit<
+  PerformanceNavigationSnapshot,
+  'runRequests' | 'runSuccesses' | 'projectionRequests' | 'projectionResponses' | 'workerErrors'
+> & {
   at: number;
   runRequests: WorkerMessageRecord[];
-  projectionRequests: WorkerMessageRecord[];
   runSuccesses: WorkerMessageRecord[];
+  projectionRequests: WorkerMessageRecord[];
   projectionResponses: WorkerMessageRecord[];
   workerErrors: WorkerMessageRecord[];
-  projectionActive: boolean;
-  state: 'waiting' | 'projecting' | 'ready' | 'error';
-  evidence: string;
+  workerComplete: boolean;
+  state: PerformanceReadinessState;
 };
 
 async function openTab(page: Page, name: string) {
@@ -115,7 +125,7 @@ async function readLog(page: Page): Promise<BrowserPerformanceLog> {
 }
 
 async function readProjectSnapshot(page: Page, baseline: WorkerBaseline): Promise<ProjectSnapshot> {
-  return page.evaluate(({ requestsAt, responsesAt }) => {
+  const snapshot = await page.evaluate(({ requestsAt, responsesAt }) => {
     const log = window.__voltwisePerformanceLog;
     const requests = log.requests.slice(requestsAt);
     const responses = log.responses.slice(responsesAt);
@@ -135,11 +145,10 @@ async function readProjectSnapshot(page: Page, baseline: WorkerBaseline): Promis
     const exportButton = [...document.querySelectorAll('button')].find((button) =>
       button.textContent?.includes('Export Analysis for LLM (.json')
     );
-    const ready = runSuccesses.length === 1 && projectionRequests.length === 25 && projectionResponses.length === 25 &&
+    const resultsReady =
       mainText.includes('Modeled Generation & Grid Dispatch Results') && mainText.includes('Annual modeled projections:') &&
       !mainText.includes('Lifecycle Finance Unavailable') && Boolean(exportButton && !exportButton.disabled);
     const projectionActive = projectionRequests.length > projectionResponses.length && projectionResponses.length < 25;
-    const state = workerErrors.length || alerts.length ? 'error' : ready ? 'ready' : 'projecting';
     return {
       at: performance.now(),
       runRequests,
@@ -147,11 +156,15 @@ async function readProjectSnapshot(page: Page, baseline: WorkerBaseline): Promis
       runSuccesses,
       projectionResponses,
       workerErrors,
+      alerts,
       projectionActive,
-      state,
+      resultsReady,
       evidence: workerErrors.map((message) => message.type).join(', ') || alerts.join(' ').slice(0, 800) || mainText.slice(-800),
     };
   }, { requestsAt: baseline.requests, responsesAt: baseline.responses });
+  const workerComplete = classifyPerformanceWorkerCompletion(snapshot) === 'complete';
+  const state = classifyPerformanceReadiness(snapshot);
+  return { ...snapshot, workerComplete, state };
 }
 
 async function waitForInitialSimulationToSettle(page: Page) {
@@ -309,13 +322,32 @@ test('measures the maximum active measured solar/wind production-browser workloa
   const firstProjectionRequest = projectionStarted.projectionRequests[0];
   expect(firstProjectionRequest).toBeDefined();
 
-  const uiMeasurements = await measurePerformanceNavigationSequence(page, () => readProjectSnapshot(page, baseline));
+  const uiMeasurements = await measurePerformanceNavigationSequence(
+    page,
+    firstRunRequest.requestId,
+    () => readProjectSnapshot(page, baseline),
+  );
+  await returnToResultsForReadiness(page, firstRunRequest.requestId, () => readProjectSnapshot(page, baseline));
+  await expect.poll(async () => classifyPerformanceWorkerCompletion(await readProjectSnapshot(page, baseline)), {
+    message: 'The imported operational run and all 25 projection-year worker requests must complete without worker errors.',
+    timeout: await remainingReadinessMs(),
+    intervals: [250, 500, 1_000],
+  }).toBe('complete');
+  const workerCompletion = await readProjectSnapshot(page, baseline);
+  expect(workerCompletion.runRequests, 'The imported project must retain one operational worker request.').toHaveLength(1);
+  expect(workerCompletion.runRequests[0]?.requestId).toBe(firstRunRequest.requestId);
+  expect(workerCompletion.runSuccesses, 'The operational worker must succeed exactly once.').toHaveLength(1);
+  expect(workerCompletion.projectionRequests, 'The worker must request all 25 projection years.').toHaveLength(25);
+  expect(workerCompletion.projectionResponses, 'The worker must return all 25 projection years.').toHaveLength(25);
+  expect(workerCompletion.workerErrors, 'Worker errors must prevent successful completion.').toEqual([]);
+  expect(workerCompletion.workerComplete).toBe(true);
+
   const readinessPollMs = await remainingReadinessMs();
   await expect.poll(async () => (await readProjectSnapshot(page, baseline)).state, {
-    message: 'The imported measured solar/wind project must complete all projection years and generation financial Results.',
+    message: 'Completed worker output must become generation-financial Results on the Results tab.',
     timeout: readinessPollMs,
     intervals: [250, 500, 1_000],
-  }).not.toBe('projecting');
+  }).toBe('ready');
   const readiness = await readProjectSnapshot(page, baseline);
   expect(readiness.state, `Generation financial readiness failed: ${readiness.evidence}`).toBe('ready');
 
