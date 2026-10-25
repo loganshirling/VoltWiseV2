@@ -1,0 +1,140 @@
+name: Browser performance qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-performance-qualification-main
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: Maximum active measured solar and wind workload
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Require dispatch from main
+        id: ref_guard
+        run: bash scripts/require-main-branch.sh
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Set up Bun
+        id: setup_bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+
+      - name: Cache Bun packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.3-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-1.4.3-
+
+      - name: Install locked dependencies
+        id: install
+        run: bun install --frozen-lockfile
+
+      - name: Build production application
+        id: build
+        run: npm run build
+
+      - name: Install matching Playwright Chromium
+        id: browser_install
+        run: bunx playwright install --with-deps chromium
+
+      - name: Record runner and browser environment
+        id: environment
+        run: >-
+          python3 scripts/browser_performance_qualification.py environment
+          --output "$RUNNER_TEMP/browser-performance-environment.json"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Run one bounded production browser trial
+        id: browser
+        continue-on-error: true
+        env:
+          CHROMIUM_EXECUTABLE: ${{ steps.environment.outputs.chromium_path }}
+        run: >-
+          python3 scripts/browser_performance_qualification.py run
+          --timeout-seconds 480
+          --grace-seconds 15
+          --sample-interval-seconds 0.5
+          --log "$RUNNER_TEMP/browser-performance.log"
+          --memory-output "$RUNNER_TEMP/browser-performance-memory.json"
+          --github-output "$GITHUB_OUTPUT"
+          -- npx playwright test
+          --config=playwright.performance.config.ts
+          e2e/performance-feasibility.perf.ts
+          --project=chromium
+          --workers=1
+          --retries=0
+
+      - name: Validate results and publish qualification summary
+        id: summary
+        if: always()
+        continue-on-error: true
+        env:
+          REF_GUARD_OUTCOME: ${{ steps.ref_guard.outcome }}
+          BUN_SETUP_OUTCOME: ${{ steps.setup_bun.outcome }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          BROWSER_INSTALL_OUTCOME: ${{ steps.browser_install.outcome }}
+          ENVIRONMENT_OUTCOME: ${{ steps.environment.outcome }}
+          BROWSER_OUTCOME: ${{ steps.browser.outcome }}
+          BROWSER_EXIT_CODE: ${{ steps.browser.outputs.exit_code }}
+          BROWSER_TIMED_OUT: ${{ steps.browser.outputs.timed_out }}
+        run: >-
+          python3 scripts/browser_performance_qualification.py summary
+          --log "$RUNNER_TEMP/browser-performance.log"
+          --memory "$RUNNER_TEMP/browser-performance-memory.json"
+          --environment "$RUNNER_TEMP/browser-performance-environment.json"
+          --summary "$GITHUB_STEP_SUMMARY"
+          --source-sha "$GITHUB_SHA"
+          --run-url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          --ref-guard "$REF_GUARD_OUTCOME"
+          --bun-setup "$BUN_SETUP_OUTCOME"
+          --install "$INSTALL_OUTCOME"
+          --build "$BUILD_OUTCOME"
+          --browser-install "$BROWSER_INSTALL_OUTCOME"
+          --environment-step "$ENVIRONMENT_OUTCOME"
+          --browser-step "$BROWSER_OUTCOME"
+          --browser-exit "$BROWSER_EXIT_CODE"
+          --browser-timed-out "$BROWSER_TIMED_OUT"
+
+      - name: Retain browser qualification diagnostics on failure
+        if: ${{ always() && (steps.browser.outcome == 'failure' || steps.summary.outcome == 'failure' || steps.build.outcome == 'failure' || steps.install.outcome == 'failure' || steps.browser_install.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-performance-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/browser-performance.log
+            ${{ runner.temp }}/browser-performance-memory.json
+            ${{ runner.temp }}/browser-performance-environment.json
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce qualification result
+        if: always()
+        env:
+          SUMMARY_OUTCOME: ${{ steps.summary.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$SUMMARY_OUTCOME" != "success" ]]; then
+            echo "Browser qualification did not pass; inspect the workflow summary and diagnostics." >&2
+            exit 1
+          fi
