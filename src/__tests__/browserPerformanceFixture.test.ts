@@ -12,9 +12,12 @@ import {
   selectPerformanceExportHorizon,
 } from '../../e2e/helpers/performanceExportHorizon';
 import {
+  buildPerformanceNavigationDiagnosticReport,
+  createPerformanceNavigationDiagnosticAction,
   classifyPerformanceReadiness,
   classifyPerformanceWorkerCompletion,
   getPerformanceUiCoverageStatus,
+  nearestRankP95,
   PERFORMANCE_NAVIGATION_SEQUENCE,
   PERFORMANCE_NAVIGATION_TABS,
   PERFORMANCE_READINESS_NAVIGATION_ACTION,
@@ -183,6 +186,59 @@ describe('isolated Playwright performance configuration', () => {
     expect(preservesOperationalRequestIdentity(42, { runRequests: [{ requestId: 42 }] })).toBe(true);
     expect(preservesOperationalRequestIdentity(42, { runRequests: [{ requestId: 43 }] })).toBe(false);
     expect(preservesOperationalRequestIdentity(42, { runRequests: [{ requestId: 42 }, { requestId: 43 }] })).toBe(false);
+  });
+
+  it('reports browser navigation timings separately without changing the 15 original measurements', () => {
+    const durations = Array.from({ length: PERFORMANCE_NAVIGATION_SEQUENCE.length }, (_, index) => 50 + index * 7);
+    durations[durations.length - 1] = 203.3;
+    const measurements = PERFORMANCE_NAVIGATION_SEQUENCE.map((tab, actionIndex) => ({
+      name: `navigate to ${tab}`,
+      durationMs: durations[actionIndex]!,
+      duringProjection: actionIndex < 14,
+    }));
+    const diagnosticActions = measurements.map((measurement, actionIndex) => {
+      const actionStartedAtMs = 1_000 + actionIndex * 1_000;
+      const clickEventDispatchAtMs = actionIndex === 1 ? null : actionStartedAtMs + 12;
+      const nextAnimationFrameAtMs = clickEventDispatchAtMs === null ? null : clickEventDispatchAtMs + 16;
+      return createPerformanceNavigationDiagnosticAction(
+        measurement,
+        actionIndex,
+        actionStartedAtMs,
+        actionStartedAtMs + measurement.durationMs,
+        { actionIndex, clickEventDispatchAtMs, nextAnimationFrameAtMs },
+      );
+    });
+    const originalMeasurements = structuredClone(measurements);
+    const report = buildPerformanceNavigationDiagnosticReport('source-sha', diagnosticActions);
+
+    expect(report.actions).toHaveLength(15);
+    expect(report.actions.map(({ name, durationMs, duringProjection }) => ({ name, durationMs, duringProjection })))
+      .toEqual(originalMeasurements);
+    expect(report.actions[0]?.actionIndex).toBe(0);
+    expect(report.actions[0]?.clickEventDispatchAtMs).toBe(1_012);
+    expect(report.actions[5]?.name).toBe(report.actions[0]?.name);
+    expect(report.actions[5]?.clickEventDispatchAtMs).toBe(6_012);
+    expect(report.actions[1]?.clickDispatchAvailability).toBe('unavailable');
+    expect(report.actions[1]?.clickEventDispatchAtMs).toBeNull();
+    expect(report.actions[1]?.startToClickDispatchMs).toBeNull();
+    expect(report.actions[1]?.nextAnimationFrameAvailability).toBe('unavailable');
+    expect(report.actions[1]?.nextAnimationFrameAtMs).toBeNull();
+    for (const action of report.actions) {
+      if (action.clickEventDispatchAtMs === null) continue;
+      expect(action.actionStartedAtMs).toBeLessThanOrEqual(action.clickEventDispatchAtMs);
+      expect(action.clickEventDispatchAtMs).toBeLessThanOrEqual(action.actionCompletedAtMs);
+      expect(action.startToClickDispatchMs).toBeGreaterThanOrEqual(0);
+      expect(action.clickDispatchToActionCompletionMs).toBeGreaterThanOrEqual(0);
+      if (action.nextAnimationFrameAtMs !== null) {
+        expect(action.clickEventDispatchAtMs).toBeLessThanOrEqual(action.nextAnimationFrameAtMs);
+        expect(action.clickDispatchToNextAnimationFrameMs).toBeGreaterThanOrEqual(0);
+      }
+    }
+    expect(nearestRankP95(durations)).toBe(203.3);
+    expect(report.perTabSummary.find((summary) => summary.tab === '1. Data & TOU Rates')?.actionCount).toBe(3);
+    expect(PERFORMANCE_NAVIGATION_SEQUENCE).toHaveLength(15);
+    expect(getPerformanceUiCoverageStatus(14)).toBe('NOT_FULLY_MEASURED');
+    expect(preservesOperationalRequestIdentity(42, { runRequests: [{ requestId: 42 }] })).toBe(true);
   });
 
   it('discovers only perf specs in the dedicated single-worker Chromium project', () => {
