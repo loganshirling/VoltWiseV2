@@ -6,12 +6,15 @@ import {
   selectPerformanceExportHorizon,
 } from './helpers/performanceExportHorizon';
 import {
+  buildPerformanceNavigationDiagnosticReport,
   classifyPerformanceReadiness,
   classifyPerformanceWorkerCompletion,
+  nearestRankP95,
   getPerformanceUiCoverageStatus,
   measurePerformanceNavigationSequence,
   returnToResultsForReadiness,
   type PerformanceNavigationSnapshot,
+  type PerformanceNavigationDiagnosticAction,
   type PerformanceReadinessState,
 } from './helpers/performanceNavigationActions';
 
@@ -185,12 +188,6 @@ async function waitForInitialSimulationToSettle(page: Page) {
   }).toBe(true);
 }
 
-function nearestRankP95(values: number[]): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.ceil(sorted.length * 0.95) - 1];
-}
-
 function finiteMetric(record: Record<string, unknown>, key: string, label: string): number {
   const value = record[key];
   expect(typeof value, `${label}.${key} must be numeric`).toBe('number');
@@ -328,10 +325,12 @@ test('measures the maximum active measured solar/wind production-browser workloa
   const firstProjectionRequest = projectionStarted.projectionRequests[0];
   expect(firstProjectionRequest).toBeDefined();
 
+  const uiNavigationDiagnostics: PerformanceNavigationDiagnosticAction[] = [];
   const uiMeasurements = await measurePerformanceNavigationSequence(
     page,
     firstRunRequest.requestId,
     () => readProjectSnapshot(page, baseline),
+    uiNavigationDiagnostics,
   );
   await returnToResultsForReadiness(page, firstRunRequest.requestId, () => readProjectSnapshot(page, baseline));
   await expect.poll(async () => classifyPerformanceWorkerCompletion(await readProjectSnapshot(page, baseline)), {
@@ -453,4 +452,6 @@ test('measures the maximum active measured solar/wind production-browser workloa
     contentType: 'application/json',
   });
   console.info(`VOLTWISE_PERFORMANCE_FEASIBILITY_JSON ${JSON.stringify(report)}`);
+  const sourceSha = process.env.GITHUB_SHA ?? process.env.GITHUB_REF_SHA ?? null;
+  console.info(`VOLTWISE_UI_NAV_DIAGNOSTICS_JSON ${JSON.stringify(buildPerformanceNavigationDiagnosticReport(sourceSha, uiNavigationDiagnostics))}`);
 });
