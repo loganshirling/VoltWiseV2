@@ -141,7 +141,7 @@ test('imports the maximum UTC 2024 quarter-hour load as a complete leap year', a
     name: '2024-quarter-hour-load.csv', mimeType: 'text/csv', buffer: Buffer.from(leapCsv),
   });
   await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
-  await expect(page.getByText('Exact full-calendar-year coverage is available for lifecycle projections.')).toBeVisible();
+  await expect(page.getByText('Complete rolling-year interval coverage is available for lifecycle projections.')).toBeVisible();
   const heapAfter = await page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
   console.log(`35,136-row leap-year Chromium import: ${Date.now() - startedAt} ms; renderer JS heap delta: ${heapBefore !== null && heapAfter !== null ? `${((heapAfter - heapBefore) / (1024 * 1024)).toFixed(1)} MiB` : 'unavailable'}`);
 });
@@ -462,7 +462,7 @@ test('covers sample, imports, settings, results, local save/open, export, and re
   const startedAt = Date.now();
   await loadFile.setInputFiles({ name: 'maximum-intervals.csv', mimeType: 'text/csv', buffer: Buffer.from(quarterHourCsv) });
   await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
-  await expect(page.getByText('Exact full-calendar-year coverage is available for lifecycle projections.')).toBeVisible();
+  await expect(page.getByText('Complete rolling-year interval coverage is available for lifecycle projections.')).toBeVisible();
   const importElapsedMs = Date.now() - startedAt;
   const memoryAfter = await page.evaluate(() => (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? null);
   console.log(`35,040 interval Chromium import: ${importElapsedMs} ms; renderer JS heap delta: ${memoryBefore !== null && memoryAfter !== null ? `${((memoryAfter - memoryBefore) / (1024 * 1024)).toFixed(1)} MiB` : 'unavailable'}`);
