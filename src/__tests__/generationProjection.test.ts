@@ -781,9 +781,69 @@ describe('G4B — Multi-Year Generation-Aware Operational Projection', () => {
           generationConfig: config,
           allowSolarExport: true,
           isSuitableForAnnual: true,
-          completeness: { isSuitableForAnnualProjection: true } as any,
         })
       ).toThrow(/not suitable for annual operational projection/i);
+    });
+
+    it('accepts a validated rolling year even when preliminary parser hints say unsuitable', () => {
+      const startMs = Date.parse('2025-08-01T00:00:00Z');
+      const dataPoints = Array.from({ length: 365 * 24 }, (_, index) => {
+        const date = new Date(startMs + index * 3_600_000);
+        return {
+          timestamp: date.toISOString(),
+          date,
+          hour: date.getUTCHours(),
+          dayOfWeek: date.getUTCDay(),
+          month: date.getUTCMonth(),
+          usageKwh: 1.25,
+        };
+      });
+      const generationConfig: GenerationConfig = {
+        site: { ...baseSite, timeZone: 'UTC' },
+        assets: [createClearSkyAsset('rolling-year-solar')],
+      };
+      const tiers = defaultTiers;
+      const scheduleMatrix = createScheduleMatrix();
+      const batteryProfile = createTestBattery();
+      const representativeYear = runUnifiedSimulation({
+        dataPoints,
+        intervalHours: 1,
+        tiers,
+        scheduleMatrix,
+        batteryProfile,
+        generationConfig,
+        allowSolarExport: true,
+      });
+      const projection = calculateGenerationOperationalProjection({
+        dataPoints,
+        intervalHours: 1,
+        tiers,
+        scheduleMatrix,
+        batteryProfile,
+        generationConfig,
+        allowSolarExport: true,
+        projectionYears: 1,
+        isSuitableForAnnual: false,
+        completeness: {
+          startDate: dataPoints[0]!.timestamp,
+          endDate: dataPoints.at(-1)!.timestamp,
+          intervalCount: dataPoints.length,
+          intervalDurationHours: 1,
+          durationDays: 365,
+          expectedIntervalCount: dataPoints.length,
+          missingIntervalCount: 0,
+          isLeapYear: false,
+          isSuitableForAnnualProjection: false,
+        },
+      });
+
+      expect(representativeYear.mode).toBe('generation-aware');
+      expect(representativeYear.annualSummary.isSuitableForAnnualProjection).toBe(true);
+      expect(projection.years).toHaveLength(1);
+      expect(projection.years[0]!.solarGeneratedKwh).toBeCloseTo(
+        representativeYear.generationAwareResult!.totalSolarGenerationKwh,
+        8,
+      );
     });
 
     it('rejects direct projection calls with no annual eligibility payload', () => {

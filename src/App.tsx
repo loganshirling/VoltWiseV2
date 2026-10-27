@@ -263,8 +263,11 @@ export default function App() {
   );
 
   const annualProjectionEligibility = useMemo(() => {
-    if (!csvResult?.schemaValid || !csvResult.chronologicallyValid || !generationConfig.site.timeZone.trim()) {
+    if (!csvResult?.schemaValid || !csvResult.chronologicallyValid) {
       return { eligible: false };
+    }
+    if (!generationConfig.site.timeZone.trim()) {
+      return { eligible: false, reason: 'Select a valid site timezone to verify rolling-year coverage.' };
     }
     return evaluateAnnualProjectionEligibility(
       csvResult.data,
@@ -280,6 +283,11 @@ export default function App() {
     siteLoadAlignmentEligibility?.operationallySimulatable &&
     annualProjectionEligibility.eligible
   );
+  // Results and its projection exporters receive the site-authoritative decision,
+  // not the timezone-independent preliminary flag produced by CSV parsing.
+  const resultsCsvResult = useMemo(() => csvResult
+    ? { ...csvResult, annualProjectionEligible: isSuitableForAnnual }
+    : null, [csvResult, isSuitableForAnnual]);
 
   // VOLL is applied to completed analyses below, so these edits keep the operational input stable.
   const nonVollFinancialDependencyKey = getNonVollFinancialDependencyKey(financials);
@@ -732,7 +740,8 @@ export default function App() {
             tiers={tiers}
             activeTouProfile={activeTouProfile}
             financials={financials}
-            csvResult={csvResult}
+            csvResult={resultsCsvResult}
+            annualProjectionReason={annualProjectionEligibility.reason}
             loadDataSource={loadDataSource}
             analysisState={analysisState}
             activeGenerationAnalysis={activeGenerationAnalysis}

@@ -322,10 +322,9 @@ export function deriveAnalysisState(
 ): AnalysisState {
   if (typeof isSuitableForAnnualOrParams === 'object' && isSuitableForAnnualOrParams !== null) {
     const params = isSuitableForAnnualOrParams;
-    const isSuitable =
-      params.completeness != null
-        ? Boolean(params.completeness.isSuitableForAnnualProjection)
-        : (params.isSuitableForAnnual ?? true);
+    // Completeness metadata is a parser-only candidate. Callers must provide
+    // the authoritative site-aligned annual eligibility result explicitly.
+    const isSuitable = params.isSuitableForAnnual === true;
 
     if (!isSuitable) {
       return 'partial-period';

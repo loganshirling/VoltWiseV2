@@ -295,10 +295,18 @@ describe('G4A — Financial Safety Gate & Generation Project Cost Contracts', ()
       };
       expect(
         deriveAnalysisState({
+          isSuitableForAnnual: true,
           completeness: fullCompleteness,
           simulationMode: 'legacy',
         })
       ).toBe('legacy-financial');
+      expect(deriveAnalysisState({ completeness: fullCompleteness, simulationMode: 'legacy' }))
+        .toBe('partial-period');
+      expect(deriveAnalysisState({
+        isSuitableForAnnual: true,
+        completeness: { ...fullCompleteness, isSuitableForAnnualProjection: false },
+        simulationMode: 'legacy',
+      })).toBe('legacy-financial');
     });
 
     it('9. Partial/incomplete data derives partial-period', () => {

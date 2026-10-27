@@ -39,7 +39,7 @@ describe('G2D — Load/Solar Timestamp Alignment', () => {
     expect(formatterCache.size).toBe(1);
   });
 
-  describe('canonical annual projection eligibility', () => {
+  describe('rolling annual projection eligibility', () => {
     const yearPoints = (year: number): IntervalDataPoint[] => {
       const start = Date.UTC(year, 0, 1);
       const count = ((Date.UTC(year + 1, 0, 1) - start) / 3_600_000);
@@ -54,23 +54,96 @@ describe('G2D — Load/Solar Timestamp Alignment', () => {
       ));
     };
 
-    it('accepts exact leap and non-leap calendar years only', () => {
+    it('accepts January calendar years and exact non-January rolling years', () => {
       expect(evaluateAnnualProjectionEligibility(yearPoints(2024), 1, 'UTC').eligible).toBe(true);
       expect(evaluateAnnualProjectionEligibility(yearPoints(2025), 1, 'UTC').eligible).toBe(true);
+      expect(evaluateAnnualProjectionEligibility(pointsForPeriod('2025-08-01T00:00:00Z', 365 * 24), 1, 'UTC').eligible).toBe(true);
+      expect(evaluateAnnualProjectionEligibility(pointsForPeriod('2025-02-01T00:00:00Z', 365 * 24), 1, 'UTC').eligible).toBe(true);
     });
 
-    it('rejects near-full, incomplete, and non-calendar annual periods', () => {
-      const leapYear = yearPoints(2024);
-      expect(evaluateAnnualProjectionEligibility(yearPoints(2025).slice(0, 360 * 24), 1, 'UTC').eligible).toBe(false);
-      expect(evaluateAnnualProjectionEligibility(leapYear.slice(0, 8760), 1, 'UTC').eligible).toBe(false);
-      expect(evaluateAnnualProjectionEligibility(leapYear.slice(0, -1), 1, 'UTC').eligible).toBe(false);
-      expect(evaluateAnnualProjectionEligibility(pointsForPeriod('2025-02-01T00:00:00Z', 365 * 24), 1, 'UTC').eligible).toBe(false);
+    it('accepts a rolling window across February 29 and rejects an unsupported Feb 29 anniversary', () => {
+      expect(evaluateAnnualProjectionEligibility(pointsForPeriod('2023-08-01T00:00:00Z', 366 * 24), 1, 'UTC').eligible).toBe(true);
+      const february29Start = pointsForPeriod('2024-02-29T00:00:00Z', 365 * 24);
+      const result = evaluateAnnualProjectionEligibility(february29Start, 1, 'UTC');
+      expect(result.eligible).toBe(false);
+      expect(result.reason).toMatch(/February 29.*no matching anniversary/i);
     });
 
-    it('fails closed for an empty or invalid site timezone', () => {
+    it('accepts an August rolling year in America/Detroit with explicit UTC instants across DST', () => {
+      const detroitRollingYear = pointsForPeriod('2025-08-01T04:00:00Z', 365 * 24);
+      const result = evaluateAnnualProjectionEligibility(detroitRollingYear, 1, 'America/Detroit');
+      expect(result).toEqual({ eligible: true });
+    });
+
+    it('accepts rolling quarter-hour cadence and leap-year interval counts', () => {
+      const quarterHourRollingYear = Array.from({ length: 365 * 96 }, (_, index) => {
+        const date = new Date(Date.parse('2025-08-01T00:00:00Z') + index * 15 * 60_000);
+        return createMockPoint(date.toISOString(), date);
+      });
+      const quarterHourLeapYear = Array.from({ length: 366 * 96 }, (_, index) => {
+        const date = new Date(Date.parse('2023-08-01T00:00:00Z') + index * 15 * 60_000);
+        return createMockPoint(date.toISOString(), date);
+      });
+      expect(evaluateAnnualProjectionEligibility(quarterHourRollingYear, 0.25, 'UTC').eligible).toBe(true);
+      expect(evaluateAnnualProjectionEligibility(quarterHourLeapYear, 0.25, 'UTC').eligible).toBe(true);
+    });
+
+    it('distinguishes short, excessive, and non-midnight windows', () => {
+      const short = evaluateAnnualProjectionEligibility(pointsForPeriod('2025-08-01T00:00:00Z', 365 * 24 - 1), 1, 'UTC');
+      expect(short.eligible).toBe(false);
+      expect(short.reason).toMatch(/duration is incomplete/i);
+
+      const excessive = evaluateAnnualProjectionEligibility(pointsForPeriod('2025-08-01T00:00:00Z', 365 * 24 + 1), 1, 'UTC');
+      expect(excessive.eligible).toBe(false);
+      expect(excessive.reason).toMatch(/exceeds one complete rolling-year window/i);
+
+      const partDay = evaluateAnnualProjectionEligibility(pointsForPeriod('2025-08-01T00:30:00Z', 365 * 24), 1, 'UTC');
+      expect(partDay.eligible).toBe(false);
+      expect(partDay.reason).toMatch(/begin at local midnight/i);
+    });
+
+    it('rejects missing, duplicate, and out-of-order UTC intervals with actionable reasons', () => {
+      const fullYear = pointsForPeriod('2025-08-01T00:00:00Z', 365 * 24);
+      const missing = fullYear.filter((_, index) => index !== 1000);
+      const missingResult = evaluateAnnualProjectionEligibility(missing, 1, 'UTC');
+      expect(missingResult.eligible).toBe(false);
+      expect(missingResult.reason).toMatch(/missing interval/i);
+
+      const duplicate = [...fullYear];
+      duplicate[1000] = { ...duplicate[999] };
+      expect(evaluateAnnualProjectionEligibility(duplicate, 1, 'UTC').reason).toMatch(/duplicate/i);
+
+      const outOfOrder = [...fullYear];
+      [outOfOrder[1000], outOfOrder[1001]] = [outOfOrder[1001]!, outOfOrder[1000]!];
+      expect(evaluateAnnualProjectionEligibility(outOfOrder, 1, 'UTC').reason).toMatch(/out-of-order|irregular UTC cadence/i);
+    });
+
+    it('rejects invalid consumption, ambiguous/nonexistent local timestamps, and invalid timezones', () => {
+      const invalidConsumption = evaluateAnnualProjectionEligibility([
+        createMockPoint('2025-08-01T00:00:00Z', new Date('2025-08-01T00:00:00Z'), Number.NaN),
+      ], 1, 'UTC');
+      expect(invalidConsumption.eligible).toBe(false);
+      expect(invalidConsumption.reason).toMatch(/invalid consumption/i);
+
+      const ambiguous = evaluateAnnualProjectionEligibility([createMockPoint('2025-11-02 01:00')], 1, 'America/Detroit');
+      expect(ambiguous.eligible).toBe(false);
+      expect(ambiguous.reason).toMatch(/ambiguous local time/i);
+
+      const nonexistent = evaluateAnnualProjectionEligibility([createMockPoint('2025-03-09 02:00')], 1, 'America/Detroit');
+      expect(nonexistent.eligible).toBe(false);
+      expect(nonexistent.reason).toMatch(/nonexistent local time/i);
+
       const points = yearPoints(2025);
-      expect(evaluateAnnualProjectionEligibility(points, 1, '').eligible).toBe(false);
+      expect(evaluateAnnualProjectionEligibility(points, 1, '').reason).toMatch(/valid site timezone/i);
       expect(evaluateAnnualProjectionEligibility(points, 1, 'Mars/Olympus').eligible).toBe(false);
+    });
+
+    it('rejects an expected interval count when the actual site-local boundaries do not match', () => {
+      const utcCalendarYear = yearPoints(2025);
+      const result = evaluateAnnualProjectionEligibility(utcCalendarYear, 1, 'America/Detroit');
+      expect(utcCalendarYear).toHaveLength(365 * 24);
+      expect(result.eligible).toBe(false);
+      expect(result.reason).toMatch(/begin at local midnight/i);
     });
 
     it('maps an absolute instant to site-local hour, weekday, and month', () => {

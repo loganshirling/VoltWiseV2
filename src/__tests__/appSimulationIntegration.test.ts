@@ -11,6 +11,7 @@ import {
   DEFAULT_RATE_TIERS,
   DEFAULT_TOU_PROFILES,
 } from '../utils/simulationEngine';
+import { executeSimulationJob } from '../utils/simulationWorkerJob';
 import {
   createDefaultGenerationConfig,
   createDefaultAsset,
@@ -192,6 +193,92 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
     });
 
     expect(unifiedResult.annualSummary).toStrictEqual(legacyDirect);
+  });
+
+  it('routes a rolling-year input through legacy finance and generation lifecycle projection', () => {
+    const startMs = Date.parse('2025-08-01T00:00:00Z');
+    const rollingYear = Array.from({ length: 365 * 24 }, (_, index) => {
+      const date = new Date(startMs + index * 3_600_000);
+      return {
+        timestamp: date.toISOString(),
+        date,
+        hour: date.getUTCHours(),
+        dayOfWeek: date.getUTCDay(),
+        month: date.getUTCMonth(),
+        usageKwh: 1.5,
+      };
+    });
+    const site = { ...validSite, timeZone: 'UTC' };
+    const battery = createBattery();
+    const scheduleMatrix = createScheduleMatrix();
+    const legacyConfig: GenerationConfig = { site, assets: [] };
+    const legacyJob = executeSimulationJob({
+      dataPoints: rollingYear,
+      intervalHours: 1,
+      profiles: [battery],
+      activeProfileId: battery.id,
+      tiers: defaultTiers,
+      scheduleMatrix,
+      generationConfig: legacyConfig,
+      allowSolarExport: false,
+      annualProjectionEligible: true,
+      preflightError: null,
+      financials: DEFAULT_MACRO_FINANCIALS,
+    });
+    expect(legacyJob.activeUnifiedResult?.mode).toBe('legacy');
+    expect(legacyJob.activeUnifiedResult?.annualSummary.isSuitableForAnnualProjection).toBe(true);
+    expect(legacyJob.allAnalyses).toHaveLength(1);
+
+    const rejectedJob = executeSimulationJob({
+      dataPoints: rollingYear.slice(0, -1),
+      intervalHours: 1,
+      profiles: [battery],
+      activeProfileId: battery.id,
+      tiers: defaultTiers,
+      scheduleMatrix,
+      generationConfig: legacyConfig,
+      allowSolarExport: false,
+      annualProjectionEligible: false,
+      preflightError: null,
+      financials: DEFAULT_MACRO_FINANCIALS,
+    });
+    expect(rejectedJob.activeUnifiedResult?.annualSummary.isSuitableForAnnualProjection).toBe(false);
+    expect(rejectedJob.allAnalyses).toEqual([]);
+
+    const generationConfig: GenerationConfig = { site, assets: [createSolarAsset()] };
+    const generationRun = runUnifiedSimulation({
+      dataPoints: rollingYear,
+      intervalHours: 1,
+      tiers: defaultTiers,
+      scheduleMatrix,
+      batteryProfile: battery,
+      generationConfig,
+      allowSolarExport: true,
+    });
+    expect(generationRun.mode).toBe('generation-aware');
+    expect(generationRun.annualSummary.isSuitableForAnnualProjection).toBe(true);
+    const projection = calculateGenerationOperationalProjection({
+      dataPoints: rollingYear,
+      intervalHours: 1,
+      tiers: defaultTiers,
+      scheduleMatrix,
+      batteryProfile: battery,
+      generationConfig,
+      allowSolarExport: true,
+      projectionYears: 1,
+    });
+    expect(projection.years[0]!.solarGeneratedKwh).toBeCloseTo(
+      generationRun.generationAwareResult!.totalSolarGenerationKwh,
+      8,
+    );
+    const generationFinancials = calculateGenerationAwareFinancials({
+      batteryProfile: battery,
+      operationalProjection: projection,
+      projectCosts: aggregateGenerationProjectCosts(generationConfig),
+      financials: DEFAULT_MACRO_FINANCIALS,
+    });
+    expect(generationFinancials.horizonYears).toBe(1);
+    expect(generationFinancials.projections).toHaveLength(1);
   });
 
   // 3. enabling configured solar selects generation-aware mode

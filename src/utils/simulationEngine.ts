@@ -22,7 +22,7 @@ import {
   OpportunityCostBenchmarkResult,
   OpportunityCostYear,
 } from './opportunityCost';
-import { evaluateAnnualProjectionEligibility } from './loadTimeAlignment';
+import { evaluateAnnualProjectionEligibility, AnnualProjectionEligibility } from './loadTimeAlignment';
 
 export {
   calculateOpportunityCostBenchmark,
@@ -1292,10 +1292,9 @@ export function deriveHorizonFinancialSummary(
  * Checks whether a dataset is suitable for multi-year financial projections.
  */
 export function isDatasetSuitableForAnnualProjections(
-  completeness?: DatasetCompleteness | null
+  siteAlignedEligibility?: AnnualProjectionEligibility | null
 ): boolean {
-  if (!completeness) return false;
-  return Boolean(completeness.isSuitableForAnnualProjection);
+  return siteAlignedEligibility?.eligible === true;
 }
 
 /**

@@ -712,7 +712,14 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   let unsuitabilityReason: string | undefined = undefined;
 
   if (firstDate && lastDate && firstCalendarDate && lastCalendarDate) {
-    const totalSpanMs = lastCalendarMs! - firstCalendarMs! + modalStepMs;
+    // Parser metadata is timezone-independent and provisional. For explicit-offset
+    // timestamps, use the resolved absolute chronology; for wall timestamps, the
+    // parser's neutral wall-clock chronology is retained until a site zone is selected.
+    const firstChronologyMs = chronologyTimesMs[0];
+    const lastChronologyMs = chronologyTimesMs.at(-1);
+    const totalSpanMs = firstChronologyMs !== undefined && lastChronologyMs !== undefined
+      ? lastChronologyMs - firstChronologyMs + modalStepMs
+      : lastCalendarMs! - firstCalendarMs! + modalStepMs;
     durationDays = Math.round((totalSpanMs / (24 * 3600 * 1000)) * 10) / 10;
     expectedIntervalCount = Math.round(totalSpanMs / modalStepMs);
 
@@ -728,37 +735,29 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       }
     }
 
-    const expectedFullYearDays = isLeapYear ? 366 : 365;
-    const expectedAnnualIntervals = Math.round((expectedFullYearDays * 24) / intervalHours);
     const operationallySimulatable = dataPoints.length >= 2 &&
       schemaValid && chronologicallyValid &&
       totalMissingIntervals === 0 && inconsistentIntervalsCount === 0;
-    const beginsAtCalendarYear = firstCalendarDate.getUTCMonth() === 0 &&
-      firstCalendarDate.getUTCDate() === 1 && firstCalendarDate.getUTCHours() === 0 && firstCalendarDate.getUTCMinutes() === 0 &&
-      firstCalendarDate.getUTCSeconds() === 0 && firstCalendarDate.getUTCMilliseconds() === 0;
-    const endsAtCalendarYear = lastCalendarDate.getUTCFullYear() === firstCalendarDate.getUTCFullYear() &&
-      lastCalendarDate.getUTCMonth() === 11 && lastCalendarDate.getUTCDate() === 31 &&
-      lastCalendarMs === Date.UTC(firstCalendarDate.getUTCFullYear() + 1, 0, 1) - modalStepMs;
 
-    // Lifecycle projections require one exact, continuous calendar year.
-    if (durationDays < 360) {
+    // This is only a timezone-independent candidate flag. The authoritative
+    // site-local anniversary, exact UTC interval count, and boundary checks run
+    // after the user selects a valid IANA site timezone.
+    if (durationDays < 364) {
       isSuitableForAnnualProjection = false;
       const approxMonths = (durationDays / 30.4).toFixed(1);
-      unsuitabilityReason = `Dataset covers only ${durationDays} days (~${approxMonths} months). Annual financial projections require one complete calendar year (${expectedFullYearDays} days) of continuous data.`;
+      unsuitabilityReason = `Dataset covers only ${durationDays} days (~${approxMonths} months). Lifecycle projections require one complete, continuous rolling 12-month period.`;
       warnings.push(unsuitabilityReason);
-    } else if (durationDays > 370) {
+    } else if (durationDays > 367) {
       isSuitableForAnnualProjection = false;
-      unsuitabilityReason = `Dataset duration is ${durationDays} days, which exceeds a single annual cycle (~${expectedFullYearDays} days).`;
+      unsuitabilityReason = `Dataset duration is ${durationDays} days, which exceeds one rolling-year candidate window. Multi-year data is not truncated automatically.`;
       warnings.push(unsuitabilityReason);
     } else if (!operationallySimulatable || totalMissingIntervals > 0) {
       isSuitableForAnnualProjection = false;
-      unsuitabilityReason = `Dataset contains missing or irregular intervals. Annual financial projections require continuous, exact interval coverage.`;
+      unsuitabilityReason = `Dataset contains missing or irregular intervals. Lifecycle projections require continuous, exact interval coverage.`;
       warnings.push(unsuitabilityReason);
-    } else if (!beginsAtCalendarYear || !endsAtCalendarYear ||
-      dataPoints.length !== expectedAnnualIntervals ||
-      !Number.isInteger((expectedFullYearDays * 24) / intervalHours)) {
+    } else if (!Number.isInteger(totalSpanMs / modalStepMs) || dataPoints.length !== expectedIntervalCount) {
       isSuitableForAnnualProjection = false;
-      unsuitabilityReason = `Dataset does not contain exact coverage from January 1 through the end of one complete calendar year (${expectedFullYearDays} days).`;
+      unsuitabilityReason = 'Dataset duration does not divide into an exact whole number of UTC intervals.';
       warnings.push(unsuitabilityReason);
     } else {
       isSuitableForAnnualProjection = true;
