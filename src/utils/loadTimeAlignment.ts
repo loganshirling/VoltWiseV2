@@ -216,7 +216,7 @@ export function getSiteLocalCalendarCoordinates(
 }
 
 /**
- * Allows lifecycle projection only for a complete, gap-free local calendar year.
+ * Allows lifecycle projection only for one complete, gap-free site-local rolling year.
  * Explicit-offset and local-wall timestamps are both resolved through the site zone.
  */
 export function evaluateAnnualProjectionEligibility(
@@ -227,14 +227,25 @@ export function evaluateAnnualProjectionEligibility(
   try {
     const zone = typeof timeZone === 'string' ? timeZone.trim() : '';
     if (!isValidIanaTimeZone(zone)) throw new Error('A valid site timezone is required.');
+    if (!Array.isArray(dataPoints) || dataPoints.length === 0) throw new Error('Dataset must be non-empty.');
+    for (let index = 0; index < dataPoints.length; index += 1) {
+      const usage = dataPoints[index]?.usageKwh;
+      if (typeof usage !== 'number' || !Number.isFinite(usage) || usage < 0) {
+        throw new Error(`Invalid consumption value at interval ${index}; values must be finite and non-negative.`);
+      }
+    }
     const aligned = alignLoadTimestampsToSite(dataPoints, intervalHours, zone);
     return evaluateAlignedAnnualProjectionEligibility(aligned, intervalHours, zone);
   } catch (error: unknown) {
-    return { eligible: false, reason: error instanceof Error ? error.message : String(error) };
+    const message = error instanceof Error ? error.message : String(error);
+    const reason = /Irregular spacing or gap/i.test(message)
+      ? `Missing interval or irregular UTC cadence. ${message}`
+      : message;
+    return { eligible: false, reason };
   }
 }
 
-/** Exact-year check for an already cadence-validated aligned sequence. */
+/** Exact rolling-year check for an already timezone-resolved aligned sequence. */
 export function evaluateAlignedAnnualProjectionEligibility(
   aligned: AlignedLoadTimestamp[],
   intervalHours: number,
@@ -244,19 +255,70 @@ export function evaluateAlignedAnnualProjectionEligibility(
     const zone = typeof timeZone === 'string' ? timeZone.trim() : '';
     if (!isValidIanaTimeZone(zone)) throw new Error('A valid site timezone is required.');
     if (!Array.isArray(aligned) || aligned.length === 0) throw new Error('Dataset must be non-empty.');
-    const first = getSiteLocalCalendarCoordinates(aligned[0].instantUtc, zone);
-    const last = getSiteLocalCalendarCoordinates(aligned[aligned.length - 1].instantUtc, zone);
-    if (first.year !== last.year) throw new Error('Dataset must cover exactly one calendar year.');
-    const yearStart = resolveTimestampToUtc(`${first.year}-01-01T00:00:00`, 0, zone);
-    const nextYearStart = resolveTimestampToUtc(`${first.year + 1}-01-01T00:00:00`, 0, zone);
-    const stepMs = Math.round(intervalHours * 3_600_000);
-    const expectedCount = (nextYearStart.getTime() - yearStart.getTime()) / stepMs;
-    if (!Number.isInteger(expectedCount) || expectedCount <= 0) throw new Error('Interval does not divide the calendar year exactly.');
-    if (
-      Math.abs(aligned[0].instantUtc.getTime() - yearStart.getTime()) > 1000 ||
-      Math.abs(aligned[aligned.length - 1].instantUtc.getTime() - (nextYearStart.getTime() - stepMs)) > 1000 ||
-      aligned.length !== expectedCount
-    ) throw new Error('Dataset must contain every interval in one complete calendar year.');
+    if (!Number.isFinite(intervalHours) || intervalHours <= 0) {
+      throw new Error('A positive interval duration is required for annual eligibility.');
+    }
+    const stepMs = intervalHours * 3_600_000;
+    if (!Number.isSafeInteger(stepMs) || stepMs <= 0) {
+      throw new Error('Interval duration must resolve to a positive whole number of milliseconds.');
+    }
+
+    for (let index = 0; index < aligned.length; index += 1) {
+      const entry = aligned[index];
+      if (!(entry?.instantUtc instanceof Date) || !Number.isFinite(entry.instantUtc.getTime())) {
+        throw new Error(`Invalid resolved timestamp at interval ${index}.`);
+      }
+      if (entry.timestampUtc !== entry.instantUtc.toISOString()) {
+        throw new Error(`Resolved UTC timestamp does not match its instant at interval ${index}.`);
+      }
+      if (index > 0) {
+        const difference = entry.instantUtc.getTime() - aligned[index - 1].instantUtc.getTime();
+        if (difference === 0) throw new Error(`Duplicate UTC instant at interval ${index}.`);
+        if (difference < 0) throw new Error(`Out-of-order UTC instant at interval ${index}.`);
+        if (difference !== stepMs) {
+          throw new Error(`Missing interval or irregular UTC cadence at interval ${index}; expected ${stepMs} ms, found ${difference} ms.`);
+        }
+      }
+    }
+
+    const firstInstant = aligned[0].instantUtc;
+    const first = getSiteLocalCalendarCoordinates(firstInstant, zone);
+    if (first.hour !== 0 || first.minute !== 0 || first.second !== 0 || firstInstant.getUTCMilliseconds() !== 0) {
+      throw new Error('Dataset must begin at local midnight on a calendar date for a rolling 12-month projection window.');
+    }
+
+    const nextYear = first.year + 1;
+    const anniversaryMonth = first.month + 1;
+    const daysInAnniversaryMonth = new Date(Date.UTC(nextYear, anniversaryMonth, 0)).getUTCDate();
+    if (first.day > daysInAnniversaryMonth) {
+      throw new Error(`February 29 start date has no matching anniversary in ${nextYear}; February 29 rolling-year windows are unsupported.`);
+    }
+
+    const localAnniversary = `${nextYear}-${String(anniversaryMonth).padStart(2, '0')}-${String(first.day).padStart(2, '0')}T00:00:00`;
+    const anniversaryBoundary = resolveTimestampToUtc(localAnniversary, aligned.length, zone);
+    const spanMs = anniversaryBoundary.getTime() - firstInstant.getTime();
+    if (!Number.isSafeInteger(spanMs) || spanMs <= 0) {
+      throw new Error('The rolling-year anniversary does not resolve to a later UTC boundary.');
+    }
+    if (spanMs % stepMs !== 0) {
+      throw new Error(`Interval duration of ${intervalHours} hours does not divide the actual UTC rolling-year span exactly.`);
+    }
+
+    const actualEndBoundaryMs = aligned[aligned.length - 1].instantUtc.getTime() + stepMs;
+    if (actualEndBoundaryMs < anniversaryBoundary.getTime()) {
+      throw new Error('Dataset duration is incomplete; intervals do not reach the next-year local anniversary boundary.');
+    }
+    if (actualEndBoundaryMs > anniversaryBoundary.getTime()) {
+      throw new Error('Dataset duration exceeds one complete rolling-year window; multi-year input is not truncated automatically.');
+    }
+
+    const expectedCount = spanMs / stepMs;
+    if (!Number.isInteger(expectedCount) || expectedCount <= 0) {
+      throw new Error('The rolling-year window does not contain a whole number of intervals.');
+    }
+    if (aligned.length !== expectedCount) {
+      throw new Error(`Missing intervals: expected ${expectedCount} intervals in the rolling-year window, found ${aligned.length}.`);
+    }
     return { eligible: true };
   } catch (error: unknown) {
     return { eligible: false, reason: error instanceof Error ? error.message : String(error) };

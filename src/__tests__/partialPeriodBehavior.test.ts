@@ -16,6 +16,7 @@ import {
   DatasetCompleteness,
   CsvValidationResult,
 } from '../types/energy';
+import { AnnualProjectionEligibility } from '../utils/loadTimeAlignment';
 
 describe('Partial-Period Behavior and Export Guards', () => {
   const mockProfile: BatteryProfile = {
@@ -100,20 +101,16 @@ describe('Partial-Period Behavior and Export Guards', () => {
   // 9B: Projection suitability helper
   // --------------------------------------------------------------------------
   describe('9B — Projection suitability helper', () => {
-    it('returns false for partial datasets and true for complete annual datasets', () => {
-      expect(isDatasetSuitableForAnnualProjections(mockCompleteness)).toBe(false);
-
-      const completeCompleteness: DatasetCompleteness = {
+    it('requires explicit site-aligned eligibility instead of parser completeness metadata', () => {
+      const parserCandidate: DatasetCompleteness = {
         ...mockCompleteness,
-        durationDays: 365,
-        intervalCount: 8760,
-        expectedIntervalCount: 8760,
-        missingIntervalCount: 0,
         isSuitableForAnnualProjection: true,
-        reason: undefined,
       };
-      expect(isDatasetSuitableForAnnualProjections(completeCompleteness)).toBe(true);
-
+      const rejectedBySite: AnnualProjectionEligibility = { eligible: false, reason: 'Invalid timezone.' };
+      const acceptedBySite: AnnualProjectionEligibility = { eligible: true };
+      expect(parserCandidate.isSuitableForAnnualProjection).toBe(true);
+      expect(isDatasetSuitableForAnnualProjections(rejectedBySite)).toBe(false);
+      expect(isDatasetSuitableForAnnualProjections(acceptedBySite)).toBe(true);
       expect(isDatasetSuitableForAnnualProjections(null)).toBe(false);
       expect(isDatasetSuitableForAnnualProjections(undefined)).toBe(false);
     });

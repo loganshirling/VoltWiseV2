@@ -174,7 +174,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   const lifecycleReady = isLifecycleProjectionReady(annualProjectionEligible, siteAlignmentEligibility);
   const lifecycleReadinessReason = siteAlignmentEligibility?.operationallySimulatable === false
     ? siteAlignmentEligibility.reason
-    : annualProjectionReason || csvResult?.completeness?.reason || 'a complete, continuous calendar year is required.';
+    : annualProjectionReason || csvResult?.completeness?.reason || 'a complete, continuous 12-month period is required.';
   const currentTouProfile =
     touProfiles.find((p) => p.id === activeTouProfileId) || touProfiles[0];
 
@@ -1052,7 +1052,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                     )}
                     <p className={lifecycleReady ? 'text-emerald-300' : 'text-amber-200'}>
                       {lifecycleReady
-                        ? 'Exact full-calendar-year coverage is available for lifecycle projections.'
+                        ? 'Complete rolling-year interval coverage is available for lifecycle projections.'
                         : `Lifecycle projections are unavailable: ${lifecycleReadinessReason}`}
                     </p>
                   </div>

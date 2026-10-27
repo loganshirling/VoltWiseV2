@@ -347,6 +347,7 @@ export interface DatasetCompleteness {
   expectedIntervalCount: number;
   missingIntervalCount: number;
   isLeapYear: boolean;
+  /** Timezone-independent rolling-year candidate only; site alignment remains authoritative. */
   isSuitableForAnnualProjection: boolean;
   reason?: string;
   // Compatibility aliases
@@ -388,7 +389,7 @@ export interface CsvValidationResult {
   chronologicallyValid: boolean;
   /** Parsed timestamps form a continuous regular interval sequence. Site timezone validation is separate. */
   operationallySimulatable: boolean;
-  /** Dataset is a complete, continuous calendar year suitable for lifecycle projection. */
+  /** Dataset is a continuous rolling-year candidate; site-local boundary validation is required. */
   annualProjectionEligible: boolean;
   /** Compatibility aggregate: schemaValid && chronologicallyValid. */
   isValid: boolean;

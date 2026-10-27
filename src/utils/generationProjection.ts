@@ -67,7 +67,9 @@ export interface GenerationOperationalProjectionParams {
   projectionStartYear?: number;
   projectionEndYear?: number;
 
+  /** @deprecated Parser hints are not authoritative; eligibility is recalculated from site-aligned timestamps. */
   isSuitableForAnnual?: boolean;
+  /** @deprecated Parser hints are not authoritative; eligibility is recalculated from site-aligned timestamps. */
   completeness?: DatasetCompleteness | null;
   allowIncompleteYearForTesting?: boolean;
 }
@@ -353,22 +355,17 @@ export function calculateGenerationOperationalProjection(
     );
   }
 
-  // Caller/UI eligibility metadata may veto projection, but cannot grant it.
-  // Only the engine-boundary exact local-calendar-year check is authoritative.
+  // Only the engine-boundary site-local rolling-year check is authoritative.
   const calculatedSuitability = evaluateAnnualProjectionEligibility(
     dataPoints,
     intervalHours,
     generationConfig.site.timeZone
   ).eligible;
-  const isSuitable = params.allowIncompleteYearForTesting === true || (
-    calculatedSuitability &&
-    params.isSuitableForAnnual !== false &&
-    params.completeness?.isSuitableForAnnualProjection !== false
-  );
+  const isSuitable = params.allowIncompleteYearForTesting === true || calculatedSuitability;
 
   if (!isSuitable) {
     throw new Error(
-      'Dataset is not suitable for annual operational projection (requires full-year data).'
+      'Dataset is not suitable for annual operational projection (requires one complete, continuous rolling 12-month period).'
     );
   }
 

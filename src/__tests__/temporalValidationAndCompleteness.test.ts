@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseAndValidateEnergyCsv } from '../utils/csvParser';
 import { formatHour12, formatDayMMDDYYYY } from '../utils/sampleData';
 
-describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
+describe('Temporal validation and timezone-independent dataset completeness', () => {
   function generateQuarterHourCsv(year: number, omitIndex?: number) {
     const leapYear = new Date(Date.UTC(year, 1, 29)).getUTCMonth() === 1;
     const intervalCount = (leapYear ? 366 : 365) * 96;
@@ -94,6 +94,25 @@ describe('Issue 3 — Temporal Validation & Dataset Completeness', () => {
     expect(common.annualProjectionEligible).toBe(true);
     expect(common.completeness?.intervalCount).toBe(35_040);
     expect(common.completeness?.isLeapYear).toBe(false);
+  });
+
+  it('marks complete August-to-August rolling years as parser candidates without claiming site-timezone authority', () => {
+    const rolling = parseAndValidateEnergyCsv(generateCsv(365, 2025, 7, 1));
+    expect(rolling.schemaValid).toBe(true);
+    expect(rolling.operationallySimulatable).toBe(true);
+    expect(rolling.annualProjectionEligible).toBe(true);
+    expect(rolling.completeness?.isSuitableForAnnualProjection).toBe(true);
+    expect(rolling.completeness?.durationDays).toBe(365);
+  });
+
+  it('does not let parser candidate metadata validate No Data consumption', () => {
+    const valid = generateCsv(365, 2025, 7, 1);
+    const invalid = valid.replace('1.000,24.000,kWh', 'No Data,24.000,kWh');
+    const result = parseAndValidateEnergyCsv(invalid);
+    expect(result.schemaValid).toBe(false);
+    expect(result.operationallySimulatable).toBe(false);
+    expect(result.annualProjectionEligible).toBe(false);
+    expect(result.errors.join(' ')).toMatch(/Non-numeric Hourly Total "No Data"/i);
   });
 
   it('rejects a quarter-hour leap year with a missing row instead of treating it as a complete year', () => {

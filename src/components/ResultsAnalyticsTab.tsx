@@ -98,6 +98,7 @@ export interface ResultsAnalyticsTabProps {
   activeTouProfile?: TouProfile;
   financials: MacroFinancials;
   csvResult?: CsvValidationResult | null;
+  annualProjectionReason?: string;
   loadDataSource?: LoadDataSource | null;
   analysisState?: AnalysisState;
 
@@ -126,6 +127,7 @@ interface ResultsAnalyticsContentProps {
   activeTouProfile?: TouProfile;
   financials: MacroFinancials;
   csvResult?: CsvValidationResult | null;
+  annualProjectionReason?: string;
   loadDataSource?: LoadDataSource | null;
   analysisState?: AnalysisState;
 
@@ -181,6 +183,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
   activeTouProfile,
   financials,
   csvResult,
+  annualProjectionReason,
   loadDataSource,
   analysisState,
   activeGenerationAnalysis,
@@ -969,7 +972,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
             <span>Partial-Period Dataset ({completeness?.durationDays ?? daysInDataset} Days) — Multi-Year Annual Projections Disabled</span>
           </div>
           <p className="text-slate-300 leading-relaxed">
-            {completeness?.reason || `Dataset covers only ${completeness?.durationDays ?? daysInDataset} days. Lifecycle projections require one exact, continuous calendar year of valid intervals and have been disabled for this dataset.`}
+            {annualProjectionReason || completeness?.reason || 'Lifecycle projections require one complete, continuous 12-month period. Your dataset does not yet cover a full representative year.'}
           </p>
           <div className="flex flex-wrap gap-4 text-[11px] font-mono text-amber-300/90 pt-1 border-t border-amber-500/20">
             <span>Observed Span: <strong>{completeness?.durationDays ?? daysInDataset} days</strong></span>
@@ -2422,10 +2425,10 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
               <span>Multi-Year Financial Projections Disabled for Incomplete Dataset</span>
             </div>
             <p className="text-xs text-slate-300 max-w-2xl mx-auto leading-relaxed">
-              The uploaded dataset spans {completeness?.durationDays ?? daysInDataset} days. Long-term projections require one exact, continuous calendar year of valid intervals and are disabled for this dataset.
+              Lifecycle projections require one complete, continuous 12-month period. Your dataset does not yet cover a full representative year.
             </p>
             <p className="text-[11px] text-amber-400/90 font-mono">
-              Upload one complete, continuous calendar year of interval data to enable multi-year financial projections. Exploratory daily dispatch and load charts below remain available.
+              Upload one complete, continuous rolling 12-month period of interval data to enable multi-year financial projections. Exploratory daily dispatch and load charts below remain available.
             </p>
           </div>
         )}
@@ -4337,7 +4340,7 @@ const ResultsAnalyticsContent: React.FC<ResultsAnalyticsContentProps> = ({
                   <tr>
                     <td colSpan={11} className="py-8 px-4 text-center text-slate-400">
                       <p className="text-sm font-medium">Multi-profile multi-year financial matrix is disabled for partial-period datasets.</p>
-                      <p className="text-xs text-slate-500 mt-1">One complete calendar year of load data is required for long-term multi-profile financial comparison.</p>
+                      <p className="text-xs text-slate-500 mt-1">One complete, continuous rolling 12-month period of load data is required for long-term multi-profile financial comparison.</p>
                     </td>
                   </tr>
                 ) : (
@@ -4469,6 +4472,7 @@ export const ResultsAnalyticsTab: React.FC<ResultsAnalyticsTabProps> = ({
   activeTouProfile,
   financials,
   csvResult,
+  annualProjectionReason,
   loadDataSource,
   analysisState,
   activeGenerationAnalysis,
@@ -4531,6 +4535,7 @@ export const ResultsAnalyticsTab: React.FC<ResultsAnalyticsTabProps> = ({
       activeTouProfile={activeTouProfile}
       financials={financials}
       csvResult={csvResult}
+      annualProjectionReason={annualProjectionReason}
       loadDataSource={loadDataSource}
       analysisState={analysisState}
       activeGenerationAnalysis={activeGenerationAnalysis}

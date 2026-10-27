@@ -19,3 +19,7 @@
 
 The audit reported that current code rejected file-backed measured resources in multi-year projections and its VW-01 remediation specified full-year replay, degradation of hardware rather than weather, unchanged wind input, and compact annual totals. The owner selected that behavior despite the older tracked generation plan and model-scope documentation describing period-only measured resources. The implementation roadmap updates those contracts and tests this behavior.
 
+## Superseding eligibility clarification (2026-10-26)
+
+The original decision above records the then-current calendar-year eligibility contract and remains part of the decision history. The rolling-year remediation supersedes that calendar-boundary requirement: a complete, continuous sequence from site-local midnight on any date to midnight on that date the following year may qualify, subject to exact UTC cadence, load/resource alignment, site-timezone validation, and simulation/financial checks. The representative-period replay behavior, unchanged measured weather observations, and compact annual operational aggregates remain in force. A February 29 start is unsupported when the following-year anniversary does not exist. See the current [model scope](model-scope.md) and [measured-resource data contract](measured-resource-data.md).
+
