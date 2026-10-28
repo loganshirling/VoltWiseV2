@@ -183,13 +183,11 @@ export default function App() {
           return;
         }
         if (guidedReview.formatRecognized && guidedReview.status === 'needs-correction') {
-          const timezoneReady = isValidIanaTimeZone(generationConfig.site.timeZone);
-          const requiresGuidedResolution = timezoneReady || !parsed.schemaValid || !parsed.chronologicallyValid || !parsed.operationallySimulatable;
-          if (requiresGuidedResolution) {
-            setPendingLoadUpload({ csv: text, fileName: file.name });
-            setLoadImportError(null);
-            return;
-          }
+          // A recognized DTE candidate remains staged until its timezone and any
+          // required timestamp/value corrections are explicitly resolved.
+          setPendingLoadUpload({ csv: text, fileName: file.name });
+          setLoadImportError(null);
+          return;
         }
         if (guidedReview.formatRecognized && guidedReview.status === 'ready') {
           const accepted = buildAcceptedDteImport(guidedReview, {

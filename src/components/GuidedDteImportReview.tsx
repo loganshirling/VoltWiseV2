@@ -4,6 +4,7 @@ import {
   GuidedDteCorrection,
   GuidedDteReview,
   buildAcceptedDteImport,
+  invalidateStaleEstimateCorrections,
   previewDteImport,
   proposeGuidedEstimate,
 } from '../utils/guidedCsvImport';
@@ -45,9 +46,22 @@ export default function GuidedDteImportReview({ review, onAccept, onCancel, onCo
   const setEstimate = (key: string, target: { sourceRow?: number; instantUtc?: string }, scope: 'source' | 'missing') => {
     const proposal = proposeGuidedEstimate(preview, target);
     if (!proposal) return;
-    const correction: GuidedDteCorrection = { usageKwh: proposal.usageKwh, method: 'estimate', approved: true };
+    const correction: GuidedDteCorrection = {
+      usageKwh: proposal.usageKwh, method: 'estimate', approved: true, estimateContextKey: proposal.contextKey,
+    };
     if (scope === 'source') setSourceRowCorrections((current) => ({ ...current, [Number(key)]: correction }));
     else setMissingIntervalCorrections((current) => ({ ...current, [key]: correction }));
+  };
+
+  const handleTimeChoiceChange = (sourceRow: number, instantUtc: string) => {
+    const nextChoices = { ...timeChoices, [sourceRow]: instantUtc };
+    const nextPreview = previewDteImport(review, nextChoices);
+    const nextCorrections = invalidateStaleEstimateCorrections(
+      preview, nextPreview, sourceRowCorrections, missingIntervalCorrections,
+    );
+    setSourceRowCorrections(nextCorrections.sourceRowCorrections);
+    setMissingIntervalCorrections(nextCorrections.missingIntervalCorrections);
+    setTimeChoices(nextChoices);
   };
 
   const accept = () => {
@@ -102,7 +116,7 @@ export default function GuidedDteImportReview({ review, onAccept, onCancel, onCo
                     <select
                       id={`fold-row-${row.sourceRow}`}
                       value={timeChoices[row.sourceRow] ?? ''}
-                      onChange={(event) => setTimeChoices((current) => ({ ...current, [row.sourceRow]: event.target.value }))}
+                      onChange={(event) => handleTimeChoiceChange(row.sourceRow, event.target.value)}
                       className="mt-1 block min-h-10 w-full rounded-md border border-amber-300/40 bg-slate-950 px-2 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
                     >
                       <option value="">Choose an occurrence</option>

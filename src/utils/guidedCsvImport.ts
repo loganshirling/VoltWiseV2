@@ -45,12 +45,14 @@ export interface GuidedDtePreview {
 export interface GuidedEstimateProposal {
   usageKwh: number;
   disclosure: string;
+  contextKey: string;
 }
 
 export interface GuidedDteCorrection {
   usageKwh: number;
   method: 'manual' | 'estimate';
   approved: boolean;
+  estimateContextKey?: string;
 }
 
 export interface GuidedDteCorrections {
@@ -236,18 +238,25 @@ export function previewDteImport(review: GuidedDteReview, timeChoices: Record<nu
   const entries = review.rows.flatMap((row) => {
     const instantUtc = row.requiresTimeConfirmation ? timeChoices[row.sourceRow] : row.candidates[0]?.instantUtc;
     return instantUtc ? [{ sourceRow: row.sourceRow, instantUtc, usageKwh: row.originalUsageKwh, row }] : [];
-  }).sort((a, b) => Date.parse(a.instantUtc) - Date.parse(b.instantUtc));
+  });
   const errors: string[] = [];
   const missingIntervals: GuidedDtePreview['missingIntervals'] = [];
   if (unconfirmedRows.length > 0) return { entries, unconfirmedRows, missingIntervals, errors };
   const stepMs = (review.intervalHours ?? 0) * 3_600_000;
   if (stepMs <= 0) errors.push('Could not determine an exact interval duration from the source timestamps.');
+  for (let index = 1; index < entries.length; index += 1) {
+    if (wallMilliseconds(entries[index].row) < wallMilliseconds(entries[index - 1].row)) {
+      errors.push(`Source rows ${entries[index - 1].sourceRow} and ${entries[index].sourceRow} are out of chronological source order.`);
+    }
+  }
+  if (errors.length > 0) return { entries, unconfirmedRows, missingIntervals, errors };
   for (let index = 1; index < entries.length && stepMs > 0; index += 1) {
     const previous = Date.parse(entries[index - 1].instantUtc);
     const current = Date.parse(entries[index].instantUtc);
     const diff = current - previous;
     if (diff === 0) errors.push(`Source rows ${entries[index - 1].sourceRow} and ${entries[index].sourceRow} were assigned to the same UTC interval.`);
-    else if (diff < 0 || diff % stepMs !== 0) errors.push(`Irregular UTC cadence between source rows ${entries[index - 1].sourceRow} and ${entries[index].sourceRow}.`);
+    else if (diff < 0) errors.push(`Confirmed UTC assignments reverse source chronology between rows ${entries[index - 1].sourceRow} and ${entries[index].sourceRow}.`);
+    else if (diff % stepMs !== 0) errors.push(`Irregular UTC cadence between source rows ${entries[index - 1].sourceRow} and ${entries[index].sourceRow}.`);
     else if (diff > stepMs) {
       for (let instant = previous + stepMs; instant < current; instant += stepMs) {
         const date = new Date(instant);
@@ -284,17 +293,50 @@ export function proposeGuidedEstimate(
     .sort((a, b) => Date.parse(a.instantUtc) - Date.parse(b.instantUtc))[0];
   if (!before || !after) return null;
   const estimate = Math.round(((before.usageKwh! + after.usageKwh!) / 2) * 1000) / 1000;
+  const contextKey = JSON.stringify({
+    target: { sourceRow: target.sourceRow ?? null, instantUtc: instant },
+    before: { sourceRow: before.sourceRow, instantUtc: before.instantUtc, usageKwh: before.usageKwh },
+    after: { sourceRow: after.sourceRow, instantUtc: after.instantUtc, usageKwh: after.usageKwh },
+  });
   return {
     usageKwh: estimate,
+    contextKey,
     disclosure: `Estimate uses the arithmetic mean of the nearest measured intervals (${before.usageKwh} kWh before and ${after.usageKwh} kWh after). Review and approve it; no value is filled automatically.`,
   };
 }
 
-function validateCorrection(correction: GuidedDteCorrection | undefined, location: string): GuidedDteCorrection {
+/** Drop only estimate approvals whose measured-neighbor context changes after a time choice. */
+export function invalidateStaleEstimateCorrections(
+  previousPreview: GuidedDtePreview,
+  nextPreview: GuidedDtePreview,
+  sourceRowCorrections: Record<number, GuidedDteCorrection>,
+  missingIntervalCorrections: Record<string, GuidedDteCorrection>,
+): Pick<GuidedDteCorrections, 'sourceRowCorrections' | 'missingIntervalCorrections'> {
+  const source = Object.fromEntries(Object.entries(sourceRowCorrections).filter(([sourceRow, correction]) => {
+    if (correction.method !== 'estimate') return true;
+    const target = { sourceRow: Number(sourceRow) };
+    const previousContext = proposeGuidedEstimate(previousPreview, target)?.contextKey;
+    const nextContext = proposeGuidedEstimate(nextPreview, target)?.contextKey;
+    return previousContext !== undefined && previousContext === nextContext && correction.estimateContextKey === nextContext;
+  }));
+  const missing = Object.fromEntries(Object.entries(missingIntervalCorrections).filter(([instantUtc, correction]) => {
+    if (correction.method !== 'estimate') return true;
+    const target = { instantUtc };
+    const previousContext = proposeGuidedEstimate(previousPreview, target)?.contextKey;
+    const nextContext = proposeGuidedEstimate(nextPreview, target)?.contextKey;
+    return previousContext !== undefined && previousContext === nextContext && correction.estimateContextKey === nextContext;
+  }));
+  return { sourceRowCorrections: source, missingIntervalCorrections: missing };
+}
+
+function validateCorrection(correction: GuidedDteCorrection | undefined, location: string, expectedEstimateContext?: string | null): GuidedDteCorrection {
   if (!correction || !Number.isFinite(correction.usageKwh) || correction.usageKwh < 0) {
     throw new Error(`Enter a finite, non-negative kWh value for ${location}.`);
   }
   if (correction.method === 'estimate' && !correction.approved) throw new Error(`Approve the disclosed estimate for ${location} before continuing.`);
+  if (correction.method === 'estimate' && (!expectedEstimateContext || correction.estimateContextKey !== expectedEstimateContext)) {
+    throw new Error(`The estimate approval for ${location} is stale because its measured-neighbor context changed. Review and approve a new estimate.`);
+  }
   return correction;
 }
 
@@ -310,7 +352,11 @@ export function buildAcceptedDteImport(review: GuidedDteReview, corrections: Gui
   for (const entry of preview.entries) {
     let usageKwh = entry.usageKwh;
     if (usageKwh === null) {
-      const correction = validateCorrection(corrections.sourceRowCorrections[entry.sourceRow], `source row ${entry.sourceRow}`);
+      const correction = validateCorrection(
+        corrections.sourceRowCorrections[entry.sourceRow],
+        `source row ${entry.sourceRow}`,
+        proposeGuidedEstimate(preview, { sourceRow: entry.sourceRow })?.contextKey,
+      );
       usageKwh = correction.usageKwh;
       provenanceCorrections.push({
         sourceRow: entry.sourceRow, sourceDate: entry.row.sourceDate, sourceTime: entry.row.sourceTime,
@@ -330,7 +376,11 @@ export function buildAcceptedDteImport(review: GuidedDteReview, corrections: Gui
   }
 
   for (const missing of preview.missingIntervals) {
-    const correction = validateCorrection(corrections.missingIntervalCorrections[missing.instantUtc], `missing interval ${missing.localTimestamp} (${missing.offsetLabel})`);
+    const correction = validateCorrection(
+      corrections.missingIntervalCorrections[missing.instantUtc],
+      `missing interval ${missing.localTimestamp} (${missing.offsetLabel})`,
+      proposeGuidedEstimate(preview, { instantUtc: missing.instantUtc })?.contextKey,
+    );
     outputRows.push({ instantUtc: missing.instantUtc, usageKwh: correction.usageKwh });
     provenanceCorrections.push({
       sourceRow: null, sourceDate: missing.localTimestamp.slice(0, 10), sourceTime: missing.localTimestamp.slice(11),

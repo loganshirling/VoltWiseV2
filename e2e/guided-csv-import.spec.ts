@@ -10,15 +10,21 @@ const singleFallBackCsv = [
 
 test('guides a single fall-back row through correction and preserves provenance in a saved project', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '3. Power Generation', exact: true }).last().click();
-  await page.getByLabel('Site timezone (IANA)').fill('America/Detroit');
   await page.getByRole('button', { name: '1. Data & TOU Rates', exact: true }).last().click();
+  await expect(page.getByText('8,760 intervals parsed')).toBeVisible();
 
   await page.getByLabel('Upload interval load CSV').setInputFiles({
     name: 'dte-fall-back.csv', mimeType: 'text/csv', buffer: Buffer.from(singleFallBackCsv),
   });
 
   await expect(page.getByRole('heading', { name: 'Review dte-fall-back.csv' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Set site timezone' }).first()).toBeVisible();
+  await expect(page.getByText('8,760 intervals parsed')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Site Timezone Required' })).toBeVisible();
+  await page.getByRole('button', { name: 'Set site timezone' }).first().click();
+  await page.getByLabel('Site timezone (IANA)').fill('America/Detroit');
+  await page.getByRole('button', { name: '1. Data & TOU Rates', exact: true }).last().click();
+
   await expect(page.getByText(/If UTC−04:00 .*surrounding rows leave 2025-11-02T06:00:00.000Z uncovered/)).toBeVisible();
   await expect(page.getByText(/If UTC−05:00 .*surrounding rows leave 2025-11-02T05:00:00.000Z uncovered/)).toBeVisible();
   await expect(page.getByLabel('Confirm the UTC occurrence for source row 3')).toBeVisible();

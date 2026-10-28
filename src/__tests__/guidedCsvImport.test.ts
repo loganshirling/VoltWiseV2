@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAcceptedDteImport,
   inspectDteImport,
+  invalidateStaleEstimateCorrections,
   previewDteImport,
   proposeGuidedEstimate,
 } from '../utils/guidedCsvImport';
@@ -24,6 +25,17 @@ const TWO_FOLD_ROWS = [
 ].join('\n');
 
 describe('guided DTE CSV import', () => {
+  it('stages parser-valid ambiguous DTE data when no site timezone is configured', () => {
+    const parsed = parseAndValidateEnergyCsv(DST_CSV);
+    const review = inspectDteImport(DST_CSV, '', 'dte.csv');
+
+    expect(parsed.schemaValid && parsed.chronologicallyValid).toBe(true);
+    expect(review.status).toBe('needs-correction');
+    expect(review.formatRecognized).toBe(true);
+    expect(review.error).toMatch(/valid site timezone/i);
+    expect(review.rows).toHaveLength(0);
+  });
+
   it('preserves a single fall-back measurement and exposes both UTC interpretations without choosing', () => {
     const review = inspectDteImport(DST_CSV, 'America/Detroit', 'dte.csv');
     const fold = review.rows.find((row) => row.localTimestamp === '2025-11-02 01:00');
@@ -74,6 +86,36 @@ describe('guided DTE CSV import', () => {
     expect(parsed.operationallySimulatable).toBe(true);
     expect(parsed.data.map((point) => point.usageKwh)).toEqual([1.25, 2.25, 3.25, 4.5]);
     expect(accepted.provenance.timeAssignments.map((entry) => entry.offsetLabel)).toEqual(['UTC−04:00', 'UTC−05:00']);
+  });
+
+  it('invalidates an estimate when fall-back UTC choices change its measured neighbors and preserves manual corrections', () => {
+    const csv = TWO_FOLD_ROWS.replace('1:00 AM,3.25', '1:00 AM,No Data');
+    const review = inspectDteImport(csv, 'America/Detroit', 'dte.csv');
+    const firstChoices = { 3: '2025-11-02T05:00:00.000Z', 4: '2025-11-02T06:00:00.000Z' };
+    const secondChoices = { 3: '2025-11-02T06:00:00.000Z', 4: '2025-11-02T05:00:00.000Z' };
+    const firstPreview = previewDteImport(review, firstChoices);
+    const secondPreview = previewDteImport(review, secondChoices);
+    const firstEstimate = proposeGuidedEstimate(firstPreview, { sourceRow: 4 });
+    const secondEstimate = proposeGuidedEstimate(secondPreview, { sourceRow: 4 });
+
+    expect(firstEstimate).not.toBeNull();
+    expect(secondEstimate).not.toBeNull();
+    expect(firstEstimate?.contextKey).not.toBe(secondEstimate?.contextKey);
+    const nextCorrections = invalidateStaleEstimateCorrections(
+      firstPreview,
+      secondPreview,
+      {
+        4: {
+          usageKwh: firstEstimate!.usageKwh, method: 'estimate', approved: true,
+          estimateContextKey: firstEstimate!.contextKey,
+        },
+        9: { usageKwh: 8, method: 'manual', approved: true },
+      },
+      {},
+    );
+
+    expect(nextCorrections.sourceRowCorrections[4]).toBeUndefined();
+    expect(nextCorrections.sourceRowCorrections[9]).toEqual({ usageKwh: 8, method: 'manual', approved: true });
   });
 
   it('keeps a measured fall-back value when the other source row is No Data', () => {
@@ -140,6 +182,19 @@ describe('guided DTE CSV import', () => {
     expect(review.error).toMatch(/duplicate.*source/i);
   });
 
+  it('rejects arbitrary out-of-order source rows instead of sorting them into UTC chronology', () => {
+    const csv = [
+      'Day,Hour of Day,Hourly Total,Daily Total,Unit of Measurement',
+      '10/31/2025,2:00 AM,2,20,kWh',
+      '10/31/2025,1:00 AM,1,20,kWh',
+      '10/31/2025,3:00 AM,3,20,kWh',
+    ].join('\n');
+    const review = inspectDteImport(csv, 'America/Detroit', 'dte.csv');
+
+    expect(review.status).toBe('rejected');
+    expect(review.error).toMatch(/out of chronological source order/i);
+  });
+
   it('accepts only confirmed complete UTC cadence and returns original CSV plus correction provenance', () => {
     const review = inspectDteImport(DST_CSV, 'America/Detroit', 'dte.csv');
     expect(() => buildAcceptedDteImport(review, {
@@ -180,7 +235,12 @@ describe('guided DTE CSV import', () => {
     })).toThrow(/approve the disclosed estimate/i);
     const accepted = buildAcceptedDteImport(review, {
       timeChoices,
-      sourceRowCorrections: { 3: { usageKwh: 2.4, method: 'estimate', approved: true } },
+      sourceRowCorrections: {
+        3: {
+          usageKwh: 2.4, method: 'estimate', approved: true,
+          estimateContextKey: proposeGuidedEstimate(preview, { sourceRow: 3 })!.contextKey,
+        },
+      },
       missingIntervalCorrections: { '2025-11-02T06:00:00.000Z': { usageKwh: 2.9, method: 'manual', approved: true } },
     });
     expect(accepted.provenance.corrections[0]).toEqual(expect.objectContaining({ method: 'estimate', disclosure: expect.stringMatching(/nearest measured interval/i) }));
