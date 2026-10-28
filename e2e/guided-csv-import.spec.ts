@@ -11,16 +11,20 @@ const singleFallBackCsv = [
 test('guides a single fall-back row through correction and preserves provenance in a saved project', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '1. Data & TOU Rates', exact: true }).last().click();
+  const uploadArea = page.getByTestId('load-upload-area');
+  await expect(uploadArea).toHaveAttribute('data-upload-state', 'idle');
   await expect(page.getByText('8,760 intervals parsed')).toBeVisible();
 
   await page.getByLabel('Upload interval load CSV').setInputFiles({
     name: 'dte-fall-back.csv', mimeType: 'text/csv', buffer: Buffer.from(singleFallBackCsv),
   });
 
+  await expect(uploadArea).toHaveAttribute('data-upload-state', 'correction');
   await expect(page.getByRole('heading', { name: 'Review dte-fall-back.csv' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Set site timezone' }).first()).toBeVisible();
   await expect(page.getByText('8,760 intervals parsed')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Site Timezone Required' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Existing Active Dataset Retained' })).toBeVisible();
+  await expect(page.getByText(/new upload has not been accepted/i)).toBeVisible();
   await page.getByRole('button', { name: 'Set site timezone' }).first().click();
   await page.getByLabel('Site timezone (IANA)').fill('America/Detroit');
   await page.getByRole('button', { name: '1. Data & TOU Rates', exact: true }).last().click();
@@ -33,6 +37,8 @@ test('guides a single fall-back row through correction and preserves provenance 
   await page.getByLabel('Enter usage (kWh)').fill('2.9');
   await page.getByRole('button', { name: 'Validate and accept corrected data' }).click();
 
+  await expect(uploadArea).toHaveAttribute('data-upload-state', 'accepted');
+  await expect(page.getByRole('status').filter({ hasText: /Simulation ready: the active dataset passed/i })).toBeVisible();
   await expect(page.getByText('Interval Dataset Ready for Simulation')).toBeVisible();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Save Project' }).click();
@@ -55,4 +61,20 @@ test('guides a single fall-back row through correction and preserves provenance 
   });
   await expect(page.getByRole('status').filter({ hasText: 'Opened dte-corrected.json.' })).toBeVisible();
   await expect(page.getByText('Interval Dataset Ready for Simulation')).toBeVisible();
+});
+
+test('shows a rejected upload separately while preserving the previously active dataset', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '1. Data & TOU Rates', exact: true }).last().click();
+  await expect(page.getByText('8,760 intervals parsed')).toBeVisible();
+  const uploadArea = page.getByTestId('load-upload-area');
+  await page.getByLabel('Upload interval load CSV').setInputFiles({
+    name: 'invalid.csv', mimeType: 'text/csv', buffer: Buffer.from('not,a,valid,energy,csv\n1,2,3,4,5'),
+  });
+
+  await expect(uploadArea).toHaveAttribute('data-upload-state', 'rejected');
+  await expect(page.getByRole('alert').filter({ hasText: 'Import rejected.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Existing Active Dataset Retained' })).toBeVisible();
+  await expect(page.getByText('8,760 intervals parsed')).toBeVisible();
+  await expect(page.getByText(/new upload has not been accepted/i)).toBeVisible();
 });

@@ -110,10 +110,14 @@ export default function App() {
   const [pendingLoadUpload, setPendingLoadUpload] = useState<{ csv: string; fileName: string } | null>(null);
   const [loadImportError, setLoadImportError] = useState<string | null>(null);
   const [isReadingLoadFile, setIsReadingLoadFile] = useState(false);
+  const [isLoadUploadRejected, setIsLoadUploadRejected] = useState(false);
+  const [lastLoadUploadAccepted, setLastLoadUploadAccepted] = useState(false);
+  const [loadUploadSuccessPulse, setLoadUploadSuccessPulse] = useState(false);
   const [savedProjectFingerprint, setSavedProjectFingerprint] = useState<string | null>(null);
   const projectStateRef = useRef<ProjectArchiveState | null>(null);
   const loadImportGeneration = useRef(0);
   const activeLoadReader = useRef<FileReader | null>(null);
+  const loadUploadPulseTimer = useRef<number | null>(null);
   const [simulationWorkerClient] = useState(() => createSimulationWorkerClient());
   const simulationRequestId = useRef(0);
   const [simulationWorkerState, setSimulationWorkerState] = useState<{
@@ -154,18 +158,41 @@ export default function App() {
     setIsReadingLoadFile(false);
   };
 
+  const clearLoadUploadFeedback = () => {
+    setLastLoadUploadAccepted(false);
+    setLoadUploadSuccessPulse(false);
+    if (loadUploadPulseTimer.current !== null) {
+      window.clearTimeout(loadUploadPulseTimer.current);
+      loadUploadPulseTimer.current = null;
+    }
+  };
+
+  const markLoadUploadAccepted = () => {
+    setLastLoadUploadAccepted(true);
+    setLoadUploadSuccessPulse(true);
+    if (loadUploadPulseTimer.current !== null) window.clearTimeout(loadUploadPulseTimer.current);
+    loadUploadPulseTimer.current = window.setTimeout(() => {
+      setLoadUploadSuccessPulse(false);
+      loadUploadPulseTimer.current = null;
+    }, 1200);
+  };
+
   useEffect(() => () => {
     loadImportGeneration.current += 1;
     if (activeLoadReader.current?.readyState === FileReader.LOADING) activeLoadReader.current.abort();
+    if (loadUploadPulseTimer.current !== null) window.clearTimeout(loadUploadPulseTimer.current);
   }, []);
 
   // Handle User CSV Upload
   const handleFileUpload = (file: File) => {
     invalidatePendingLoadRead();
+    clearLoadUploadFeedback();
+    setIsLoadUploadRejected(false);
     setPendingLoadUpload(null);
     const requestId = loadImportGeneration.current;
     setLoadImportError(null);
     if (file.size > MAX_LOAD_CSV_BYTES) {
+      setIsLoadUploadRejected(true);
       setLoadImportError(`Load CSV exceeds the ${(MAX_LOAD_CSV_BYTES / (1024 * 1024)).toFixed(0)} MiB limit. Split the data into smaller files; your active dataset is unchanged.`);
       return;
     }
@@ -179,6 +206,7 @@ export default function App() {
         const guidedReview = inspectDteImport(text, generationConfig.site.timeZone, file.name);
         const parsed = parseAndValidateEnergyCsv(text);
         if (guidedReview.formatRecognized && guidedReview.status === 'rejected') {
+          setIsLoadUploadRejected(true);
           setLoadImportError(`${guidedReview.error ?? 'The CSV cannot be imported.'} The active dataset is unchanged.`);
           return;
         }
@@ -186,6 +214,7 @@ export default function App() {
           // A recognized DTE candidate remains staged until its timezone and any
           // required timestamp/value corrections are explicitly resolved.
           setPendingLoadUpload({ csv: text, fileName: file.name });
+          setIsLoadUploadRejected(false);
           setLoadImportError(null);
           return;
         }
@@ -197,10 +226,12 @@ export default function App() {
           return;
         }
         if (!parsed.schemaValid || !parsed.chronologicallyValid) {
+          setIsLoadUploadRejected(true);
           setLoadImportError(`${parsed.errors.join(' ')} The active dataset is unchanged.`);
           return;
         }
         if (parsed.data.length > MAX_INTERVALS_PER_DATASET) {
+          setIsLoadUploadRejected(true);
           setLoadImportError(`Load CSV exceeds the ${MAX_INTERVALS_PER_DATASET.toLocaleString()} interval limit. Split the data into smaller files; your active dataset is unchanged.`);
           return;
         }
@@ -220,7 +251,10 @@ export default function App() {
         setLoadResolvedCsv(null);
         setLoadImportProvenance(null);
         setLoadImportError(null);
+        setIsLoadUploadRejected(false);
+        markLoadUploadAccepted();
       } catch (error) {
+        setIsLoadUploadRejected(true);
         setLoadImportError(`${error instanceof Error ? error.message : 'Load CSV could not be parsed.'} The active dataset is unchanged.`);
       } finally {
         if (loadImportGeneration.current === requestId) {
@@ -233,12 +267,14 @@ export default function App() {
       if (loadImportGeneration.current !== requestId) return;
       activeLoadReader.current = null;
       setIsReadingLoadFile(false);
+      setIsLoadUploadRejected(true);
       setLoadImportError(`Could not read ${file.name}. Choose a readable CSV; your active dataset is unchanged.`);
     };
     reader.onabort = () => {
       if (loadImportGeneration.current !== requestId) return;
       activeLoadReader.current = null;
       setIsReadingLoadFile(false);
+      setIsLoadUploadRejected(true);
       setLoadImportError(`Reading ${file.name} was canceled. Your active dataset is unchanged.`);
     };
     reader.readAsText(file);
@@ -267,7 +303,10 @@ export default function App() {
       setLoadImportProvenance(accepted.provenance);
       setPendingLoadUpload(null);
       setLoadImportError(null);
+      setIsLoadUploadRejected(false);
+      markLoadUploadAccepted();
     } catch (error) {
+      setIsLoadUploadRejected(true);
       setLoadImportError(`${error instanceof Error ? error.message : 'The corrected dataset could not be accepted.'} The active dataset is unchanged.`);
     }
   };
@@ -277,6 +316,8 @@ export default function App() {
     if (isDirty && !window.confirm('Loading the synthetic sample replaces your current load data. Continue and discard your unsaved changes?')) return;
     invalidatePendingLoadRead();
     setLoadImportError(null);
+    clearLoadUploadFeedback();
+    setIsLoadUploadRejected(false);
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
     const currentProject = projectStateRef.current;
@@ -305,6 +346,8 @@ export default function App() {
     if (isDirty && !window.confirm('Reset the project and discard its unsaved changes?')) return;
     invalidatePendingLoadRead();
     setLoadImportError(null);
+    clearLoadUploadFeedback();
+    setIsLoadUploadRejected(false);
     setCsvResult(null);
     setLoadDataCsv(null);
     setLoadDataSource(null);
@@ -513,6 +556,8 @@ export default function App() {
 
   const handleProjectLoaded = (project: ValidatedProjectState) => {
     invalidatePendingLoadRead();
+    clearLoadUploadFeedback();
+    setIsLoadUploadRejected(false);
     setProfiles(project.profiles);
     setActiveProfileId(project.activeProfileId);
     setTouProfiles(project.touProfiles);
@@ -783,6 +828,9 @@ export default function App() {
               onProjectSaved={handleProjectSaved}
               loadImportError={loadImportError}
               isReadingLoadFile={isReadingLoadFile}
+              isLoadUploadRejected={isLoadUploadRejected}
+              lastLoadUploadAccepted={lastLoadUploadAccepted}
+              loadUploadSuccessPulse={loadUploadSuccessPulse}
             guidedImportReview={guidedImportReview}
             onAcceptGuidedImport={handleAcceptGuidedImport}
             onCancelGuidedImport={() => setPendingLoadUpload(null)}

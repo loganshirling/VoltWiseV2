@@ -79,6 +79,9 @@ interface DataAndRatesTabProps {
   onProjectSaved: (state: ProjectArchiveState) => void;
   loadImportError: string | null;
   isReadingLoadFile: boolean;
+  isLoadUploadRejected: boolean;
+  lastLoadUploadAccepted: boolean;
+  loadUploadSuccessPulse: boolean;
   guidedImportReview: GuidedDteReview | null;
   onAcceptGuidedImport: (accepted: AcceptedGuidedDteImport) => void;
   onCancelGuidedImport: () => void;
@@ -167,6 +170,9 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   onProjectSaved,
   loadImportError,
   isReadingLoadFile,
+  isLoadUploadRejected,
+  lastLoadUploadAccepted,
+  loadUploadSuccessPulse,
   guidedImportReview,
   onAcceptGuidedImport,
   onCancelGuidedImport,
@@ -181,6 +187,37 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   setScheduleMatrix,
 }) => {
   const simulationReady = isSimulationReady(csvResult?.operationallySimulatable, siteAlignmentEligibility);
+  const uploadFeedbackState = isReadingLoadFile
+    ? 'reading'
+    : isLoadUploadRejected
+      ? 'rejected'
+      : guidedImportReview
+        ? 'correction'
+        : lastLoadUploadAccepted
+          ? 'accepted'
+          : 'idle';
+  const uploadFeedbackMessage = uploadFeedbackState === 'reading'
+    ? 'Reading the selected CSV. The active dataset has not changed.'
+    : uploadFeedbackState === 'rejected'
+      ? `Import rejected. ${loadImportError}`
+      : uploadFeedbackState === 'correction'
+        ? 'Correction required. The new file is staged; the active dataset has not changed.'
+        : uploadFeedbackState === 'accepted'
+          ? simulationReady
+            ? 'Upload accepted. Simulation ready: the active dataset passed load and site-timezone readiness checks.'
+            : 'Upload accepted and active. Simulation readiness checks are not yet satisfied.'
+          : 'Choose a CSV file to validate before it can become the active dataset.';
+  const candidateNotAccepted = uploadFeedbackState === 'reading' || uploadFeedbackState === 'correction' || uploadFeedbackState === 'rejected';
+  const uploadFeedbackStyles = {
+    idle: 'border-slate-700 hover:border-emerald-500/60 bg-slate-900/30 hover:bg-slate-900/50',
+    reading: 'border-sky-500/60 bg-sky-950/25',
+    correction: 'border-amber-500/60 bg-amber-950/25',
+    rejected: 'border-rose-500/60 bg-rose-950/25',
+    accepted: 'border-emerald-500/60 bg-emerald-950/25',
+  }[uploadFeedbackState];
+  const activeSummaryMessage = candidateNotAccepted
+    ? `This summary describes the existing active dataset only. The new upload has not been accepted${simulationReady ? '; the existing dataset remains simulation ready.' : '.'}`
+    : null;
   const simulationReadinessReason = siteAlignmentEligibility?.reason ||
     'Set a valid site timezone before running a simulation.';
   const lifecycleReady = isLifecycleProjectionReady(annualProjectionEligible, siteAlignmentEligibility);
@@ -943,10 +980,13 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
 
         {/* Drag & Drop Upload Zone */}
         <div
+          data-testid="load-upload-area"
+          data-upload-state={uploadFeedbackState}
+          aria-busy={isReadingLoadFile}
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-slate-800 hover:border-emerald-500/60 bg-slate-900/30 hover:bg-slate-900/50 rounded-xl p-6 text-center cursor-pointer transition-all space-y-2 group"
+          className={`border-2 border-dashed ${uploadFeedbackStyles} rounded-xl p-6 text-center cursor-pointer transition-all space-y-2 group ${uploadFeedbackState === 'accepted' && loadUploadSuccessPulse ? 'motion-safe:animate-[pulse_1.2s_ease-in-out_1]' : ''}`}
         >
           <input
             ref={fileInputRef}
@@ -974,8 +1014,14 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
           </div>
         </div>
 
-        {isReadingLoadFile && <p role="status" className="mt-2 text-xs text-sky-300">Reading load CSV…</p>}
-        {loadImportError && <p role="alert" className="mt-2 text-xs text-rose-300">{loadImportError}</p>}
+        {loadImportError && !isLoadUploadRejected && <p role="alert" className="mt-2 text-xs text-rose-300">{loadImportError}</p>}
+          <p
+            role={uploadFeedbackState === 'rejected' ? 'alert' : 'status'}
+            aria-live={uploadFeedbackState === 'rejected' ? 'assertive' : 'polite'}
+            className={`mt-2 text-xs ${uploadFeedbackState === 'rejected' ? 'text-rose-200' : uploadFeedbackState === 'correction' ? 'text-amber-200' : uploadFeedbackState === 'reading' ? 'text-sky-200' : uploadFeedbackState === 'accepted' ? 'text-emerald-200' : 'text-slate-400'}`}
+          >
+            {uploadFeedbackMessage}
+          </p>
         {guidedImportReview && (
           <GuidedDteImportReview
             key={`${guidedImportReview.fileName}:${guidedImportReview.timeZone}`}
@@ -991,7 +1037,9 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
           <div
             className={`p-4 rounded-xl border ${
               csvResult.schemaValid && csvResult.chronologicallyValid && simulationReady
-                ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
+                ? candidateNotAccepted
+                  ? 'bg-amber-950/20 border-amber-500/30 text-amber-100'
+                  : 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
                 : csvResult.schemaValid && csvResult.chronologicallyValid
                   ? 'bg-amber-950/20 border-amber-500/30 text-amber-100'
                   : 'bg-rose-950/20 border-rose-500/30 text-rose-200'
@@ -999,7 +1047,7 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
           >
             <div className="flex items-start gap-3">
               {csvResult.schemaValid && csvResult.chronologicallyValid ? (
-                simulationReady
+                simulationReady && !candidateNotAccepted
                   ? <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
                   : <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
               ) : (
@@ -1013,13 +1061,15 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                         ? 'CSV Schema Validation Errors Detected'
                         : !csvResult.chronologicallyValid
                           ? 'CSV Timestamp Validation Errors Detected'
-                          : simulationReady
-                            ? 'Interval Dataset Ready for Simulation'
-                          : !csvResult.operationallySimulatable
-                            ? 'Interval Dataset Has Gaps or Irregular Spacing'
-                            : siteAlignmentEligibility
-                              ? 'Timestamps Are Invalid for the Site Timezone'
-                              : 'Site Timezone Required'}
+                          : candidateNotAccepted
+                            ? 'Existing Active Dataset Retained'
+                            : simulationReady
+                              ? 'Interval Dataset Ready for Simulation'
+                              : !csvResult.operationallySimulatable
+                                ? 'Interval Dataset Has Gaps or Irregular Spacing'
+                                : siteAlignmentEligibility
+                                  ? 'Timestamps Are Invalid for the Site Timezone'
+                                  : 'Site Timezone Required'}
                     </span>
                     {csvResult.schemaValid && csvResult.chronologicallyValid && (
                       <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-emerald-900/60 text-emerald-300 border border-emerald-600/40">
@@ -1056,8 +1106,10 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                 {csvResult.schemaValid && csvResult.chronologicallyValid && (
                   <div role="status" aria-live="polite" className="mt-2 text-xs space-y-1">
                     <p className={simulationReady ? 'text-emerald-300' : 'text-amber-200'}>
-                      {simulationReady
-                        ? 'This continuous interval dataset can be simulated for its covered period.'
+                      {activeSummaryMessage
+                        ? activeSummaryMessage
+                        : simulationReady
+                          ? 'Simulation ready: this continuous active interval dataset passed the applicable load and site-timezone checks.'
                         : csvResult.operationallySimulatable
                           ? simulationReadinessReason
                           : 'This dataset cannot be simulated until missing or irregular intervals are resolved.'}
