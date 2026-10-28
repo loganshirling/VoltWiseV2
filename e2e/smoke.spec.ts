@@ -24,6 +24,16 @@ async function openTab(page: Page, name: string) {
   await page.getByRole('button', { name, exact: true }).last().click();
 }
 
+async function configureTimezoneAndAcceptStagedLoad(page: Page, timeZone = 'UTC') {
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill(timeZone);
+  await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByRole('button', { name: 'Validate and accept file' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Validate and accept file' }).click();
+  await expect(page.getByTestId('load-upload-area')).toHaveAttribute('data-upload-state', 'accepted');
+  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+}
+
 async function auditNumericNames(page: Page) {
   const unnamed = await page.locator('input[type="number"], input[type="range"], input[type="checkbox"], input[type="radio"]').evaluateAll((inputs) =>
     inputs.filter((input) => {
@@ -73,7 +83,8 @@ async function startDelayedLoadRead(page: Page, name = 'delayed-load.csv', csv =
   await page.getByLabel('Upload interval load CSV').setInputFiles({
     name, mimeType: 'text/csv', buffer: Buffer.from(csv),
   });
-  await expect(page.getByText('Reading load CSV…')).toBeVisible();
+  await expect(page.getByTestId('load-upload-area')).toHaveAttribute('data-upload-state', 'reading');
+  await expect(page.getByRole('status').filter({ hasText: 'Reading the selected CSV.' })).toBeVisible();
 }
 
 async function completePendingLoadRead(page: Page, name = 'delayed-load.csv') {
@@ -114,16 +125,18 @@ test('fresh sample explains timezone setup and makes results usable after explic
 test('uploaded load without a site timezone remains blocked until a timezone is selected', async ({ page }) => {
   await page.goto('/');
   await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
   await page.getByLabel('Upload interval load CSV').setInputFiles({
     name: 'valid-load.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv),
   });
-  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
-  await expect(page.getByText(/Set a valid site timezone before running a simulation/i)).toBeVisible();
-  await expect(page.getByText('Interval Dataset Ready for Simulation')).not.toBeVisible();
-  await openTab(page, '3. Power Generation');
-  await page.getByLabel('Site timezone (IANA)').fill('UTC');
-  await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByTestId('load-upload-area')).toHaveAttribute('data-upload-state', 'correction');
+  await expect(page.getByRole('heading', { name: 'Review valid-load.csv' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+  await expect(page.getByText('3 intervals parsed')).toHaveCount(0);
+  await configureTimezoneAndAcceptStagedLoad(page);
+  await expect(page.getByText('3 intervals parsed')).toBeVisible();
   await expect(page.getByText('Interval Dataset Ready for Simulation')).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: /Simulation ready: the active dataset passed/i })).toBeVisible();
 });
 
 test('imports the maximum UTC 2024 quarter-hour load as a complete leap year', async ({ page }) => {
@@ -449,11 +462,11 @@ test('covers sample, imports, settings, results, local save/open, export, and re
 
   const loadFile = page.getByLabel('Upload interval load CSV');
   await loadFile.setInputFiles({ name: 'valid-load.csv', mimeType: 'text/csv', buffer: Buffer.from(validLoadCsv) });
+  await expect(page.getByTestId('load-upload-area')).toHaveAttribute('data-upload-state', 'correction');
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+  await configureTimezoneAndAcceptStagedLoad(page);
   await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
-
-  await openTab(page, '3. Power Generation');
-  await page.getByLabel('Site timezone (IANA)').fill('UTC');
-  await openTab(page, '1. Data & TOU Rates');
+  await expect(page.getByText('3 intervals parsed')).toBeVisible();
   const quarterHourCsv = [
     'timestamp,usage_kwh',
     ...Array.from({ length: 35_040 }, (_, index) => `${new Date(Date.UTC(2025, 0, 1) + index * 15 * 60_000).toISOString()},1`),
@@ -649,6 +662,14 @@ test('supersedes pending load reads when a sample, reset, or project opening is 
   await page.goto('/');
   await openTab(page, '1. Data & TOU Rates');
   await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
+  await openTab(page, '3. Power Generation');
+  await page.getByLabel('Site timezone (IANA)').fill('UTC');
+  await openTab(page, '1. Data & TOU Rates');
+  const [timezoneBaseline] = await Promise.all([
+    page.waitForEvent('download'), page.getByRole('button', { name: 'Save Project' }).click(),
+  ]);
+  await timezoneBaseline.path();
+  await expect(page.getByText('No unsaved changes', { exact: true })).toBeVisible();
 
   const olderCsv = validLoadCsv;
   const newerCsv = validLoadCsv.replace(',1,24,kWh', ',10,33,kWh').replace(',1.2,24,kWh', ',11,33,kWh').replace(',0.8,24,kWh', ',12,33,kWh');
@@ -695,7 +716,9 @@ test('enforces ingestion size limits and preserves active data for over-limit fi
   const loadFile = page.getByLabel('Upload interval load CSV');
   const paddedLoad = Buffer.concat([Buffer.from(validLoadCsv), Buffer.alloc(MAX_LOAD_CSV_BYTES - Buffer.byteLength(validLoadCsv), 32)]);
   await loadFile.setInputFiles({ name: 'at-limit-load.csv', mimeType: 'text/csv', buffer: paddedLoad });
-  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await expect(page.getByTestId('load-upload-area')).toHaveAttribute('data-upload-state', 'correction');
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+  await configureTimezoneAndAcceptStagedLoad(page);
   await loadFile.setInputFiles({
     name: 'over-limit-load.csv', mimeType: 'text/csv', buffer: Buffer.alloc(MAX_LOAD_CSV_BYTES + 1, 32),
   });
@@ -928,11 +951,12 @@ test('imports exact measured solar intervals, shows period results, and exports 
       '06/15/2025,2:00 PM,1,3,kWh',
     ].join('\n')),
   });
-  await expect(page.getByRole('status').filter({ hasText: 'Uploaded load data.' })).toBeVisible();
+  await expect(page.getByTestId('load-upload-area')).toHaveAttribute('data-upload-state', 'correction');
+  await expect(page.getByRole('status').filter({ hasText: 'Illustrative synthetic sample.' })).toBeVisible();
+  await configureTimezoneAndAcceptStagedLoad(page, 'UTC');
   await openTab(page, '3. Power Generation');
   await page.getByLabel('Latitude (degrees north)').fill('37.7749');
   await page.getByLabel('Longitude (degrees east)').fill('-122.4194');
-  await page.getByLabel('Site timezone (IANA)').fill('UTC');
   await page.locator('button[title="Add Solar Array"]').click();
   await page.getByLabel('Nameplate DC capacity (kW DC)').fill('5');
   await page.getByLabel('Inverter AC capacity (kW AC)').fill('5');

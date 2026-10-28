@@ -5,6 +5,7 @@ import {
   GenerationAsset,
   GenerationConfig,
   LoadDataSource,
+  LoadImportProvenance,
   MacroFinancials,
   ProjectArchiveState,
   RateTier,
@@ -13,6 +14,7 @@ import {
   ValidatedProjectState,
 } from '../types/energy';
 import { parseAndValidateEnergyCsv } from './csvParser';
+import { alignLoadTimestampsToSite, isValidIanaTimeZone } from './loadTimeAlignment';
 import { validateGeneratorAsset } from './generatorModel';
 import { validateWindGenerationAsset } from './windModel';
 import {
@@ -27,13 +29,18 @@ import {
 export type { ProjectArchiveState, ValidatedProjectState } from '../types/energy';
 
 export const PROJECT_ARCHIVE_FORMAT = 'voltwise-project';
-export const CURRENT_PROJECT_ARCHIVE_VERSION = 2;
+export const CURRENT_PROJECT_ARCHIVE_VERSION = 3;
 
-interface ProjectArchiveV2 {
+interface ProjectArchiveV3 {
   format: typeof PROJECT_ARCHIVE_FORMAT;
-  schemaVersion: 2;
-  project: Omit<ProjectArchiveState, 'loadDataCsv' | 'loadDataSource'> & {
-    loadData: { csv: string; source: LoadDataSource | null } | null;
+  schemaVersion: 3;
+  project: Omit<ProjectArchiveState, 'loadDataCsv' | 'loadDataSource' | 'loadResolvedCsv' | 'loadImportProvenance'> & {
+    loadData: {
+      csv: string;
+      source: LoadDataSource | null;
+      resolvedCsv?: string | null;
+      importProvenance?: LoadImportProvenance | null;
+    } | null;
   };
 }
 
@@ -426,7 +433,43 @@ function validateFinancials(value: unknown): MacroFinancials {
   return financials as unknown as MacroFinancials;
 }
 
-function validateStateFields(projectValue: unknown, legacyV1: boolean): ValidatedProjectState {
+function validateLoadImportProvenance(value: unknown): LoadImportProvenance {
+  const provenance = requireRecord(value, 'project.loadData.importProvenance');
+  requireString(provenance.sourceFileName, 'project.loadData.importProvenance.sourceFileName');
+  const timeAssignments = requireArray(provenance.timeAssignments, 'project.loadData.importProvenance.timeAssignments').map((entry, index) => {
+    const path = `project.loadData.importProvenance.timeAssignments[${index}]`;
+    const assignment = requireRecord(entry, path);
+    const sourceRow = requireFiniteNumber(assignment.sourceRow, `${path}.sourceRow`)!;
+    if (!Number.isInteger(sourceRow) || sourceRow < 2) fail(`${path}.sourceRow`, 'must be a CSV row number of at least 2');
+    requireString(assignment.localTimestamp, `${path}.localTimestamp`);
+    const instantUtc = requireString(assignment.instantUtc, `${path}.instantUtc`);
+    if (!Number.isFinite(Date.parse(instantUtc)) || !/^\d{4}-\d{2}-\d{2}T.*Z$/.test(instantUtc)) fail(`${path}.instantUtc`, 'must be a valid UTC timestamp');
+    requireString(assignment.offsetLabel, `${path}.offsetLabel`);
+    if (assignment.confirmed !== true) fail(`${path}.confirmed`, 'must record explicit user confirmation');
+    if (assignment.assignment !== 'source-order-confirmed' && assignment.assignment !== 'user-selected') fail(`${path}.assignment`, 'must record the confirmed assignment method');
+    return assignment as unknown as LoadImportProvenance['timeAssignments'][number];
+  });
+  const corrections = requireArray(provenance.corrections, 'project.loadData.importProvenance.corrections').map((entry, index) => {
+    const path = `project.loadData.importProvenance.corrections[${index}]`;
+    const correction = requireRecord(entry, path);
+    if (correction.sourceRow !== null) {
+      const sourceRow = requireFiniteNumber(correction.sourceRow, `${path}.sourceRow`)!;
+      if (!Number.isInteger(sourceRow) || sourceRow < 2) fail(`${path}.sourceRow`, 'must be null or a CSV row number of at least 2');
+    }
+    requireString(correction.sourceDate, `${path}.sourceDate`);
+    requireString(correction.sourceTime, `${path}.sourceTime`);
+    const instantUtc = requireString(correction.instantUtc, `${path}.instantUtc`);
+    if (!Number.isFinite(Date.parse(instantUtc)) || !/^\d{4}-\d{2}-\d{2}T.*Z$/.test(instantUtc)) fail(`${path}.instantUtc`, 'must be a valid UTC timestamp');
+    if (correction.originalValue !== null && typeof correction.originalValue !== 'string') fail(`${path}.originalValue`, 'must be a string or null');
+    requireNonNegative(correction.correctedKwh, `${path}.correctedKwh`);
+    if (correction.method !== 'manual' && correction.method !== 'estimate') fail(`${path}.method`, 'must be manual or estimate');
+    if (correction.method === 'estimate') requireString(correction.disclosure, `${path}.disclosure`);
+    return correction as unknown as LoadImportProvenance['corrections'][number];
+  });
+  return { sourceFileName: provenance.sourceFileName as string, timeAssignments, corrections };
+}
+
+function validateStateFields(projectValue: unknown, schemaVersion: number): ValidatedProjectState {
   const project = requireRecord(projectValue, 'project');
   const profiles = requireArray(project.profiles, 'project.profiles').map((profile, index) =>
     validateBatteryProfile(profile, `project.profiles[${index}]`)
@@ -456,7 +499,8 @@ function validateStateFields(projectValue: unknown, legacyV1: boolean): Validate
   });
   validateScheduleReferences(scheduleMatrix as string[][], tiers, 'project.scheduleMatrix');
 
-  const loadData = legacyV1
+  const generationConfig = validateGenerationConfig(project.generationConfig);
+  const loadData = schemaVersion === 1
     ? (() => {
         if (!Object.prototype.hasOwnProperty.call(project, 'loadDataCsv')) fail('project.loadDataCsv', 'is required by schema version 1');
         return project.loadDataCsv == null
@@ -471,20 +515,44 @@ function validateStateFields(projectValue: unknown, legacyV1: boolean): Validate
         if (source !== null && source !== 'synthetic_sample' && source !== 'uploaded') {
           fail('project.loadData.source', 'must be synthetic_sample, uploaded, or null');
         }
-        return { csv, source: source as LoadDataSource | null };
+        const resolvedCsv = schemaVersion >= 3 && input.resolvedCsv != null
+          ? requireString(input.resolvedCsv, 'project.loadData.resolvedCsv', true)
+          : null;
+        const importProvenance = schemaVersion >= 3 && input.importProvenance != null
+          ? validateLoadImportProvenance(input.importProvenance)
+          : null;
+        if ((resolvedCsv !== null) !== (importProvenance !== null)) fail('project.loadData', 'resolvedCsv and importProvenance must be supplied together');
+        return { csv, source: source as LoadDataSource | null, resolvedCsv, importProvenance };
       })();
   const loadDataCsv = loadData?.csv ?? null;
   const loadDataSource = loadData?.source ?? null;
+  const loadResolvedCsv = loadData && 'resolvedCsv' in loadData ? loadData.resolvedCsv ?? null : null;
+  const loadImportProvenance = loadData && 'importProvenance' in loadData ? loadData.importProvenance ?? null : null;
   if (loadDataCsv === null && loadDataSource !== null) fail('project.loadData.source', 'cannot be set without load data');
+  if (loadDataCsv === null && (loadResolvedCsv !== null || loadImportProvenance !== null)) fail('project.loadData', 'corrections cannot be set without source data');
+  if (loadResolvedCsv !== null && loadDataSource !== 'uploaded') fail('project.loadData.resolvedCsv', 'is supported only for uploaded data');
   let csvResult: CsvValidationResult | null = null;
   if (loadDataCsv !== null) {
     try {
       if (new TextEncoder().encode(loadDataCsv).byteLength > MAX_LOAD_CSV_BYTES) {
         fail('project.loadData.csv', `cannot exceed ${MAX_LOAD_CSV_BYTES / (1024 * 1024)} MiB`);
       }
-      csvResult = parseAndValidateEnergyCsv(loadDataCsv);
+      if (loadResolvedCsv !== null && new TextEncoder().encode(loadResolvedCsv).byteLength > MAX_LOAD_CSV_BYTES) {
+        fail('project.loadData.resolvedCsv', `cannot exceed ${MAX_LOAD_CSV_BYTES / (1024 * 1024)} MiB`);
+      }
+      csvResult = parseAndValidateEnergyCsv(loadResolvedCsv ?? loadDataCsv);
       if (!csvResult.schemaValid || !csvResult.chronologicallyValid) {
-        fail('project.loadData.csv', 'failed schema or chronology validation');
+        fail(loadResolvedCsv === null ? 'project.loadData.csv' : 'project.loadData.resolvedCsv', 'failed schema or chronology validation');
+      }
+      if (loadResolvedCsv !== null) {
+        if (!csvResult.operationallySimulatable) fail('project.loadData.resolvedCsv', 'must contain complete regular UTC cadence');
+        const timeZone = generationConfig.site.timeZone;
+        if (!isValidIanaTimeZone(timeZone)) fail('project.generationConfig.site.timeZone', 'must be valid to restore corrected UTC timestamps');
+        const aligned = alignLoadTimestampsToSite(csvResult.data, csvResult.intervalHours, timeZone);
+        const stepMs = csvResult.intervalHours * 3_600_000;
+        if (aligned.some((entry, index) => index > 0 && entry.instantUtc.getTime() - aligned[index - 1].instantUtc.getTime() !== stepMs)) {
+          fail('project.loadData.resolvedCsv', 'does not preserve complete UTC cadence');
+        }
       }
     } catch (error) {
       throw new Error(`Invalid project archive: project.loadData.csv could not be parsed: ${error instanceof Error ? error.message : 'invalid CSV'}`);
@@ -498,19 +566,21 @@ function validateStateFields(projectValue: unknown, legacyV1: boolean): Validate
     activeTouProfileId,
     tiers,
     scheduleMatrix: scheduleMatrix as string[][],
-    generationConfig: validateGenerationConfig(project.generationConfig),
+    generationConfig,
     allowSolarExport: requireBoolean(project.allowSolarExport, 'project.allowSolarExport'),
     financials: validateFinancials(project.financials),
     loadDataCsv,
     loadDataSource,
+    loadResolvedCsv,
+    loadImportProvenance,
     csvResult,
   };
 }
 
-function buildProjectArchive(state: ProjectArchiveState): ProjectArchiveV2 {
+function buildProjectArchive(state: ProjectArchiveState): ProjectArchiveV3 {
   if (!state || typeof state !== 'object') fail('project state', 'must be an object');
   validateFiniteTree(state, 'project');
-  const archive: ProjectArchiveV2 = {
+  const archive: ProjectArchiveV3 = {
     format: PROJECT_ARCHIVE_FORMAT,
     schemaVersion: CURRENT_PROJECT_ARCHIVE_VERSION,
     project: {
@@ -526,10 +596,12 @@ function buildProjectArchive(state: ProjectArchiveState): ProjectArchiveV2 {
       loadData: state.loadDataCsv === null ? null : {
         csv: state.loadDataCsv,
         source: state.loadDataSource,
+        ...(state.loadResolvedCsv != null ? { resolvedCsv: state.loadResolvedCsv } : {}),
+        ...(state.loadImportProvenance != null ? { importProvenance: state.loadImportProvenance } : {}),
       },
     },
   };
-  validateStateFields(archive.project, false);
+  validateStateFields(archive.project, CURRENT_PROJECT_ARCHIVE_VERSION);
   return archive;
 }
 
@@ -553,7 +625,7 @@ function prepareProjectArchive(state: ProjectArchiveState): ProjectArchiveSize &
   };
 }
 
-/** Measures the exact compact v2 encoding used for project files and its data-bearing fields. */
+/** Measures the exact compact archive encoding used for project files and its data-bearing fields. */
 export function measureProjectArchiveSize(state: ProjectArchiveState): ProjectArchiveSize {
   const { archiveBytes, persistedDataBytes } = prepareProjectArchive(state);
   return { archiveBytes, persistedDataBytes };
@@ -614,14 +686,11 @@ export async function parseProjectArchive(input: string | Blob | ArrayBuffer): P
   if (archive.schemaVersion > CURRENT_PROJECT_ARCHIVE_VERSION || archive.schemaVersion < 1) {
     throw new Error(`Unsupported project archive version: ${String(archive.schemaVersion)}.`);
   }
-  if (archive.schemaVersion === 1) {
-    return validateStateFields(archive.project, true);
-  }
-  if (archive.schemaVersion !== CURRENT_PROJECT_ARCHIVE_VERSION) {
+  if (archive.schemaVersion !== 1 && archive.schemaVersion !== 2 && archive.schemaVersion !== CURRENT_PROJECT_ARCHIVE_VERSION) {
     throw new Error(`Unsupported project archive version: ${String(archive.schemaVersion)}.`);
   }
 
   const project = requireRecord(archive.project, 'project');
   validateFiniteTree(project, 'project');
-  return validateStateFields(project, false);
+  return validateStateFields(project, archive.schemaVersion);
 }

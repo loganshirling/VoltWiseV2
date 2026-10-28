@@ -26,7 +26,7 @@ function isValidCalendarDay(day: ParsedDay): boolean {
     date.getUTCDate() === day.day;
 }
 
-function parseFiniteNumber(raw: string): number | null {
+export function parseFiniteEnergyNumber(raw: string): number | null {
   const value = raw.trim();
   if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value)) return null;
   const parsed = Number(value);
@@ -42,7 +42,7 @@ function roundFinite(value: number, digits: number): number {
 /**
  * Robust date parser supporting MM/DD/YYYY, YYYY-MM-DD, M/D/YYYY, etc.
  */
-function parseDayString(raw: string): ParsedDay | null {
+export function parseEnergyCsvDay(raw: string): ParsedDay | null {
   const trimmed = raw.trim();
   
   // Format MM/DD/YYYY or M/D/YYYY
@@ -81,7 +81,7 @@ function calendarCoordinate(timestamp: string): number | null {
  * "12:00 AM", "1:00 AM", "12:00 PM", "1:00 PM", "11:00 PM"
  * "12 AM", "1 PM", "00:00", "13:00", 0..23
  */
-function parseHourOfDay(raw: string): ParsedTime | null {
+export function parseEnergyCsvTime(raw: string): ParsedTime | null {
   const trimmed = raw.trim().toUpperCase();
 
   // 12-hour format with AM/PM (e.g. "12:00 AM", "1:00 PM", "12 AM", "01:30 PM")
@@ -124,7 +124,7 @@ function parseHourOfDay(raw: string): ParsedTime | null {
 /**
  * Split line by comma or tab, handling quotes
  */
-function splitCsvLine(line: string): string[] {
+export function splitEnergyCsvLine(line: string): string[] {
   // If line contains tabs and no commas outside tabs, split by tab
   if (line.includes('\t') && !line.includes(',')) {
     return line.split('\t').map(c => c.trim().replace(/^["']|["']$/g, ''));
@@ -213,7 +213,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   }
 
   // Step 1: Header Validation & Schema Identification
-  const headerCols = splitCsvLine(lines[0]).map(c => c.toLowerCase().replace(/[^a-z0-9]/g, ''));
+  const headerCols = splitEnergyCsvLine(lines[0]).map(c => c.toLowerCase().replace(/[^a-z0-9]/g, ''));
 
   // Check 5-column schema:
   // Expected headers: "Day", "Hour of Day", "Hourly Total", "Daily Total", "Unit of Measurement"
@@ -286,7 +286,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
   for (let i = 1; i < lines.length; i++) {
     const rowNum = i + 1;
     const line = lines[i];
-    const cols = splitCsvLine(line);
+    const cols = splitEnergyCsvLine(line);
 
     if (schemaDetected === 'standard_5col') {
       if (cols.length < 5) {
@@ -301,7 +301,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       const [rawDay, rawHour, rawHourlyTotal, rawDailyTotal, rawUnit] = cols;
 
       // 1. Validate Day
-      const parsedDay = parseDayString(rawDay);
+      const parsedDay = parseEnergyCsvDay(rawDay);
       if (!parsedDay) {
         schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
@@ -320,7 +320,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       }
 
       // 2. Validate Hour of Day
-      const parsedTime = parseHourOfDay(rawHour);
+      const parsedTime = parseEnergyCsvTime(rawHour);
       if (!parsedTime) {
         schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
@@ -331,7 +331,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       }
 
       // 3. Validate Hourly Total
-      const hourlyVal = parseFiniteNumber(rawHourlyTotal);
+      const hourlyVal = parseFiniteEnergyNumber(rawHourlyTotal);
       if (hourlyVal === null) {
         schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
@@ -350,7 +350,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       }
 
       // 4. Validate Daily Total
-      const dailyVal = parseFiniteNumber(rawDailyTotal);
+      const dailyVal = parseFiniteEnergyNumber(rawDailyTotal);
       if (dailyVal === null) {
         schemaValid = false;
         if (errorCount < maxErrorsToCollect) {
@@ -548,7 +548,7 @@ export function parseAndValidateEnergyCsv(csvText: string): CsvValidationResult 
       lastTimestampMs = timeMs;
       chronologyTimesMs.push(timeMs);
 
-      const usage = parseFiniteNumber(rawUsage);
+      const usage = parseFiniteEnergyNumber(rawUsage);
       if (usage === null || usage < 0) {
         schemaValid = false;
         if (errorCount < maxErrorsToCollect) {

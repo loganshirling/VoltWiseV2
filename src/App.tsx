@@ -22,6 +22,7 @@ import {
   AnalysisState,
   GenerationProjectCostSummary,
   LoadDataSource,
+  LoadImportProvenance,
   ProjectArchiveState,
   ValidatedProjectState,
 } from './types/energy';
@@ -57,6 +58,7 @@ import {
   SimulationJobResult,
 } from './utils/simulationWorkerJob';
 import { assertProjectArchiveWithinBudget } from './utils/projectArchive';
+import { AcceptedGuidedDteImport, GuidedDteReview, buildAcceptedDteImport, inspectDteImport } from './utils/guidedCsvImport';
 import { Zap, ChevronRight, Activity, ArrowRight, Bookmark, AlertTriangle } from 'lucide-react';
 
 function fingerprintProjectState(state: ProjectArchiveState): string {
@@ -72,6 +74,8 @@ function fingerprintProjectState(state: ProjectArchiveState): string {
     state.financials,
     state.loadDataCsv,
     state.loadDataSource,
+    state.loadResolvedCsv,
+    state.loadImportProvenance,
   ]);
 }
 
@@ -100,12 +104,20 @@ export default function App() {
   const [csvResult, setCsvResult] = useState<CsvValidationResult | null>(null);
   const [loadDataCsv, setLoadDataCsv] = useState<string | null>(null);
   const [loadDataSource, setLoadDataSource] = useState<LoadDataSource | null>(null);
+  const [uploadedLoadFileName, setUploadedLoadFileName] = useState<string | null>(null);
+  const [loadResolvedCsv, setLoadResolvedCsv] = useState<string | null>(null);
+  const [loadImportProvenance, setLoadImportProvenance] = useState<LoadImportProvenance | null>(null);
+  const [pendingLoadUpload, setPendingLoadUpload] = useState<{ csv: string; fileName: string } | null>(null);
   const [loadImportError, setLoadImportError] = useState<string | null>(null);
   const [isReadingLoadFile, setIsReadingLoadFile] = useState(false);
+  const [isLoadUploadRejected, setIsLoadUploadRejected] = useState(false);
+  const [lastLoadUploadAccepted, setLastLoadUploadAccepted] = useState(false);
+  const [loadUploadSuccessPulse, setLoadUploadSuccessPulse] = useState(false);
   const [savedProjectFingerprint, setSavedProjectFingerprint] = useState<string | null>(null);
   const projectStateRef = useRef<ProjectArchiveState | null>(null);
   const loadImportGeneration = useRef(0);
   const activeLoadReader = useRef<FileReader | null>(null);
+  const loadUploadPulseTimer = useRef<number | null>(null);
   const [simulationWorkerClient] = useState(() => createSimulationWorkerClient());
   const simulationRequestId = useRef(0);
   const [simulationWorkerState, setSimulationWorkerState] = useState<{
@@ -122,6 +134,10 @@ export default function App() {
     return touProfiles.find((p) => p.id === activeTouProfileId) || touProfiles[0];
   }, [touProfiles, activeTouProfileId]);
 
+  const guidedImportReview = useMemo<GuidedDteReview | null>(() => pendingLoadUpload
+    ? inspectDteImport(pendingLoadUpload.csv, generationConfig.site.timeZone, pendingLoadUpload.fileName)
+    : null, [pendingLoadUpload, generationConfig.site.timeZone]);
+
   // Initialize with realistic 8,760-hour dataset on mount
   useEffect(() => {
     const { rawCsv } = generateRealistic8760Dataset();
@@ -129,6 +145,9 @@ export default function App() {
     setCsvResult(parsed);
     setLoadDataCsv(rawCsv);
     setLoadDataSource('synthetic_sample');
+    setLoadResolvedCsv(null);
+    setLoadImportProvenance(null);
+    setPendingLoadUpload(null);
   }, []);
 
   const invalidatePendingLoadRead = () => {
@@ -139,17 +158,41 @@ export default function App() {
     setIsReadingLoadFile(false);
   };
 
+  const clearLoadUploadFeedback = () => {
+    setLastLoadUploadAccepted(false);
+    setLoadUploadSuccessPulse(false);
+    if (loadUploadPulseTimer.current !== null) {
+      window.clearTimeout(loadUploadPulseTimer.current);
+      loadUploadPulseTimer.current = null;
+    }
+  };
+
+  const markLoadUploadAccepted = () => {
+    setLastLoadUploadAccepted(true);
+    setLoadUploadSuccessPulse(true);
+    if (loadUploadPulseTimer.current !== null) window.clearTimeout(loadUploadPulseTimer.current);
+    loadUploadPulseTimer.current = window.setTimeout(() => {
+      setLoadUploadSuccessPulse(false);
+      loadUploadPulseTimer.current = null;
+    }, 1200);
+  };
+
   useEffect(() => () => {
     loadImportGeneration.current += 1;
     if (activeLoadReader.current?.readyState === FileReader.LOADING) activeLoadReader.current.abort();
+    if (loadUploadPulseTimer.current !== null) window.clearTimeout(loadUploadPulseTimer.current);
   }, []);
 
   // Handle User CSV Upload
   const handleFileUpload = (file: File) => {
     invalidatePendingLoadRead();
+    clearLoadUploadFeedback();
+    setIsLoadUploadRejected(false);
+    setPendingLoadUpload(null);
     const requestId = loadImportGeneration.current;
     setLoadImportError(null);
     if (file.size > MAX_LOAD_CSV_BYTES) {
+      setIsLoadUploadRejected(true);
       setLoadImportError(`Load CSV exceeds the ${(MAX_LOAD_CSV_BYTES / (1024 * 1024)).toFixed(0)} MiB limit. Split the data into smaller files; your active dataset is unchanged.`);
       return;
     }
@@ -160,23 +203,58 @@ export default function App() {
       if (loadImportGeneration.current !== requestId) return;
       try {
         const text = e.target?.result as string;
+        const guidedReview = inspectDteImport(text, generationConfig.site.timeZone, file.name);
         const parsed = parseAndValidateEnergyCsv(text);
+        if (guidedReview.formatRecognized && guidedReview.status === 'rejected') {
+          setIsLoadUploadRejected(true);
+          setLoadImportError(`${guidedReview.error ?? 'The CSV cannot be imported.'} The active dataset is unchanged.`);
+          return;
+        }
+        if (guidedReview.formatRecognized && guidedReview.status === 'needs-correction') {
+          // A recognized DTE candidate remains staged until its timezone and any
+          // required timestamp/value corrections are explicitly resolved.
+          setPendingLoadUpload({ csv: text, fileName: file.name });
+          setIsLoadUploadRejected(false);
+          setLoadImportError(null);
+          return;
+        }
+        if (guidedReview.formatRecognized && guidedReview.status === 'ready') {
+          const accepted = buildAcceptedDteImport(guidedReview, {
+            timeChoices: {}, sourceRowCorrections: {}, missingIntervalCorrections: {},
+          });
+          handleAcceptGuidedImport(accepted);
+          return;
+        }
         if (!parsed.schemaValid || !parsed.chronologicallyValid) {
+          setIsLoadUploadRejected(true);
           setLoadImportError(`${parsed.errors.join(' ')} The active dataset is unchanged.`);
           return;
         }
         if (parsed.data.length > MAX_INTERVALS_PER_DATASET) {
+          setIsLoadUploadRejected(true);
           setLoadImportError(`Load CSV exceeds the ${MAX_INTERVALS_PER_DATASET.toLocaleString()} interval limit. Split the data into smaller files; your active dataset is unchanged.`);
           return;
         }
         const currentProject = projectStateRef.current;
         if (!currentProject) throw new Error('Current project state is not ready for a saveability check.');
-        assertProjectArchiveWithinBudget({ ...currentProject, loadDataCsv: text, loadDataSource: 'uploaded' });
+        assertProjectArchiveWithinBudget({
+          ...currentProject,
+          loadDataCsv: text,
+          loadDataSource: 'uploaded',
+          loadResolvedCsv: null,
+          loadImportProvenance: null,
+        });
         setCsvResult(parsed);
         setLoadDataCsv(text);
         setLoadDataSource('uploaded');
+        setUploadedLoadFileName(file.name);
+        setLoadResolvedCsv(null);
+        setLoadImportProvenance(null);
         setLoadImportError(null);
+        setIsLoadUploadRejected(false);
+        markLoadUploadAccepted();
       } catch (error) {
+        setIsLoadUploadRejected(true);
         setLoadImportError(`${error instanceof Error ? error.message : 'Load CSV could not be parsed.'} The active dataset is unchanged.`);
       } finally {
         if (loadImportGeneration.current === requestId) {
@@ -189,15 +267,48 @@ export default function App() {
       if (loadImportGeneration.current !== requestId) return;
       activeLoadReader.current = null;
       setIsReadingLoadFile(false);
+      setIsLoadUploadRejected(true);
       setLoadImportError(`Could not read ${file.name}. Choose a readable CSV; your active dataset is unchanged.`);
     };
     reader.onabort = () => {
       if (loadImportGeneration.current !== requestId) return;
       activeLoadReader.current = null;
       setIsReadingLoadFile(false);
+      setIsLoadUploadRejected(true);
       setLoadImportError(`Reading ${file.name} was canceled. Your active dataset is unchanged.`);
     };
     reader.readAsText(file);
+  };
+
+  const handleAcceptGuidedImport = (accepted: AcceptedGuidedDteImport) => {
+    try {
+      const parsed = parseAndValidateEnergyCsv(accepted.normalizedCsv);
+      if (!parsed.schemaValid || !parsed.chronologicallyValid || !parsed.operationallySimulatable) {
+        throw new Error('Corrected interval data did not pass the strict simulation CSV validator.');
+      }
+      const currentProject = projectStateRef.current;
+      if (!currentProject) throw new Error('Current project state is not ready for a saveability check.');
+      assertProjectArchiveWithinBudget({
+        ...currentProject,
+        loadDataCsv: accepted.originalCsv,
+        loadDataSource: 'uploaded',
+        loadResolvedCsv: accepted.normalizedCsv,
+        loadImportProvenance: accepted.provenance,
+      });
+      setCsvResult(parsed);
+      setLoadDataCsv(accepted.originalCsv);
+      setLoadDataSource('uploaded');
+      setUploadedLoadFileName(accepted.provenance.sourceFileName);
+      setLoadResolvedCsv(accepted.normalizedCsv);
+      setLoadImportProvenance(accepted.provenance);
+      setPendingLoadUpload(null);
+      setLoadImportError(null);
+      setIsLoadUploadRejected(false);
+      markLoadUploadAccepted();
+    } catch (error) {
+      setIsLoadUploadRejected(true);
+      setLoadImportError(`${error instanceof Error ? error.message : 'The corrected dataset could not be accepted.'} The active dataset is unchanged.`);
+    }
   };
 
   // Quick load 8,760h realistic sample
@@ -205,12 +316,17 @@ export default function App() {
     if (isDirty && !window.confirm('Loading the synthetic sample replaces your current load data. Continue and discard your unsaved changes?')) return;
     invalidatePendingLoadRead();
     setLoadImportError(null);
+    clearLoadUploadFeedback();
+    setIsLoadUploadRejected(false);
     const { rawCsv } = generateRealistic8760Dataset();
     const parsed = parseAndValidateEnergyCsv(rawCsv);
     const currentProject = projectStateRef.current;
     if (currentProject) {
       try {
-        assertProjectArchiveWithinBudget({ ...currentProject, loadDataCsv: rawCsv, loadDataSource: 'synthetic_sample' });
+        assertProjectArchiveWithinBudget({
+          ...currentProject, loadDataCsv: rawCsv, loadDataSource: 'synthetic_sample',
+          loadResolvedCsv: null, loadImportProvenance: null,
+        });
       } catch (error) {
         setLoadImportError(`${error instanceof Error ? error.message : 'The sample would exceed the project saveability limit.'} The active dataset is unchanged.`);
         return;
@@ -219,6 +335,10 @@ export default function App() {
     setCsvResult(parsed);
     setLoadDataCsv(rawCsv);
     setLoadDataSource('synthetic_sample');
+    setUploadedLoadFileName(null);
+    setLoadResolvedCsv(null);
+    setLoadImportProvenance(null);
+    setPendingLoadUpload(null);
   };
 
   // Reset data handler
@@ -226,9 +346,15 @@ export default function App() {
     if (isDirty && !window.confirm('Reset the project and discard its unsaved changes?')) return;
     invalidatePendingLoadRead();
     setLoadImportError(null);
+    clearLoadUploadFeedback();
+    setIsLoadUploadRejected(false);
     setCsvResult(null);
     setLoadDataCsv(null);
     setLoadDataSource(null);
+    setUploadedLoadFileName(null);
+    setLoadResolvedCsv(null);
+    setLoadImportProvenance(null);
+    setPendingLoadUpload(null);
     setTouProfiles(DEFAULT_TOU_PROFILES);
     setActiveTouProfileId('california-ev2a');
     setTiers(DEFAULT_TOU_PROFILES[0].tiers);
@@ -258,6 +384,14 @@ export default function App() {
   }, [csvResult, generationConfig]);
 
   const handleConfigureSiteTimezone = () => setActiveTab('generation');
+  const handleReviewCurrentDteImport = () => {
+    if (loadDataSource === 'uploaded' && loadDataCsv) {
+      setPendingLoadUpload({ csv: loadDataCsv, fileName: uploadedLoadFileName ?? 'Uploaded DTE CSV' });
+    }
+  };
+  const canReviewCurrentDteImport = csvResult?.schemaDetected === 'standard_5col' &&
+    loadDataSource === 'uploaded' && loadResolvedCsv === null &&
+    /(ambiguous|nonexistent) local time/i.test(siteLoadAlignmentEligibility?.reason ?? '');
   const needsSiteTimezone = Boolean(
     csvResult?.operationallySimulatable && !isValidIanaTimeZone(generationConfig.site.timeZone)
   );
@@ -422,6 +556,8 @@ export default function App() {
 
   const handleProjectLoaded = (project: ValidatedProjectState) => {
     invalidatePendingLoadRead();
+    clearLoadUploadFeedback();
+    setIsLoadUploadRejected(false);
     setProfiles(project.profiles);
     setActiveProfileId(project.activeProfileId);
     setTouProfiles(project.touProfiles);
@@ -433,6 +569,10 @@ export default function App() {
     setFinancials(project.financials);
     setLoadDataCsv(project.loadDataCsv);
     setLoadDataSource(project.loadDataSource);
+    setUploadedLoadFileName(project.loadImportProvenance?.sourceFileName ?? null);
+    setLoadResolvedCsv(project.loadResolvedCsv ?? null);
+    setLoadImportProvenance(project.loadImportProvenance ?? null);
+    setPendingLoadUpload(null);
     setCsvResult(project.csvResult);
     setSavedProjectFingerprint(fingerprintProjectState(project));
     setActiveTab('data');
@@ -450,6 +590,8 @@ export default function App() {
     financials,
     loadDataCsv,
     loadDataSource,
+    loadResolvedCsv,
+    loadImportProvenance,
   };
   projectStateRef.current = projectState;
 
@@ -486,7 +628,7 @@ export default function App() {
 
   const currentProjectFingerprint = useMemo(
     () => fingerprintProjectState(projectState),
-    [profiles, activeProfileId, touProfiles, activeTouProfileId, tiers, scheduleMatrix, generationConfig, allowSolarExport, financials, loadDataCsv, loadDataSource]
+    [profiles, activeProfileId, touProfiles, activeTouProfileId, tiers, scheduleMatrix, generationConfig, allowSolarExport, financials, loadDataCsv, loadDataSource, loadResolvedCsv, loadImportProvenance]
   );
   const isDirty = savedProjectFingerprint !== null && savedProjectFingerprint !== currentProjectFingerprint;
   const dirtyStateRef = useRef(isDirty);
@@ -676,6 +818,8 @@ export default function App() {
             onProjectLoaded={handleProjectLoaded}
             siteAlignmentEligibility={siteLoadAlignmentEligibility}
             onConfigureSiteTimezone={handleConfigureSiteTimezone}
+            canReviewCurrentDteImport={canReviewCurrentDteImport}
+            onReviewCurrentDteImport={handleReviewCurrentDteImport}
             annualProjectionEligible={annualProjectionEligibility.eligible}
             annualProjectionReason={annualProjectionEligibility.reason}
             onFileUpload={handleFileUpload}
@@ -684,6 +828,12 @@ export default function App() {
               onProjectSaved={handleProjectSaved}
               loadImportError={loadImportError}
               isReadingLoadFile={isReadingLoadFile}
+              isLoadUploadRejected={isLoadUploadRejected}
+              lastLoadUploadAccepted={lastLoadUploadAccepted}
+              loadUploadSuccessPulse={loadUploadSuccessPulse}
+            guidedImportReview={guidedImportReview}
+            onAcceptGuidedImport={handleAcceptGuidedImport}
+            onCancelGuidedImport={() => setPendingLoadUpload(null)}
             onLoadSample={handleLoadSample}
             touProfiles={touProfiles}
             setTouProfiles={setTouProfiles}

@@ -362,6 +362,28 @@ export interface DatasetCompleteness {
 /** Provenance of the currently active household load dataset. */
 export type LoadDataSource = 'synthetic_sample' | 'uploaded';
 
+export interface LoadImportProvenance {
+  sourceFileName: string;
+  timeAssignments: Array<{
+    sourceRow: number;
+    localTimestamp: string;
+    instantUtc: string;
+    offsetLabel: string;
+    confirmed: true;
+    assignment: 'source-order-confirmed' | 'user-selected';
+  }>;
+  corrections: Array<{
+    sourceRow: number | null;
+    sourceDate: string;
+    sourceTime: string;
+    instantUtc: string;
+    originalValue: string | null;
+    correctedKwh: number;
+    method: 'manual' | 'estimate';
+    disclosure?: string;
+  }>;
+}
+
 /** Serializable app inputs that define one complete VoltWise project. */
 export interface ProjectArchiveState {
   profiles: BatteryProfile[];
@@ -375,6 +397,9 @@ export interface ProjectArchiveState {
   financials: MacroFinancials;
   loadDataCsv: string | null;
   loadDataSource: LoadDataSource | null;
+  /** Original CSV text stays unchanged; this optional CSV contains confirmed UTC corrections. */
+  loadResolvedCsv?: string | null;
+  loadImportProvenance?: LoadImportProvenance | null;
 }
 
 /** Project inputs validated and ready to atomically install into app state. */
