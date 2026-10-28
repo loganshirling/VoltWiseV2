@@ -353,88 +353,16 @@ function resolveTimestampToUtcWithCaches(
   formatterCache?: Map<string, Intl.DateTimeFormat>,
   dailyOffsetCache?: Map<string, Set<number>>
 ): Date {
-  const parsed = parseTimestampString(raw);
-
-  // If timestamp contains an explicit offset or Z, treat as an absolute instant.
-  // Do not reinterpret an explicitly offset timestamp through timeZone.
-  if (parsed.offsetMinutes !== undefined) {
-    const naiveUtcMs = Date.UTC(
-      parsed.year,
-      parsed.month - 1,
-      parsed.day,
-      parsed.hour,
-      parsed.minute,
-      parsed.second,
-      parsed.millisecond
-    );
-    const instantMs = naiveUtcMs - parsed.offsetMinutes * 60 * 1000;
-    return new Date(instantMs);
-  }
-
-  // Local wall-clock timestamp: require valid non-empty IANA timezone
   const trimmedZone = typeof timeZone === 'string' ? timeZone.trim() : '';
-  let dtf: Intl.DateTimeFormat;
-  if (formatterCache && formatterCache.has(trimmedZone)) {
-    dtf = formatterCache.get(trimmedZone)!;
-  } else {
-    try {
-      dtf = new Intl.DateTimeFormat('en-US', {
-        timeZone: trimmedZone,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-      });
-    } catch {
-      throw new Error(
-        `Invalid IANA timezone: "${timeZone}". A valid, non-empty IANA timezone is required to resolve local wall-clock timestamp "${raw}".`
-      );
+  let matchingCandidates: Date[];
+  try {
+    matchingCandidates = getPossibleUtcInstants(raw, trimmedZone, formatterCache, dailyOffsetCache);
+  } catch (error) {
+    if (error instanceof Error && /Invalid IANA timezone/i.test(error.message)) {
+      throw new Error(`Invalid IANA timezone: "${timeZone}". A valid, non-empty IANA timezone is required to resolve local wall-clock timestamp "${raw}".`);
     }
-    if (formatterCache) {
-      formatterCache.set(trimmedZone, dtf);
-    }
+    throw error;
   }
-
-  const naiveUtcMs = Date.UTC(
-    parsed.year,
-    parsed.month - 1,
-    parsed.day,
-    parsed.hour,
-    parsed.minute,
-    parsed.second,
-    parsed.millisecond
-  );
-
-  // Sample offsets around naiveUtcMs (+- 36 hours) and deduplicate
-  const sampleOffsetsHours = [-36, -24, -12, 0, 12, 24, 36];
-  const offsetCacheKey = `${trimmedZone}:${parsed.year}-${parsed.month}-${parsed.day}`;
-  let uniqueOffsets = dailyOffsetCache?.get(offsetCacheKey);
-  if (!uniqueOffsets) {
-    uniqueOffsets = new Set<number>();
-    for (let s = 0; s < sampleOffsetsHours.length; s++) {
-      const sampleDate = new Date(naiveUtcMs + sampleOffsetsHours[s] * 3600 * 1000);
-      uniqueOffsets.add(getTimeZoneOffsetMs(sampleDate, dtf));
-    }
-    dailyOffsetCache?.set(offsetCacheKey, uniqueOffsets);
-  }
-
-  // Check which candidate offsets produce local components that exactly match the requested wall-clock
-  const matchingCandidates: Date[] = [];
-  for (const offsetMs of uniqueOffsets) {
-    const candidateUtcMs = naiveUtcMs - offsetMs;
-    const candidateDate = new Date(candidateUtcMs);
-    const local = getLocalParts(candidateDate, dtf);
-
-    if (
-      local.year === parsed.year &&
-      local.month === parsed.month &&
-      local.day === parsed.day &&
-      local.hour === parsed.hour &&
-      local.minute === parsed.minute &&
-      local.second === parsed.second
-    ) {
-      matchingCandidates.push(candidateDate);
-    }
-  }
-
   if (matchingCandidates.length === 0) {
     throw new Error(
       `Timestamp "${raw}" at index ${sourceIndex} represents a nonexistent local time in timezone "${trimmedZone}" due to DST transition.`
@@ -448,6 +376,52 @@ function resolveTimestampToUtcWithCaches(
   }
 
   return matchingCandidates[0];
+}
+
+/** Lists every real UTC instant represented by a local wall timestamp in a zone. */
+export function getPossibleUtcInstants(
+  raw: string,
+  timeZone: string,
+  formatterCache?: Map<string, Intl.DateTimeFormat>,
+  dailyOffsetCache?: Map<string, Set<number>>,
+): Date[] {
+  const parsed = parseTimestampString(raw);
+  if (parsed.offsetMinutes !== undefined) {
+    const wallAsUtc = Date.UTC(parsed.year, parsed.month - 1, parsed.day, parsed.hour, parsed.minute, parsed.second, parsed.millisecond);
+    return [new Date(wallAsUtc - parsed.offsetMinutes * 60_000)];
+  }
+  const zone = typeof timeZone === 'string' ? timeZone.trim() : '';
+  let dtf = formatterCache?.get(zone);
+  if (!dtf) {
+    try {
+      dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: zone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+      });
+      formatterCache?.set(zone, dtf);
+    } catch {
+      throw new Error(`Invalid IANA timezone: "${timeZone}".`);
+    }
+  }
+  const wallAsUtc = Date.UTC(parsed.year, parsed.month - 1, parsed.day, parsed.hour, parsed.minute, parsed.second, parsed.millisecond);
+  const offsetCacheKey = `${zone}:${parsed.year}-${parsed.month}-${parsed.day}`;
+  let offsets = dailyOffsetCache?.get(offsetCacheKey);
+  if (!offsets) {
+    offsets = new Set<number>();
+    for (const hours of [-36, -24, -12, 0, 12, 24, 36]) {
+      offsets.add(getTimeZoneOffsetMs(new Date(wallAsUtc + hours * 3_600_000), dtf));
+    }
+    dailyOffsetCache?.set(offsetCacheKey, offsets);
+  }
+  return [...offsets]
+    .map((offset) => new Date(wallAsUtc - offset))
+    .filter((candidate) => {
+      const local = getLocalParts(candidate, dtf);
+      return local.year === parsed.year && local.month === parsed.month && local.day === parsed.day &&
+        local.hour === parsed.hour && local.minute === parsed.minute && local.second === parsed.second;
+    })
+    .sort((a, b) => a.getTime() - b.getTime());
 }
 
 /** Resolves a single timestamp while strictly validating local-wall timezone input. */

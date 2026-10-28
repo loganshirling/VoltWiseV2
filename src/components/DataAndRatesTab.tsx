@@ -43,6 +43,8 @@ import { generateStandardCsvTemplate } from '../utils/sampleData';
 import { LoadTimestampEligibility } from '../utils/loadTimeAlignment';
 import { ValidatedProjectState } from '../types/energy';
 import { ProjectFileControls } from './ProjectFileControls';
+import GuidedDteImportReview from './GuidedDteImportReview';
+import { AcceptedGuidedDteImport, GuidedDteReview } from '../utils/guidedCsvImport';
 
 export function isLifecycleProjectionReady(
   annualProjectionEligible: boolean | undefined,
@@ -67,6 +69,8 @@ interface DataAndRatesTabProps {
   onProjectLoaded: (project: ValidatedProjectState) => void;
   siteAlignmentEligibility?: LoadTimestampEligibility | null;
   onConfigureSiteTimezone: () => void;
+  canReviewCurrentDteImport: boolean;
+  onReviewCurrentDteImport: () => void;
   annualProjectionEligible?: boolean;
   annualProjectionReason?: string;
   onFileUpload: (file: File) => void;
@@ -75,6 +79,9 @@ interface DataAndRatesTabProps {
   onProjectSaved: (state: ProjectArchiveState) => void;
   loadImportError: string | null;
   isReadingLoadFile: boolean;
+  guidedImportReview: GuidedDteReview | null;
+  onAcceptGuidedImport: (accepted: AcceptedGuidedDteImport) => void;
+  onCancelGuidedImport: () => void;
   onLoadSample: () => void;
   touProfiles: TouProfile[];
   setTouProfiles: React.Dispatch<React.SetStateAction<TouProfile[]>>;
@@ -150,6 +157,8 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   onProjectLoaded,
   siteAlignmentEligibility,
   onConfigureSiteTimezone,
+  canReviewCurrentDteImport,
+  onReviewCurrentDteImport,
   annualProjectionEligible,
   annualProjectionReason,
   onFileUpload,
@@ -158,6 +167,9 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
   onProjectSaved,
   loadImportError,
   isReadingLoadFile,
+  guidedImportReview,
+  onAcceptGuidedImport,
+  onCancelGuidedImport,
   onLoadSample,
   touProfiles,
   setTouProfiles,
@@ -964,6 +976,15 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
 
         {isReadingLoadFile && <p role="status" className="mt-2 text-xs text-sky-300">Reading load CSV…</p>}
         {loadImportError && <p role="alert" className="mt-2 text-xs text-rose-300">{loadImportError}</p>}
+        {guidedImportReview && (
+          <GuidedDteImportReview
+            key={`${guidedImportReview.fileName}:${guidedImportReview.timeZone}`}
+            review={guidedImportReview}
+            onAccept={onAcceptGuidedImport}
+            onCancel={onCancelGuidedImport}
+            onConfigureTimezone={onConfigureSiteTimezone}
+          />
+        )}
 
         {/* Validation Feedback & Dataset Summary */}
         {csvResult && (
@@ -1042,13 +1063,24 @@ export const DataAndRatesTab: React.FC<DataAndRatesTabProps> = ({
                           : 'This dataset cannot be simulated until missing or irregular intervals are resolved.'}
                     </p>
                     {!simulationReady && csvResult.operationallySimulatable && (
-                      <button
-                        type="button"
-                        onClick={onConfigureSiteTimezone}
-                        className="rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-1.5 font-semibold text-amber-100 hover:bg-amber-900/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
-                      >
-                        Set site timezone
-                      </button>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={onConfigureSiteTimezone}
+                          className="rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-1.5 font-semibold text-amber-100 hover:bg-amber-900/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+                        >
+                          Set site timezone
+                        </button>
+                        {canReviewCurrentDteImport && (
+                          <button
+                            type="button"
+                            onClick={onReviewCurrentDteImport}
+                            className="rounded-lg border border-amber-500/40 bg-amber-950/40 px-3 py-1.5 font-semibold text-amber-100 hover:bg-amber-900/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+                          >
+                            Review DST timestamps
+                          </button>
+                        )}
+                      </div>
                     )}
                     <p className={lifecycleReady ? 'text-emerald-300' : 'text-amber-200'}>
                       {lifecycleReady

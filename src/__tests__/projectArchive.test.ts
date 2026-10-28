@@ -13,6 +13,7 @@ import {
 } from '../utils/generationDefaults';
 import { generateStandardCsvTemplate } from '../utils/sampleData';
 import { runUnifiedSimulation } from '../utils/simulationRouter';
+import { buildAcceptedDteImport, inspectDteImport } from '../utils/guidedCsvImport';
 import {
   ProjectArchiveState,
   assertProjectArchiveWithinBudget,
@@ -186,6 +187,32 @@ describe('versioned local project archives', () => {
     expect(restored.generationConfig.externalResources?.[0].sourceTimeZone).toBe('America/Los_Angeles');
     expect(restored.generationConfig.externalResources?.[0].records[0].timestampUtc).toBe('2025-09-22T07:00:00.000Z');
     expect(restored.loadDataSource).toBe('uploaded');
+  });
+
+  it('saves and reopens the unchanged DTE source CSV with accepted DST choices and correction provenance', async () => {
+    const sourceCsv = [
+      'Day,Hour of Day,Hourly Total,Daily Total,Unit of Measurement',
+      '11/02/2025,12:00 AM,1.25,20,kWh',
+      '11/02/2025,1:00 AM,No Data,20,kWh',
+      '11/02/2025,2:00 AM,3.5,20,kWh',
+    ].join('\n');
+    const review = inspectDteImport(sourceCsv, 'America/New_York', 'dte-fallback.csv');
+    const accepted = buildAcceptedDteImport(review, {
+      timeChoices: { 3: '2025-11-02T05:00:00.000Z' },
+      sourceRowCorrections: { 3: { usageKwh: 2.75, method: 'manual', approved: true } },
+      missingIntervalCorrections: { '2025-11-02T06:00:00.000Z': { usageKwh: 2.9, method: 'estimate', approved: true } },
+    });
+    const state = makeProjectState();
+    state.loadDataCsv = accepted.originalCsv;
+    state.loadResolvedCsv = accepted.normalizedCsv;
+    state.loadImportProvenance = accepted.provenance;
+    const restored = await parseProjectArchive(await encodeArchive(state));
+
+    expect(restored.loadDataCsv).toBe(sourceCsv);
+    expect(restored.loadResolvedCsv).toBe(accepted.normalizedCsv);
+    expect(restored.loadImportProvenance).toEqual(accepted.provenance);
+    expect(restored.csvResult?.operationallySimulatable).toBe(true);
+    expect(restored.csvResult?.data.map((row) => row.usageKwh)).toEqual([1.25, 2.75, 2.9, 3.5]);
   });
 
   it('preserves an intentionally unbound measured mode across project archive round-trip', async () => {
