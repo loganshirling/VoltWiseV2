@@ -227,23 +227,35 @@ describe('guided DTE CSV import', () => {
     const review = inspectDteImport(DST_CSV.replace('1:00 AM,2.75', '1:00 AM,No Data'), 'America/Detroit', 'dte.csv');
     const timeChoices = { 3: '2025-11-02T05:00:00.000Z' };
     const preview = previewDteImport(review, timeChoices);
-    expect(proposeGuidedEstimate(preview, { sourceRow: 3 })?.disclosure).toMatch(/no value is filled automatically/i);
+    const proposal = proposeGuidedEstimate(preview, { sourceRow: 3 })!;
+    expect(proposal.disclosure).toMatch(/no value is filled automatically/i);
     expect(() => buildAcceptedDteImport(review, {
       timeChoices,
       sourceRowCorrections: { 3: { usageKwh: 2.4, method: 'estimate', approved: false } },
       missingIntervalCorrections: { '2025-11-02T06:00:00.000Z': { usageKwh: 2.9, method: 'manual', approved: true } },
     })).toThrow(/approve the disclosed estimate/i);
-    const accepted = buildAcceptedDteImport(review, {
+    expect(() => buildAcceptedDteImport(review, {
       timeChoices,
       sourceRowCorrections: {
         3: {
           usageKwh: 2.4, method: 'estimate', approved: true,
-          estimateContextKey: proposeGuidedEstimate(preview, { sourceRow: 3 })!.contextKey,
+          estimateContextKey: proposal.contextKey,
+        },
+      },
+      missingIntervalCorrections: { '2025-11-02T06:00:00.000Z': { usageKwh: 2.9, method: 'manual', approved: true } },
+    })).toThrow(/must match the disclosed value of 2\.375 kWh/i);
+    const accepted = buildAcceptedDteImport(review, {
+      timeChoices,
+      sourceRowCorrections: {
+        3: {
+          usageKwh: proposal.usageKwh, method: 'estimate', approved: true,
+          estimateContextKey: proposal.contextKey,
         },
       },
       missingIntervalCorrections: { '2025-11-02T06:00:00.000Z': { usageKwh: 2.9, method: 'manual', approved: true } },
     });
     expect(accepted.provenance.corrections[0]).toEqual(expect.objectContaining({ method: 'estimate', disclosure: expect.stringMatching(/nearest measured interval/i) }));
+    expect(accepted.provenance.corrections[0].correctedKwh).toBe(2.375);
     expect(preview.unconfirmedRows).toHaveLength(0);
   });
 });

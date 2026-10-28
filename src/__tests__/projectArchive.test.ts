@@ -200,7 +200,7 @@ describe('versioned local project archives', () => {
     const accepted = buildAcceptedDteImport(review, {
       timeChoices: { 3: '2025-11-02T05:00:00.000Z' },
       sourceRowCorrections: { 3: { usageKwh: 2.75, method: 'manual', approved: true } },
-      missingIntervalCorrections: { '2025-11-02T06:00:00.000Z': { usageKwh: 2.9, method: 'estimate', approved: true } },
+      missingIntervalCorrections: { '2025-11-02T06:00:00.000Z': { usageKwh: 2.9, method: 'manual', approved: true } },
     });
     const state = makeProjectState();
     state.loadDataCsv = accepted.originalCsv;

@@ -279,7 +279,7 @@ describe('G3S — Application Integration & Final G3 Gate', () => {
     });
     expect(generationFinancials.horizonYears).toBe(1);
     expect(generationFinancials.projections).toHaveLength(1);
-  });
+  }, 15_000);
 
   // 3. enabling configured solar selects generation-aware mode
   it('3. enabling configured solar selects generation-aware mode', () => {

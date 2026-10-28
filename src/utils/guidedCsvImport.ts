@@ -329,13 +329,22 @@ export function invalidateStaleEstimateCorrections(
   return { sourceRowCorrections: source, missingIntervalCorrections: missing };
 }
 
-function validateCorrection(correction: GuidedDteCorrection | undefined, location: string, expectedEstimateContext?: string | null): GuidedDteCorrection {
+function validateCorrection(
+  correction: GuidedDteCorrection | undefined,
+  location: string,
+  expectedEstimate: GuidedEstimateProposal | null,
+): GuidedDteCorrection {
   if (!correction || !Number.isFinite(correction.usageKwh) || correction.usageKwh < 0) {
     throw new Error(`Enter a finite, non-negative kWh value for ${location}.`);
   }
   if (correction.method === 'estimate' && !correction.approved) throw new Error(`Approve the disclosed estimate for ${location} before continuing.`);
-  if (correction.method === 'estimate' && (!expectedEstimateContext || correction.estimateContextKey !== expectedEstimateContext)) {
-    throw new Error(`The estimate approval for ${location} is stale because its measured-neighbor context changed. Review and approve a new estimate.`);
+  if (correction.method === 'estimate') {
+    if (!expectedEstimate || correction.estimateContextKey !== expectedEstimate.contextKey) {
+      throw new Error(`The estimate approval for ${location} is stale because its measured-neighbor context changed. Review and approve a new estimate.`);
+    }
+    if (correction.usageKwh !== expectedEstimate.usageKwh) {
+      throw new Error(`The approved estimate for ${location} must match the disclosed value of ${expectedEstimate.usageKwh} kWh. Enter a manual correction to use a different value.`);
+    }
   }
   return correction;
 }
@@ -355,7 +364,7 @@ export function buildAcceptedDteImport(review: GuidedDteReview, corrections: Gui
       const correction = validateCorrection(
         corrections.sourceRowCorrections[entry.sourceRow],
         `source row ${entry.sourceRow}`,
-        proposeGuidedEstimate(preview, { sourceRow: entry.sourceRow })?.contextKey,
+        proposeGuidedEstimate(preview, { sourceRow: entry.sourceRow }),
       );
       usageKwh = correction.usageKwh;
       provenanceCorrections.push({
@@ -379,7 +388,7 @@ export function buildAcceptedDteImport(review: GuidedDteReview, corrections: Gui
     const correction = validateCorrection(
       corrections.missingIntervalCorrections[missing.instantUtc],
       `missing interval ${missing.localTimestamp} (${missing.offsetLabel})`,
-      proposeGuidedEstimate(preview, { instantUtc: missing.instantUtc })?.contextKey,
+      proposeGuidedEstimate(preview, { instantUtc: missing.instantUtc }),
     );
     outputRows.push({ instantUtc: missing.instantUtc, usageKwh: correction.usageKwh });
     provenanceCorrections.push({
